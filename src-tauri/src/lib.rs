@@ -1,196 +1,504 @@
-use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+use std::{sync::Mutex, time::Duration};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri::utils::config::Color;
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime};
 
-// ── State ─────────────────────────────────────────────────────────────────────
+mod core;
+mod v1_slice;
 
-struct SidecarState {
-    child: Mutex<Option<CommandChild>>,
+use crate::core::capture::{NativeCaptureConfig, NativeCaptureState};
+use crate::core::config::AppConfig;
+use crate::core::insertion::{NativeInsertionConfig, NativeInsertionState};
+use crate::core::providers::groq::GroqTranscribeFileRequest;
+use crate::core::sessions::NativeSessionState;
+use crate::core::trigger::{NativeTriggerConfig, NativeTriggerState, TriggerEffect};
+use crate::v1_slice::V1SliceState;
+
+const OVERLAY_WINDOW_WIDTH: f64 = 236.0;
+const OVERLAY_WINDOW_HEIGHT: f64 = 44.0;
+const OVERLAY_BOTTOM_INSET: f64 = 76.0;
+const MIN_TRANSCRIPTION_TIMEOUT_MS: u64 = 18_000;
+const MAX_TRANSCRIPTION_TIMEOUT_MS: u64 = 35_000;
+const TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS: u64 = 800;
+
+fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.set_size(LogicalSize::new(
+            OVERLAY_WINDOW_WIDTH,
+            OVERLAY_WINDOW_HEIGHT,
+        ));
+        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+        if let Some(position) = overlay_bottom_center_position(&window) {
+            let _ = window.set_position(position);
+        }
+        let _ = window.show();
+    }
+}
+
+fn overlay_bottom_center_position<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+) -> Option<LogicalPosition<f64>> {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())?;
+    let scale = monitor.scale_factor().max(1.0);
+    let work_area = monitor.work_area();
+    let work_x = work_area.position.x as f64 / scale;
+    let work_y = work_area.position.y as f64 / scale;
+    let work_width = work_area.size.width as f64 / scale;
+    let work_height = work_area.size.height as f64 / scale;
+    let x = work_x + ((work_width - OVERLAY_WINDOW_WIDTH) / 2.0).max(0.0);
+    let y = work_y + (work_height - OVERLAY_WINDOW_HEIGHT - OVERLAY_BOTTOM_INSET).max(0.0);
+
+    Some(LogicalPosition::new(x.round(), y.round()))
+}
+
+fn reveal_settings_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn reveal_rebuild_lab_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("rebuild-lab") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn install_hide_on_close<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    let window_clone = window.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = window_clone.hide();
+        }
+    });
+}
+
+fn apply_trigger_effect<R: Runtime>(app: &AppHandle<R>, effect: TriggerEffect) {
+    match effect {
+        TriggerEffect::StartCapture => match core::capture::start_native_capture(app) {
+            Ok(status) => {
+                reveal_overlay_window(app);
+                core::sound::play_if_enabled(core::sound::SoundCue::Start);
+                if let Some(capture_id) = status.active_capture_id {
+                    spawn_native_capture_monitor(app.clone(), capture_id);
+                }
+            }
+            Err(error) => {
+                core::sound::play_if_enabled(core::sound::SoundCue::Error);
+                core::sessions::fail_from_native_error(app, &error);
+                let _ = app.emit(
+                    "wordscript-event",
+                    serde_json::json!({
+                        "event": "error",
+                        "message": error
+                    }),
+                );
+            }
+        },
+        TriggerEffect::StopCapture => finalize_native_capture_stop(app),
+        TriggerEffect::TogglePause => {
+            if let Err(error) = core::capture::toggle_native_capture_pause_for_app(app) {
+                if error != "No native capture is active." {
+                    core::sound::play_if_enabled(core::sound::SoundCue::Error);
+                    core::sessions::fail_from_native_error(app, &error);
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "error",
+                            "message": error
+                        }),
+                    );
+                }
+            }
+        }
+        TriggerEffect::AbortCapture => {
+            core::sound::play_if_enabled(core::sound::SoundCue::Abort);
+            if let Err(error) = core::capture::abort_native_capture(app) {
+                core::sound::play_if_enabled(core::sound::SoundCue::Error);
+                core::sessions::fail_from_native_error(app, &error);
+                let _ = app.emit(
+                    "wordscript-event",
+                    serde_json::json!({
+                        "event": "error",
+                        "message": error
+                    }),
+                );
+            }
+        }
+        TriggerEffect::DeferredStop {
+            hold_session,
+            delay_ms,
+        } => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                if let Some(effect) = core::trigger::resolve_deferred_hold_stop(&app, hold_session)
+                {
+                    apply_trigger_effect(&app, effect);
+                }
+            });
+        }
+    }
+}
+
+fn finalize_native_capture_stop<R: Runtime + 'static>(app: &AppHandle<R>) {
+    core::sound::play_if_enabled(core::sound::SoundCue::Stop);
+    match core::capture::stop_native_capture(app) {
+        Ok(Some(value)) => handle_audio_ready(app.clone(), value),
+        Ok(None) => {
+            core::sessions::empty_from_native(app, "No speech detected in recording.");
+            let _ = app.emit("wordscript-event", serde_json::json!({ "event": "empty" }));
+        }
+        Err(error) => {
+            core::sound::play_if_enabled(core::sound::SoundCue::Error);
+            core::sessions::fail_from_native_error(app, &error);
+            let _ = app.emit(
+                "wordscript-event",
+                serde_json::json!({
+                    "event": "error",
+                    "message": error
+                }),
+            );
+        }
+    }
+}
+
+fn spawn_native_capture_monitor<R: Runtime + 'static>(app: AppHandle<R>, capture_id: String) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            match core::capture::monitor_native_capture(&app, &capture_id) {
+                Ok(core::capture::NativeCaptureMonitorState::Continue) => continue,
+                Ok(core::capture::NativeCaptureMonitorState::Finished) => return,
+                Ok(core::capture::NativeCaptureMonitorState::Stop(reason)) => {
+                    if let Err(error) = core::sessions::processing_from_native(&app) {
+                        core::runtime_log::record(format!(
+                            "[WordScript] Could not move native capture to processing during autostop: {error}"
+                        ));
+                        return;
+                    }
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "recording_stopped",
+                            "reason": reason.message(),
+                        }),
+                    );
+                    finalize_native_capture_stop(&app);
+                    return;
+                }
+                Err(error) => {
+                    core::sound::play_if_enabled(core::sound::SoundCue::Error);
+                    core::sessions::fail_from_native_error(&app, &error);
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "error",
+                            "message": error
+                        }),
+                    );
+                    return;
+                }
+            }
+        }
+    });
+}
+
+fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json::Value) {
+    let pipeline_started_at = std::time::Instant::now();
+    let audio_path = match value.get("audio_path").and_then(|path| path.as_str()) {
+        Some(path) if !path.trim().is_empty() => path.trim().to_string(),
+        _ => {
+            core::sessions::fail_from_native_error(
+                &app,
+                "Capture pipeline did not provide an audio path.",
+            );
+            let _ = app.emit(
+                "wordscript-event",
+                serde_json::json!({
+                    "event": "error",
+                    "message": "Capture pipeline did not provide an audio path."
+                }),
+            );
+            return;
+        }
+    };
+
+    let provider = value
+        .get("provider")
+        .and_then(|provider| provider.as_str())
+        .unwrap_or("groq");
+    if provider != "groq" {
+        let message = format!("Native provider '{provider}' is not supported yet.");
+        core::sound::play_if_enabled(core::sound::SoundCue::Error);
+        core::sessions::fail_from_native_error(&app, &message);
+        let _ = app.emit(
+            "wordscript-event",
+            serde_json::json!({ "event": "error", "message": message }),
+        );
+        return;
+    }
+
+    let request = GroqTranscribeFileRequest {
+        audio_path: audio_path.clone(),
+        model: optional_string(&value, "model"),
+        language: optional_string(&value, "language"),
+        prompt: optional_string(&value, "prompt"),
+        response_format: Some("json".to_string()),
+        timeout_ms: Some(runtime_transcription_timeout_ms(
+            value
+                .get("audio_duration_seconds")
+                .and_then(|duration| duration.as_f64()),
+        )),
+        max_retries: Some(0),
+    };
+    let transcription_timeout_ms = request.timeout_ms.unwrap_or(MIN_TRANSCRIPTION_TIMEOUT_MS);
+    let transform_config = core::transform::NativeTransformConfig::from_payload(&value);
+    let audio_duration_seconds = value
+        .get("audio_duration_seconds")
+        .and_then(|duration| duration.as_f64());
+
+    core::runtime_log::record(format!(
+        "[WordScript] Native pipeline start audio_path={} audio_duration_seconds={:?} transcription_timeout_ms={} post_process={}",
+        audio_path,
+        audio_duration_seconds,
+        transcription_timeout_ms,
+        transform_config.post_process,
+    ));
+
+    tauri::async_runtime::spawn(async move {
+        let cleanup_path = audio_path.clone();
+        let transcription = core::providers::groq::transcribe_groq_audio_file(request).await;
+
+        match transcription {
+            Ok(response) => {
+                core::runtime_log::record(format!(
+                    "[WordScript] Native pipeline transcription ready elapsed_ms={} text_len={} provider_duration={:?}",
+                    pipeline_started_at.elapsed().as_millis(),
+                    response.text.len(),
+                    response.duration,
+                ));
+                let transformed =
+                    core::transform::apply_native_transform(&response.text, transform_config).await;
+                if let Some(warning) = &transformed.warning {
+                    core::runtime_log::record(format!(
+                        "[WordScript] Native transform warning: {warning}"
+                    ));
+                }
+
+                core::runtime_log::record(format!(
+                    "[WordScript] Native pipeline transform done elapsed_ms={} corrected={} output_len={} rules={}",
+                    pipeline_started_at.elapsed().as_millis(),
+                    transformed.corrected,
+                    transformed.text.len(),
+                    transformed.applied_rules.join(","),
+                ));
+
+                let text = transformed.text.trim().to_string();
+                if text.is_empty() {
+                    core::runtime_log::record(format!(
+                        "[WordScript] Native pipeline empty result elapsed_ms={}",
+                        pipeline_started_at.elapsed().as_millis(),
+                    ));
+                    core::sessions::empty_from_native(&app, "No speech detected in recording.");
+                    let _ = app.emit("wordscript-event", serde_json::json!({ "event": "empty" }));
+                } else {
+                    match core::insertion::insert_transcription_from_legacy(
+                        &app,
+                        &text,
+                        transformed.corrected,
+                    ) {
+                        Ok(result) => {
+                            core::sessions::complete_from_transcription(
+                                &app,
+                                &text,
+                                transformed.corrected,
+                            );
+                            core::runtime_log::record(format!(
+                                "[WordScript] Native pipeline insertion done elapsed_ms={} insert_mode={:?} pasted={} fallback_available={}",
+                                pipeline_started_at.elapsed().as_millis(),
+                                result.insert_mode,
+                                result.pasted,
+                                result.fallback_available,
+                            ));
+                            let _ = app.emit(
+                                "wordscript-event",
+                                serde_json::json!({
+                                    "event": "transcription",
+                                    "text": text,
+                                    "corrected": transformed.corrected,
+                                    "provider": "groq",
+                                    "transform": {
+                                        "applied_rules": transformed.applied_rules,
+                                        "warning": transformed.warning,
+                                    },
+                                    "insertion": result
+                                }),
+                            );
+                        }
+                        Err(error) => {
+                            core::runtime_log::record(format!(
+                                "[WordScript] Native pipeline insertion failed elapsed_ms={} error={}",
+                                pipeline_started_at.elapsed().as_millis(),
+                                error,
+                            ));
+                            core::sessions::fail_from_native_error(&app, &error);
+                            let _ = app.emit(
+                                "wordscript-event",
+                                serde_json::json!({
+                                    "event": "error",
+                                    "message": format!("Native insertion failed: {error}")
+                                }),
+                            );
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                core::runtime_log::record(format!(
+                    "[WordScript] Native pipeline transcription failed elapsed_ms={} kind={:?} message={}",
+                    pipeline_started_at.elapsed().as_millis(),
+                    error.kind,
+                    error.message,
+                ));
+                core::sound::play_if_enabled(core::sound::SoundCue::Error);
+                core::sessions::fail_from_native_error(&app, &error.message);
+                let _ = app.emit(
+                    "wordscript-event",
+                    serde_json::json!({
+                        "event": "error",
+                        "message": error.message,
+                        "kind": error.kind,
+                        "status": error.status,
+                        "retry_after_seconds": error.retry_after_seconds
+                    }),
+                );
+            }
+        }
+
+        let _ = tokio::fs::remove_file(cleanup_path).await;
+    });
+}
+
+fn optional_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn runtime_transcription_timeout_ms(audio_duration_seconds: Option<f64>) -> u64 {
+    let audio_duration_ms = audio_duration_seconds
+        .filter(|duration| duration.is_finite() && *duration > 0.0)
+        .map(|duration| {
+            let clamped = duration.min(60.0);
+            (clamped * 1000.0).round() as u64
+        })
+        .unwrap_or_default();
+
+    MIN_TRANSCRIPTION_TIMEOUT_MS
+        .saturating_add(audio_duration_ms.saturating_mul(TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS) / 1000)
+        .clamp(MIN_TRANSCRIPTION_TIMEOUT_MS, MAX_TRANSCRIPTION_TIMEOUT_MS)
 }
 
 // ── Tauri Commands (callable from React via invoke()) ─────────────────────────
 
-/// Write a JSON command to the Python sidecar's stdin.
-/// The `cmd` argument is already a JSON string (e.g. `{"cmd":"start_recording"}`).
-#[tauri::command]
-async fn send_to_python(
-    cmd: String,
-    state: tauri::State<'_, SidecarState>,
-) -> Result<(), String> {
-    let mut guard = state.child.lock().unwrap();
-    if let Some(child) = guard.as_mut() {
-        let line = format!("{}\n", cmd.trim());
-        child.write(line.as_bytes()).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// Save config via Python (so Python's path resolver handles all platforms).
-/// Passes the config object as a JSON payload inside a save_config command.
-#[tauri::command]
-async fn save_config(
-    config: serde_json::Value,
-    state: tauri::State<'_, SidecarState>,
-) -> Result<(), String> {
-    let payload = serde_json::json!({ "cmd": "save_config", "config": config });
-    let line = format!("{}\n", payload);
-    let mut guard = state.child.lock().unwrap();
-    if let Some(child) = guard.as_mut() {
-        child.write(line.as_bytes()).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
 /// Show (and focus) the settings window.
 #[tauri::command]
 async fn open_settings_window(app: AppHandle) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window("settings") {
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
+    reveal_settings_window(&app);
     Ok(())
 }
 
-// ── Sidecar spawning ──────────────────────────────────────────────────────────
-
-fn spawn_sidecar(app: &AppHandle) {
-    let handle = app.clone();
-
-    // In development (TAURI_ENV=dev or debug build): run Python from the repo
-    // In production: use the bundled sidecar binary (wordscript-sidecar-<triple>)
-    let spawn_result = if cfg!(debug_assertions) {
-        // Resolve project root from the Cargo manifest dir embedded at compile time
-        let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap_or(std::path::Path::new("."));
-        let venv_python = project_root.join(".venv/bin/python");
-        let python_cmd = if venv_python.exists() {
-            venv_python.to_string_lossy().to_string()
-        } else {
-            "python".to_string()
-        };
-        app.shell()
-            .command(&python_cmd)
-            .args(["-m", "wordscript", "sidecar"])
-            .env("PYTHONDONTWRITEBYTECODE", "1")
-            .current_dir(project_root)
-            .spawn()
-    } else {
-        app.shell()
-            .sidecar("wordscript-sidecar")
-            .unwrap()
-            .args(["sidecar"])
-            .spawn()
-    };
-
-    match spawn_result {
-        Ok((mut rx, child)) => {
-            *app.state::<SidecarState>().child.lock().unwrap() = Some(child);
-
-            // Forward Python stdout events to all Tauri windows
-            tauri::async_runtime::spawn(async move {
-                while let Some(event) = rx.recv().await {
-                    match event {
-                        CommandEvent::Stdout(bytes) => {
-                            let line = String::from_utf8_lossy(&bytes);
-                            let line = line.trim();
-                            if line.is_empty() { continue; }
-
-                            if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
-                                let event_type = value
-                                    .get("event")
-                                    .and_then(|e| e.as_str())
-                                    .unwrap_or("");
-
-                                // Overlay visibility is driven purely by CSS in React.
-                                // No GTK show()/hide()/set_size()/set_position() calls —
-                                // those crash under XWayland after repeated cycles.
-                                match event_type {
-                                    "shutdown" => {
-                                        handle.exit(0);
-                                    }
-                                    _ => {}
-                                }
-
-                            let _ = handle.emit("py-event", &value);
-                            }
-                        }
-                        CommandEvent::Stderr(bytes) => {
-                            eprintln!("[Python] {}", String::from_utf8_lossy(&bytes).trim());
-                        }
-                        CommandEvent::Error(e) => {
-                            eprintln!("[Python Error] {}", e);
-                            let _ = handle.emit("py-event", serde_json::json!({
-                                "event": "error",
-                                "message": format!("Sidecar process error: {}", e)
-                            }));
-                        }
-                        CommandEvent::Terminated(status) => {
-                            eprintln!("[Python] exited (code {:?})", status.code);
-                        }
-                        _ => {}
-                    }
-                }
-            });
-        }
-        Err(e) => {
-            eprintln!("[WordScript] Failed to spawn Python sidecar: {}", e);
-            // Emit error so the UI can surface it
-            let _ = app.emit("py-event", serde_json::json!({
-                "event": "error",
-                "message": format!("Could not start Python backend: {}", e)
-            }));
-        }
+#[tauri::command]
+async fn open_rebuild_lab_window(app: AppHandle) -> Result<(), String> {
+    if app.get_webview_window("rebuild-lab").is_none() {
+        return Err("Diagnostics window is not configured.".to_string());
     }
+
+    reveal_rebuild_lab_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+async fn app_config_file_path() -> Result<String, String> {
+    Ok(core::paths::config_file_path().to_string_lossy().to_string())
 }
 
 // ── App entry ─────────────────────────────────────────────────────────────────
 
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // Second instance tried to launch — focus settings window instead
-            if let Some(w) = app.get_webview_window("settings") {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-        }))
-        .plugin(tauri_plugin_shell::init())
-        .manage(SidecarState { child: Mutex::new(None) })
+    let builder = tauri::Builder::default();
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        reveal_settings_window(app);
+    }));
+    #[cfg(debug_assertions)]
+    let builder = builder;
+
+    builder
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    if let Some(effect) =
+                        core::trigger::handle_global_shortcut_event(app, shortcut, event)
+                    {
+                        apply_trigger_effect(app, effect);
+                    }
+                })
+                .build(),
+        )
+        .manage(Mutex::new(V1SliceState::default()))
+        .manage(Mutex::new(NativeSessionState::default()))
+        .manage(Mutex::new(NativeTriggerState::new(
+            NativeTriggerConfig::load_from_disk(),
+        )))
+        .manage(Mutex::new(NativeCaptureState::load(
+            NativeCaptureConfig::load_from_disk(),
+        )))
+        .manage(Mutex::new(NativeInsertionState::load(
+            NativeInsertionConfig::load_from_disk(),
+        )))
         .setup(|app| {
             // ── System tray ───────────────────────────────────────────────
-            let title   = MenuItem::with_id(app, "title",    "WordScript", false, None::<&str>)?;
-            let sep1    = PredefinedMenuItem::separator(app)?;
-            let settings = MenuItem::with_id(app, "settings", "Settings",  true,  None::<&str>)?;
-            let sep2    = PredefinedMenuItem::separator(app)?;
-            let quit    = MenuItem::with_id(app, "quit",     "Quit",       true,  None::<&str>)?;
-            let menu    = Menu::with_items(app, &[&title, &sep1, &settings, &sep2, &quit])?;
+            let title = MenuItem::with_id(app, "title", "WordScript", false, None::<&str>)?;
+            let sep1 = PredefinedMenuItem::separator(app)?;
+            let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let diagnostics = MenuItem::with_id(app, "diagnostics", "Diagnostics", true, None::<&str>)?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&title, &sep1, &settings, &diagnostics, &sep2, &quit])?;
 
-            let tray_icon = app.default_window_icon()
-                .cloned()
-                .expect("No default window icon configured — add an icon to tauri.conf.json bundle.icon");
+            let tray_icon = app.default_window_icon().cloned().expect(
+                "No default window icon configured — add an icon to tauri.conf.json bundle.icon",
+            );
             TrayIconBuilder::new()
                 .icon(tray_icon)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => {
-                        // Graceful shutdown: tell Python first
-                        if let Some(child) = app.state::<SidecarState>()
-                            .child.lock().unwrap().as_mut()
-                        {
-                            let _ = child.write(b"{\"cmd\":\"shutdown\"}\n");
-                        }
                         app.exit(0);
                     }
                     "settings" => {
-                        if let Some(w) = app.get_webview_window("settings") {
-                            let _ = w.unminimize();
-                            let _ = w.set_focus();
-                        }
+                        reveal_settings_window(app);
+                    }
+                    "diagnostics" => {
+                        reveal_rebuild_lab_window(app);
                     }
                     _ => {}
                 })
@@ -198,25 +506,91 @@ pub fn run() {
 
             // ── Settings window: minimize on close instead of destroy ────
             if let Some(settings) = app.get_webview_window("settings") {
-                let s = settings.clone();
-                settings.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = s.minimize();
-                    }
-                });
+                install_hide_on_close(&settings);
             }
 
-            // ── Spawn Python backend ──────────────────────────────────────
-            spawn_sidecar(app.handle());
+            if let Some(rebuild_lab) = app.get_webview_window("rebuild-lab") {
+                install_hide_on_close(&rebuild_lab);
+            }
+
+            let initial_config = AppConfig::load_from_disk();
+            core::config::emit_ready_event(app.handle(), &initial_config);
+            core::sound::schedule_startup_if_enabled();
+
+            let trigger_state = app.state::<Mutex<NativeTriggerState>>();
+            if let Err(error) = core::trigger::register_native_shortcuts(
+                app.handle(),
+                trigger_state.inner(),
+                NativeTriggerConfig::load_from_disk(),
+            ) {
+                core::runtime_log::record(format!(
+                    "[WordScript] Failed to register native shortcut: {error}"
+                ));
+                let _ = app.emit(
+                    "wordscript-native-event",
+                    serde_json::json!({
+                        "event": "error",
+                        "message": format!("Native shortcut registration failed: {error}")
+                    }),
+                );
+            }
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            send_to_python,
-            save_config,
+            core::config::load_app_config,
+            core::config::save_config,
             open_settings_window,
+            open_rebuild_lab_window,
+            app_config_file_path,
+            core::providers::groq::groq_provider_status,
+            core::providers::groq::save_groq_api_key,
+            core::providers::groq::clear_groq_api_key,
+            core::providers::groq::validate_groq_api_key,
+            core::providers::groq::transcribe_groq_audio_file,
+            core::text_rules::analyze_text_rules,
+            core::text_rules::export_text_rules,
+            core::text_rules::import_text_rules,
+            core::sessions::native_session_status,
+            core::sessions::start_native_session,
+            core::sessions::stop_native_session,
+            core::sessions::abort_native_session,
+            core::sessions::complete_native_session,
+            core::trigger::native_trigger_status,
+            core::trigger::configure_native_trigger,
+            core::trigger::pause_native_trigger,
+            core::trigger::resume_native_trigger,
+            core::capture::native_capture_status,
+            core::capture::configure_native_capture,
+            core::capture::list_native_input_devices,
+            core::capture::toggle_native_capture_mute,
+            core::capture::toggle_native_capture_pause,
+            core::insertion::native_insertion_status,
+            core::insertion::configure_native_insertion,
+            core::insertion::insert_text_native,
+            core::insertion::restore_last_transcript,
+            core::insertion::clear_native_scratchpad,
+            core::updates::check_app_update,
+            core::runtime_log::runtime_log_entries,
+            core::runtime_log::clear_runtime_log_entries,
+            v1_slice::v1_slice_status,
+            v1_slice::start_v1_slice_capture,
+            v1_slice::complete_v1_slice_capture,
+            v1_slice::reset_v1_slice,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WordScript");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_transcription_timeout_stays_interactive() {
+        assert_eq!(runtime_transcription_timeout_ms(None), MIN_TRANSCRIPTION_TIMEOUT_MS);
+        assert_eq!(runtime_transcription_timeout_ms(Some(3.0)), 20_400);
+        assert_eq!(runtime_transcription_timeout_ms(Some(30.0)), MAX_TRANSCRIPTION_TIMEOUT_MS);
+        assert_eq!(runtime_transcription_timeout_ms(Some(90.0)), MAX_TRANSCRIPTION_TIMEOUT_MS);
+    }
 }

@@ -1,84 +1,204 @@
-# WordScript — Architektur
+# WordScript — Architecture
 
-## Überblick
+Stand: 2026-05-12
 
-Desktop Speech-to-Text App: Globaler Hotkey → Mikrofon-Aufnahme → Groq Whisper API → Text in Zwischenablage + Auto-Paste.
+## Zweck
 
-## Drei-Schichten-Architektur
+Dieses Dokument beschreibt die aktive Systemarchitektur von WordScript. Es soll zeigen, wo Verhalten heute wirklich entschieden wird und wie neue Arbeit verortet werden muss.
 
+Der alte Python-Sidecar ist nicht mehr der Referenzpfad.
+
+## Leitprinzipien
+
+- Rust ist Runtime-Owner fuer Trigger, Capture, Provider, Transform, Insert und Recovery.
+- React stellt dar, konfiguriert und erklaert denselben nativen Zustand.
+- WordScript ist cloud-first im aktuellen Produktpfad.
+- Typed contracts zwischen UI und Runtime sind Pflicht.
+- Recovery und Support-Grenzen sind Teil der Architektur, nicht nur Begleittext.
+
+## Aktive Schichten
+
+```text
+React UI
+    overlay + settings + diagnostics tab
+                |
+                | invoke() + events
+                v
+Tauri host
+    windows + tray + commands + event bridge
+                |
+                v
+Rust core
+    config + trigger + capture + sessions + providers + transform + insertion + sound
 ```
-┌─────────────────────────────────────────┐
-│  React Frontend (Vite + TypeScript)     │
-│  - Overlay Window (Waveform-Visualizer) │
-│  - Settings Window (6 Tabs)             │
-│  - useSidecar Hook (State Machine)      │
-└──────────────┬──────────────────────────┘
-               │ listen("py-event") / invoke("send_to_python")
-┌──────────────┴──────────────────────────┐
-│  Rust / Tauri 2                         │
-│  - Spawnt Python-Sidecar                │
-│  - Parst stdout JSON → emit("py-event") │
-│  - Overlay Visibility Management        │
-│  - System Tray, Singleton Instance      │
-└──────────────┬──────────────────────────┘
-               │ stdin/stdout JSON-IPC
-┌──────────────┴──────────────────────────┐
-│  Python Sidecar                         │
-│  - HotkeyManager (pynput)              │
-│  - AudioRecorder (sounddevice, 16kHz)   │
-│  - TranscriptionService (Groq Whisper)  │
-│  - TextPaster (pyperclip + pynput)      │
-│  - LLM Post-Korrektur (optional)        │
-└─────────────────────────────────────────┘
+
+## UI-Schicht
+
+Die aktive UI besteht derzeit aus zwei Fenstern in der Tauri-Konfiguration:
+
+- `overlay`: transparente Pill fuer Aufnahmezustand
+- `settings`: Shell mit den Tabs Provider & Models, Input, Text Rules, About und Diagnostics
+
+Wichtige Frontend-Bausteine:
+
+- `src/windows/OverlayWindow.tsx`
+- `src/windows/SettingsWindow.tsx`
+- `src/hooks/useRuntime.ts`
+- `src/hooks/useGroqProvider.ts`
+- `src/hooks/useNativeInsertion.ts`
+- `src/hooks/useRuntimeLogs.ts`
+- `src/components/settings/*`
+
+Die UI ist verantwortlich fuer:
+
+- Anzeige von Runtime-Status, Waveform und Fehlermeldungen
+- Pflege der Config-Werte
+- Preview, Validation und Import/Export der Text Rules
+- Sichtbare Recovery-Aktionen und Diagnostics
+
+Die UI ist nicht verantwortlich fuer:
+
+- globale Shortcut-Registrierung
+- Mikrofon-Capture
+- Session-State-Machine
+- Insert-Entscheidungen
+
+## Tauri-Host
+
+`src-tauri/src/lib.rs` ist die Huelle des Produkts. Dort liegen:
+
+- Window-Setup fuer Overlay und Settings
+- Tray-Menue und Fensteroeffnung
+- Command-Registrierung
+- Event-Emission fuer `wordscript-event` und `wordscript-native-event`
+- Grobe Orchestrierung zwischen Trigger-Effekt, Capture-Ende, Provider-Aufruf und Runtime-Feedback
+
+Der Host ist die Bruecke, nicht die Business-Logik.
+
+## Rust-Core-Module
+
+Der aktive Produktkern sitzt in `src-tauri/src/core/`.
+
+### Konfiguration und Status
+
+- `config.rs`: Config-Lifecycle, Disk-I/O, Scrubbing sensibler Werte
+- `runtime_log.rs`: gepufferte strukturierte Runtime-Logs fuer die Diagnostics-UI
+- `paths.rs`: Produktpfade wie Config und Scratchpad
+
+### Aufnahme und Session
+
+- `trigger.rs`: globale Start/Stop-, Pause/Resume- und Abort-Hotkeys
+- `capture.rs`: Audioaufnahme, Level-/Waveform-Events, Silence-/Max-Duration-Autostop
+- `sessions.rs`: Laufzeitstatus und Session-Uebergaenge
+- `sound.rs`: Start-, Stop-, Abort-, Startup- und Error-Cues
+
+### Provider und Textverarbeitung
+
+- `providers/groq.rs`: aktiver Cloud-Provider, BYOK, Secret Store, Fehlerklassen
+- `transform.rs`: Halluzinationsfilter, optionale Nachkorrektur, Dictionary- und Snippet-Aufloesung
+- `text_rules.rs`: Analyse, Preview, Import/Export und Konfliktbehandlung der Text Rules
+
+### Insertion und Recovery
+
+- `insertion.rs`: Paste-Strategien, Clipboard-Restore, Scratchpad und Plattformstatus
+
+`NativeInsertionPlatformStatus` ist der Support-Vertrag dieses Pfads. Er liefert Label, Support-Tier, Insert-Strategie, Freitext sowie konkrete Voraussetzungen und ehrliche Grenzen fuer die UI.
+
+## Session-Fluss
+
+Der aktive Fluss sieht so aus:
+
+1. Hotkey wird im nativen Trigger erkannt.
+2. `capture.rs` startet die Aufnahme und emittiert Level-/Waveform-Events.
+3. Aufnahme endet durch Stop-Hotkey, Silence-Timeout, Max-Duration oder Abort.
+4. Audio wird als 16 kHz Mono-WAV fuer den Provider vorbereitet.
+5. `providers/groq.rs` sendet die Datei an Groq.
+6. `transform.rs` prueft und bereinigt den Transkriptionsoutput.
+7. `insertion.rs` waehlt den Insert-Modus und fuehrt ihn aus.
+8. UI bekommt Status, letztes Transkript und moegliche Recovery-Daten zurueck.
+
+## Session-State-Machine
+
+Die Session-Stufen werden natuerlich im Core gehalten.
+
+```text
+idle -> capturing -> processing -> completed
+    |         |             |
+    |         v             v
+    |      aborted        error
+    +-------------------------------
 ```
 
-## Datenfluss
+`paused` ist kein eigener Stage-Name, sondern ein Capture-Zustand innerhalb von `capturing`.
 
-1. **Hotkey** (pynput) → `recorder.start()`
-2. **Recording** → 16kHz/mono/int16, Silence-Detection, Max-Timer
-3. **Transkription** → Groq Whisper API (IPv4 erzwungen, 55s Timeout, 0 Retries)
-4. **Paste** → pyperclip + Ctrl+V Simulation (Wayland: nur Clipboard)
-5. **Optional:** LLM-Korrektur aktualisiert Clipboard im Hintergrund
-6. **IPC** → `stdout JSON` → Rust parst → `emit("py-event")` → React UI
+## Transform-Reihenfolge
 
-## Schlüsseldateien
+Die Textverarbeitung ist im aktiven Pfad keine Black Box. Die Reihenfolge ist bewusst fest:
 
-| Datei | Verantwortung |
-|---|---|
-| `src-tauri/src/lib.rs` | Tauri-Setup, Sidecar-Spawn, Event-Forwarding |
-| `wordscript/sidecar.py` | Headless Backend, Command-Dispatch, IPC |
-| `wordscript/transcription.py` | Groq Whisper + LLM-Korrektur |
-| `wordscript/recorder.py` | Audio-Aufnahme, Silence-Detection |
-| `wordscript/hotkey.py` | Globaler Hotkey (tap/hold), Debounce |
-| `wordscript/paster.py` | Clipboard + Auto-Paste |
-| `wordscript/config.py` | Config-Laden/Speichern, Platform-Defaults |
-| `wordscript/ipc.py` | JSON-IPC über stdin/stdout |
-| `src/hooks/useSidecar.ts` | React State-Machine für Backend-Events |
+1. Halluzinationsmuster ablehnen oder markieren
+2. optionale AI-Nachkorrektur ausfuehren
+3. Dictionary anwenden
+4. Snippets anwenden
 
-## Plattform-Besonderheiten
+Wichtig:
 
-### Linux
-- **Wayland-Workaround:** App erzwingt `GDK_BACKEND=x11` und entfernt `WAYLAND_DISPLAY` in `main.rs` — WebKitGTK + transparente Fenster crashen auf nativem Wayland (Gdk Error 71). Läuft statt dessen via XWayland.
-- **Overlay-Steuerung:** `set_position()` (on-/off-screen) statt `show()`/`hide()`/`set_always_on_top()` — letztere crashen auf Wayland.
-- **Settings-Fenster:** `minimize()`/`unminimize()` statt `hide()`/`show()`, startet mit `visible: true`.
-- Wayland: Auto-Paste deaktiviert (nur Clipboard via `wl-copy`)
-- Hotkey-Debounce 300ms (Compositor synthetic events)
-- Clipboard-Backends: `xclip`, `xsel`, `wl-copy`
+- `prompt` ist heute nur Transcription Context fuer die STT-Anfrage
+- Dictionary- und Snippet-Matches sind literal und case-insensitive
+- lokale Profile existieren im Produkt noch nicht
 
-### Config-Pfad
-- **Einheitlich** (Dev + Prod): `~/.config/WordScript/config.json` (Linux), `%APPDATA%\WordScript` (Win), `~/Library/Application Support/WordScript` (macOS)
-- Migration: Bei erstem Frozen-Run wird alte Config neben der exe kopiert
+## Insertion-Modi
 
-### Dev-Mode
-- Rust spawnt `.venv/bin/python -m wordscript sidecar` (Pfad via `CARGO_MANIFEST_DIR`)
-- Fallback auf System-`python` wenn kein venv vorhanden
+`insertion.rs` entscheidet ueber mehrere echte Modi, nicht nur ueber einen simplen Paste-Versuch.
 
-### Produktion
-- PyInstaller-Binary als Tauri Sidecar gebundelt (`wordscript-sidecar-<triple>`)
+```text
+if direct paste succeeds
+    -> direct_paste
+else if clipboard write succeeds but direct paste is not possible
+    -> clipboard_only
+else if fallback paste was attempted through helper paths
+    -> clipboard_fallback
+else
+    -> scratchpad_fallback
+```
 
-## Bekannte Design-Entscheidungen
+Wichtige Architekturregeln dieses Pfads:
 
-- **IPv4 erzwungen** für alle Groq API-Calls (verhindert IPv6-Timeout auf allen Plattformen)
-- **Keine Retries** bei API-Fehlern — direktes Error-Feedback an User
-- **60s Wall-Clock-Timeout** als Guard gegen hängende Verbindungen (zusätzlich zum SDK-Timeout)
-- **Hallucination-Filtering** für Whisper (exakte Matches + Regex) und LLM (Länge, Blacklist, Overlap)
+- erfolgreicher Direct Insert stellt den vorherigen Clipboard-Inhalt best effort wieder her
+- Scratchpad und Last-Transcript-Restore sind Teil des Produktpfads
+- Overlay, Input und About nutzen denselben nativen Plattformstatus als Quelle
+- About zeigt Voraussetzungen und Grenzen aus diesem nativen Vertrag, statt pro Plattform neue UI-Nebenwahrheiten zu erfinden
+
+## Plattformmodell
+
+WordScript modelliert Plattformgrenzen explizit:
+
+- macOS und Windows sind die Tier-1-Zielpfade
+- Linux X11 ist Preview
+- Linux Wayland bleibt experimentell und haengt an XWayland-/Clipboard-Fallbacks
+
+Das ist keine Marketing-Sprache, sondern Teil des Insert- und Support-Modells.
+
+## Provider-Modell
+
+Im aktiven Produktpfad gibt es genau einen echten Provider: Groq.
+
+Architekturregeln dafuer:
+
+- Groq laeuft als BYOK-Modell
+- der API-Key liegt im OS secret store
+- die JSON-Config wird beim Speichern gescrubbt
+- ein eigener WordScript-Proxy oder Hosted Mode existiert nicht
+
+Wenn spaeter weitere Provider dazukommen, gehoeren sie unter `src-tauri/src/core/providers/` und muessen denselben Fehler- und Antwortvertrag bedienen.
+
+## Was bewusst noch nicht Architekturrealitaet ist
+
+Diese Themen sind moegliche spaetere Produktstufen, aber heute nicht aktive Architektur:
+
+- lokaler/offline Standardpfad
+- lokales Profilsystem fuer mehrere Arbeitskontexte
+- Team- oder Sync-Modell
+- AI-Assistant- oder Screen-Context-Workflows
+- veroeffentlichter Installer-Kanal und fertiger In-Place-Updater
+
+Wenn die Doku eines dieser Themen beschreibt, muss klar markiert sein, dass es geplant und nicht aktiv ist.

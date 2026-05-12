@@ -27,7 +27,6 @@ if [[ "$OS" == "Darwin" ]]; then
     echo -e "${RED}Homebrew not found. Install it from https://brew.sh then re-run.${NC}"
     exit 1
   fi
-  brew install portaudio
   # Tauri on macOS needs Xcode CLT (usually already present)
   if ! xcode-select -p &>/dev/null; then
     echo -e "${YELLOW}      Installing Xcode Command Line Tools...${NC}"
@@ -40,14 +39,14 @@ else
     sudo apt-get update -qq
     sudo apt-get install -y --no-install-recommends \
       libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev \
-      librsvg2-dev portaudio19-dev python3-dev build-essential curl wget file
+      librsvg2-dev libxdo-dev build-essential curl wget file
   elif command -v dnf &>/dev/null; then
     sudo dnf install -y webkit2gtk4.1-devel openssl-devel gtk3-devel \
-      libappindicator-gtk3-devel librsvg2-devel portaudio-devel python3-devel \
+      libappindicator-gtk3-devel librsvg2-devel libxdo-devel \
       gcc curl wget file
   elif command -v pacman &>/dev/null; then
     sudo pacman -Syu --noconfirm webkit2gtk-4.1 openssl gtk3 \
-      libappindicator-gtk3 librsvg portaudio python base-devel curl wget
+      libappindicator-gtk3 librsvg xdotool base-devel curl wget
   else
     echo -e "${YELLOW}      Unknown package manager — install Tauri Linux deps manually:${NC}"
     echo -e "${GRAY}      https://tauri.app/start/prerequisites/#linux${NC}"
@@ -92,5 +91,4 @@ echo ""
 echo -e "${CYAN}  Start dev server:    npm run tauri dev${NC}"
 echo -e "${CYAN}  Build release:       npm run tauri build${NC}"
 echo ""
-echo -e "${GRAY}Note: In dev mode, Tauri spawns Python directly (python -m wordscript sidecar).${NC}"
-echo -e "${GRAY}      Make sure your .venv is activated or Python deps are installed globally.${NC}"
+echo -e "${GRAY}Runtime path: native Tauri/Rust core. No Python sidecar is built or spawned.${NC}"

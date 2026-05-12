@@ -71,5 +71,4 @@ Write-Host ""
 Write-Host "  Start dev server:    npm run tauri dev" -ForegroundColor Cyan
 Write-Host "  Build release:       npm run tauri build" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Note: In dev mode, Tauri spawns Python directly (python -m wordscript sidecar)." -ForegroundColor Gray
-Write-Host "      Make sure your .venv is activated or Python deps are installed globally." -ForegroundColor Gray
+Write-Host "Runtime path: native Tauri/Rust core. No Python sidecar is built or spawned." -ForegroundColor Gray

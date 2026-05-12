@@ -1,170 +1,171 @@
+![WordScript](assets/wordscript_wordmark+logo.png)
+
+![SW bench](assets/SW%20bench_wordmark.png)
+
 # WordScript
 
-![version](https://img.shields.io/badge/version-v0.2.0--alpha-orange)
-![status](https://img.shields.io/badge/status-alpha-yellow)
-![license](https://img.shields.io/badge/license-MIT-blue)
+WordScript is a community-built desktop dictation app for one job: trigger recording, speak, and get usable text back into the current text field without losing your flow.
 
-<p align="center">
-  <img src="assets/ws-logo.png" alt="WordScript Logo" width="160">
-</p>
+It is being built in public under SW bench, the open-source brand of SW labs, where tools like WordScript are built with contributors instead of behind a closed product paywall.
 
-**One shortcut. Speak. Done.**
+## Interface
 
-WordScript is a lightweight desktop app that turns speech into text — instantly pasted where your cursor is. Press a hotkey, talk, release. No browser tabs, no app switching, no copy-paste.
+![WordScript settings UI](assets/screenshot_12.5.26.png)
 
-Built with Tauri v2 + React (frontend) and a Python sidecar (Groq Whisper + LLM post-processing).
+![WordScript overlay while recording](assets/overlay-recording-screenshot.png)
 
----
+## Why this exists
 
-## What works (v0.2.0-alpha)
+WordScript exists because basic productivity input should not feel like a subscription tax. Speaking into your computer, cleaning the text up, and continuing to work should not require a bloated assistant product, opaque lock-in, or another expensive subscription. 
 
-- Global hotkey to start/stop recording (tap or hold mode)
-- Always-on-top pill overlay with live audio waveform visualizer
-- Transcription via Groq Whisper API (~1s turnaround)
-- AI post-correction: filter filler words (ähm, äh, um…) and/or professionalize text via LLM
-- Auto-paste into any focused application
-- Mute toggle (click mic icon in the overlay)
-- Full settings UI — API keys, models, language, hotkey, audio device, all configurable in-app
-- System tray icon with Settings and Quit
-- Audio feedback on start / stop / abort / error
-- Per-user config: `%APPDATA%\WordScript\` (Windows), `~/.config/WordScript/` (Linux), `~/Library/Application Support/WordScript/` (macOS)
+The target is a genuinely good dictation product first. A commercial release path can exist later, but the project is not being built around artificial scarcity. The near-term goal is a strong open alternative to paid AI voice-dictation apps that people can inspect, run from source, improve, and ship together.
 
-## What doesn't work yet
+## Current status
 
-- AI assistant mode (planned)
-- Auto-updater (notification only — manual download for now)
-- macOS / Linux installers (Windows NSIS installer available; other platforms: run from source)
+- Repo version: `0.2.2-alpha`
+- Use today: `npm run tauri dev`
+- Current reality: WordScript is usable today as a source-first developer build
+- In progress: the first official cross-platform app release for Linux, macOS and Windows
+- Not live yet: published installers, trusted download channel, signed in-place updater
 
----
+## What already works
 
-## Quick Start
+- native start/stop, pause/resume and abort hotkeys
+- native microphone capture with waveform, silence timeout and max-duration stop
+- Groq BYOK transcription with OS secret-store storage
+- transform pipeline with hallucination guardrails, optional AI cleanup, dictionary and snippets
+- native insertion with direct paste, clipboard fallback, scratchpad recovery and last-transcript restore
+- platform diagnostics and runtime logs
+- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics
+- manual release build-up lanes for Linux, macOS and Windows
 
-### Download & Install (Windows)
+## What still needs work
 
-Grab the latest installer from the [Releases page](https://github.com/felixontv/WordScript/releases):
+- first published installers and signing flow
+- stable release handoff across Linux, macOS and Windows
+- Linux AppImage packaging that no longer stalls on the current linuxdeploy lane
+- live updater path after the first real release
+- stronger Linux Wayland reliability
+- more product polish around recovery, diagnostics and text-rule workflows
 
-1. Download `WordScript_0.2.0-alpha_x64-setup.exe`
-2. Run the installer
-3. WordScript starts in the system tray
-4. Click the tray icon → **Settings**, enter your [Groq API key](https://console.groq.com/keys), hit Save
+## Contribute
 
-### Run from Source (all platforms)
+If you want a real open desktop dictation tool instead of another subscription-heavy voice product, this is a good moment to join.
 
-**Requirements:** Python 3.10+, Node.js 18+, Rust
+Good contribution areas right now:
+
+- runtime stability on Linux, macOS and Windows
+- capture, insertion and recovery edge cases
+- release engineering and packaging
+- UI clarity, diagnostics and support messaging
+- text rules, tests and product polish
+
+## Use today
+
+The current usable WordScript version is the developer build from this repository.
 
 ```bash
-git clone https://github.com/felixontv/WordScript.git
-cd WordScript
-
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Install Node dependencies
 npm install
-
-# Development mode (Tauri + Vite + Python sidecar)
 npm run tauri dev
 ```
 
-### Build installer from source
+That is the version you should actually use today. In parallel, the team is building the first official cross-platform app release for Linux, macOS and Windows.
+
+## Quick start
+
+### Requirements
+
+- Node.js 18+
+- Rust + Cargo
+- macOS: Xcode Command Line Tools; Homebrew is recommended for the bootstrap script
+- Windows: Visual Studio Build Tools with the C++ workload and the Microsoft WebView2 Runtime
+- Linux packages for Tauri/WebKitGTK: `libwebkit2gtk-4.1-0`, `libayatana-appindicator3-1`, `libxdo3`
+
+### Bootstrap once per machine
+
+macOS and Linux:
 
 ```bash
-# 1. Build Python sidecar binary
-.\build-sidecar.ps1        # Windows
-# or
-./build-sidecar.sh         # Linux / macOS
-
-# 2. Build Tauri app
-npm run tauri build
+bash setup-tauri.sh
 ```
 
-Output: `src-tauri/target/release/bundle/nsis/WordScript_0.2.0-alpha_x64-setup.exe`
+Windows PowerShell:
 
----
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup-tauri.ps1
+```
 
-## Usage
+### Run from source
 
-1. **Launch WordScript** — a pill-shaped overlay appears near the bottom of your screen
-2. **Press the hotkey** (`Ctrl + Left Win` on Windows, `Ctrl + Cmd` on macOS) to start recording
-3. **Press again** (tap mode) or **release** (hold mode) to stop
-4. The transcription is auto-pasted into whatever window is focused — typically within 1 second
-5. **Click the mic icon** in the overlay to mute/unmute without stopping recording
-6. **Click the chevron** (`▾`) to open Settings
+macOS and Linux:
 
-To abort a recording: `Ctrl + Alt` (Windows/Linux) or `Ctrl + Cmd` while recording
+```bash
+git clone https://github.com/SW-Bench/WordScript.git
+cd WordScript
+npm install
+npm run tauri dev
+```
 
----
+Windows PowerShell:
 
-## Settings
+```powershell
+git clone https://github.com/SW-Bench/WordScript.git
+cd WordScript
+npm install
+npm run tauri dev
+```
 
-All settings live in the in-app Settings panel (tray icon → Settings, or click `▾` on the overlay).
+`npm run tauri dev` is the current developer version of WordScript and the recommended way to use the app today while the first official release is still under construction.
 
-| Setting | Default | Description |
+Platform notes for real insert checks:
+
+- macOS development builds can require Accessibility and sometimes Input Monitoring for the process that launched WordScript, for example Terminal or VS Code
+- Windows synthetic paste can still fail against elevated target apps if WordScript itself is not running elevated
+- Linux Wayland remains the most fallback-heavy path right now
+
+### Validate changes
+
+```bash
+npm test
+npm run build
+cd src-tauri && cargo test
+```
+
+The default repo path remains source-first. `npm run tauri build` and `.github/workflows/release.yml` are active release-build-up tools, but they are not a live installer channel yet. The Linux AppImage lane is still being hardened and can currently fail around `linuxdeploy`.
+
+## Runtime model
+
+WordScript currently supports one active transcription provider in the product path: Groq.
+
+Runtime credentials stay with the user:
+
+- the end user stores their own Groq API key in the OS secret store
+- the JSON config is scrubbed on save
+- there is no hosted WordScript backend or shared WordScript API key in the current product path
+
+Distribution credentials and signing remain part of the release build-up. They are intentionally not described as active user delivery while no published releases exist.
+
+## Platform support
+
+| Platform | Support level | Current reality |
 |---|---|---|
-| Groq API Key | _(empty)_ | Required — get one at https://console.groq.com/keys |
-| Whisper Model | `whisper-large-v3-turbo` | Speech recognition model |
-| Language | _(auto)_ | Language code (`en`, `de`, `fr`, …) or empty for auto-detect |
-| Enable AI post-correction | On | Run LLM on every transcription |
-| Filter filler words | On | Remove ähm, äh, um, uh, hmm… |
-| Professionalize text | Off | Restructure rambling sentences into clean prose |
-| Correction Model | `llama-3.1-8b-instant` | LLM used for post-correction |
-| Hotkey | `ctrl_l+win` | Global keyboard shortcut |
-| Activation Mode | `tap` | `tap` = toggle on/off, `hold` = push-to-talk |
-| Audio Device | _(system default)_ | Select a specific microphone |
-| Auto-paste | On | Paste transcription automatically |
-| Play Sounds | On | Audio feedback on start / stop / error |
+| Windows | Tier 1 target | Native trigger, capture and insert path; release packaging is in build-up, not yet a published channel |
+| macOS | Tier 1 target | Native trigger, capture and insert path; dev-mode privacy permissions can gate auto-paste while release packaging is still being assembled |
+| Linux X11 | Preview | Usable desktop path with a smaller stability promise |
+| Linux Wayland | Experimental | XWayland- and clipboard-heavy fallback path |
 
----
+Details about recovery behavior, provider constraints and open product gaps live in [docs/REFERENCE.md](docs/REFERENCE.md).
 
-## Hotkey Reference
+## Documentation map
 
-Combine keys with `+`. Example: `ctrl_l+win`, `ctrl_l+alt_l+space`
+The documentation set is intentionally small:
 
-| Key | Description |
-|---|---|
-| `ctrl_l` / `ctrl_r` | Left / Right Ctrl |
-| `alt_l` / `alt_r` | Left / Right Alt |
-| `shift_l` / `shift_r` | Left / Right Shift |
-| `win` / `cmd` | Windows / Command key |
-| `f1` – `f12` | Function keys |
-
----
-
-## Architecture
-
-```
-WordScript
-├── src/                     React + TypeScript frontend (Tauri webview)
-│   ├── windows/
-│   │   ├── OverlayWindow    Pill overlay — waveform, mute, drag
-│   │   └── SettingsWindow   Full settings UI
-│   └── hooks/useSidecar     IPC bridge to Python backend
-├── src-tauri/               Rust / Tauri shell
-│   └── src/lib.rs           Sidecar spawn, overlay visibility, tray
-├── wordscript/              Python backend (sidecar)
-│   ├── sidecar.py           IPC loop — receives commands, emits events
-│   ├── transcription.py     Groq Whisper + LLM post-correction
-│   ├── recorder.py          Microphone capture → WAV
-│   ├── hotkeys.py           Global hotkey listener (pynput)
-│   ├── paster.py            Clipboard + paste simulation
-│   └── config.py            Config dataclass, per-OS path resolution
-└── build-sidecar.ps1 / .sh  Build Python binary for bundling
-```
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| No audio device found | Check system sound settings; select the correct mic in Settings |
-| Hotkey doesn't respond | Try running as Administrator — some apps block Win key combos |
-| Transcription errors | Verify your Groq API key and internet connection at console.groq.com |
-| Overlay covered by other windows | Fixed in v0.2.0-alpha — overlay re-applies always-on-top on every activation |
-| Post-correction not applied | Enable "AI post-correction" in Settings → API & Models; check that your Groq key is valid |
-| App won't start | Check `%APPDATA%\WordScript\wordscript.log` for errors |
-
----
+- [docs/VISION.md](docs/VISION.md): product direction, V1/V2 boundaries and the current build-up priorities
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): runtime ownership, module boundaries and system flow
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, validation and repo working rules
+- [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md): UI principles and current product-surface rules
+- [docs/REFERENCE.md](docs/REFERENCE.md): factual product state, limits and support matrix
+- [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md): release workflow and remaining gates before public rollout
 
 ## License
 

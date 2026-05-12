@@ -1,0 +1,54 @@
+import type { DictionaryEntry, SnippetEntry } from "./ipc";
+
+export type TextRulesConflictResolution = "merge_imported_wins" | "replace_current";
+export type TextRulesIssueSeverity = "error" | "warning";
+export type TextRulesIssueCode =
+  | "empty_dictionary_phrase"
+  | "empty_dictionary_replacement"
+  | "empty_snippet_label"
+  | "empty_snippet_trigger"
+  | "empty_snippet_expansion"
+  | "duplicate_dictionary_phrase"
+  | "duplicate_snippet_trigger"
+  | "dictionary_snippet_overlap"
+  | "duplicate_rule_id"
+  | "import_schema_mismatch"
+  | "import_parse_failed";
+
+export interface TextRulesIssue {
+  severity: TextRulesIssueSeverity;
+  code: TextRulesIssueCode;
+  message: string;
+  rule_ids: string[];
+}
+
+export interface TextRulesPreview {
+  input: string;
+  output: string;
+  applied_rules: string[];
+}
+
+export interface TextRulesAnalysis {
+  blocking: boolean;
+  issues: TextRulesIssue[];
+  preview: TextRulesPreview;
+  dictionary_count: number;
+  snippet_count: number;
+}
+
+export interface TextRulesDocument {
+  schema_version: number;
+  prompt: string;
+  dictionary_entries: DictionaryEntry[];
+  snippet_entries: SnippetEntry[];
+}
+
+export interface ImportTextRulesResponse {
+  document: TextRulesDocument;
+  analysis: TextRulesAnalysis;
+}
+
+export interface ExportTextRulesResponse {
+  path: string;
+  analysis: TextRulesAnalysis;
+}

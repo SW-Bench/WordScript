@@ -9,6 +9,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      if (window.location.hash.startsWith("#/overlay") || window.location.hash === "") {
+        document.documentElement.classList.add("overlay-window", "overlay-idle");
+        document.body.classList.add("overlay-window", "overlay-idle");
+        document.getElementById("root")?.classList.add("overlay-window", "overlay-idle");
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

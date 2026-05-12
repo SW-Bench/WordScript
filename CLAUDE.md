@@ -1,30 +1,50 @@
-# CLAUDE.md — WordScript - SW Labs Brand
+# CLAUDE.md — WordScript
 
-## Commands
+## Purpose
+
+WordScript ist ein Tauri-v2-Desktopprodukt mit React/TypeScript-UI und nativer Rust-Runtime fuer Trigger, Capture, Transform, Insert und Updates.
+
+## Core Commands
 
 ```bash
-
+npm install
+npm test
+npm run build
+npm run tauri dev
+cd src-tauri && cargo test
 ```
 
-## Structure
+## Working Areas
 
+- `src/` fuer Overlay, Settings, Rebuild Lab und UI-State
+- `src-tauri/src/` fuer nativen Runtime-Core
+- `docs/` fuer Vision, Architektur, Development, Design System, Referenz und Release-Operations
 
-## Architecture
+## Source Of Truth
 
-
+- Architektur: `docs/ARCHITECTURE.md`
+- Arbeitsmodus und Validation: `docs/DEVELOPMENT.md`
+- Produktziel und Scope: `docs/VISION.md`
+- Produktrealitaet, Support und Limits: `docs/REFERENCE.md`
+- Design-Tokens und UI-Patterns: `docs/DESIGN_SYSTEM.md`
+- Entscheidungen: `docs/VISION.md`
 
 ## Rules
 
-- WHEN Dependency hinzufügen: danach `npm audit` ausführenPatterns, Copy-Guidelines: **`docs/DESIGN_SYSTEM.md`** Datei.
-- WHEN Fragen zu Farben, Spacing, Komponenten-Patterns, Copy-Style: `docs/DESIGN_SYSTEM.md` konsultieren, nicht inline dokumentieren.
+- Keine neue Produktlogik in alte Sidecar- oder Glue-Pfade verschieben.
+- UI muss Runtime-Wahrheit anzeigen; keine Fake-States, keine Fake-Readiness.
+- Hotkeys, Capture, Session-Orchestrierung und Insert-Zuverlaessigkeit bleiben Rust-Ownership.
+- Secrets nie committen oder hardcoden; nur ueber OS Secret Store oder Env.
+- Nach Dependency-Aenderungen `npm audit` laufen lassen.
+- Nach Architekturentscheidungen `docs/VISION.md` aktualisieren.
 
-- WHEN Architektur-Entscheidung getroffen: in `docs/VISION.md` unter "Getroffene Entscheidungen" dokumentieren und ggf. unter "Offene Fragen" entfernen
+## Validation
+
+- Nach UI-Aenderungen mindestens `npm run build`.
+- Nach nativen Aenderungen mindestens `cd src-tauri && cargo test`.
+- Bei groesseren Slices beide Seiten validieren.
 
 ## Gotchas
 
-- Husky Pre-Commit-Hooks aktiv — nie mit `--no-verify` bypassen
-
-## Design System
-
-Tokens, Komponenten-Specs, UX-Patterns, Copy-Guidelines: **`docs/DESIGN_SYSTEM.md`** Datei.
-- WHEN Fragen zu Farben, Spacing, Komponenten-Patterns, Copy-Style: `docs/DESIGN_SYSTEM.md` konsultieren, nicht inline dokumentieren.
+- Husky Pre-Commit-Hooks sind aktiv; nie mit `--no-verify` umgehen.
+- Linux-Hotkeys koennen von der Desktop-Umgebung abgefangen werden; Win/Super bei Bedarf manuell eintragen.

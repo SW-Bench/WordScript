@@ -1,0 +1,1080 @@
+use std::{
+    collections::HashSet,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+use cpal::{
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+    Device, SampleFormat, Stream, StreamConfig,
+};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+
+use super::{
+    config::{AppConfig, DictionaryEntry, SnippetEntry},
+    paths::user_data_dir,
+    runtime_log,
+};
+
+const DEFAULT_MAX_RECORDING_SECONDS: u64 = 720;
+const DEFAULT_SILENCE_TIMEOUT_SECONDS: u64 = 30;
+const DEFAULT_VOICE_THRESHOLD: f32 = 0.02;
+const AUDIO_LEVEL_INTERVAL_MS: u64 = 42;
+const MIN_SILENCE_AUTOSTOP_SECONDS: u64 = 1;
+const WAVEFORM_BUCKET_COUNT: usize = 19;
+const TRANSCRIPTION_SAMPLE_RATE: u32 = 16_000;
+const TRANSCRIPTION_CHANNELS: u16 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeCaptureConfig {
+    pub backend: String,
+    pub model: String,
+    pub language: String,
+    pub prompt: String,
+    pub dictionary_entries: Vec<DictionaryEntry>,
+    pub snippet_entries: Vec<SnippetEntry>,
+    pub post_process: bool,
+    pub correction_model: String,
+    pub filter_fillers: bool,
+    pub professionalize: bool,
+    pub audio_device: String,
+    pub max_recording_seconds: u64,
+    pub silence_timeout_seconds: u64,
+    pub temp_audio_dir: String,
+}
+
+impl Default for NativeCaptureConfig {
+    fn default() -> Self {
+        Self {
+            backend: "groq".to_string(),
+            model: "whisper-large-v3-turbo".to_string(),
+            language: String::new(),
+            prompt: String::new(),
+            dictionary_entries: Vec::new(),
+            snippet_entries: Vec::new(),
+            post_process: true,
+            correction_model: "llama-3.1-8b-instant".to_string(),
+            filter_fillers: true,
+            professionalize: false,
+            audio_device: String::new(),
+            max_recording_seconds: DEFAULT_MAX_RECORDING_SECONDS,
+            silence_timeout_seconds: DEFAULT_SILENCE_TIMEOUT_SECONDS,
+            temp_audio_dir: String::new(),
+        }
+    }
+}
+
+impl NativeCaptureConfig {
+    pub fn load_from_disk() -> Self {
+        let app_config = AppConfig::load_from_disk();
+
+        Self {
+            backend: app_config.backend,
+            model: app_config.model,
+            language: app_config.language,
+            prompt: app_config.prompt,
+            dictionary_entries: app_config.dictionary_entries,
+            snippet_entries: app_config.snippet_entries,
+            post_process: app_config.post_process,
+            correction_model: app_config.correction_model,
+            filter_fillers: app_config.filter_fillers,
+            professionalize: app_config.professionalize,
+            audio_device: app_config.audio_device,
+            max_recording_seconds: app_config.max_recording_seconds,
+            silence_timeout_seconds: app_config.silence_timeout_seconds,
+            temp_audio_dir: app_config.temp_audio_dir,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NativeCaptureStatus {
+    pub is_recording: bool,
+    pub muted: bool,
+    pub paused: bool,
+    pub device_name: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u16>,
+    pub sample_format: Option<String>,
+    pub active_capture_id: Option<String>,
+    pub silence_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NativeInputDevice {
+    pub name: String,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeCaptureMonitorState {
+    Continue,
+    Finished,
+    Stop(NativeCaptureStopReason),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeCaptureStopReason {
+    MaxDuration,
+    SilenceTimeout,
+}
+
+impl NativeCaptureStopReason {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::MaxDuration => "Max recording duration reached.",
+            Self::SilenceTimeout => "Recording stopped after silence timeout.",
+        }
+    }
+}
+
+pub struct NativeCaptureState {
+    config: NativeCaptureConfig,
+    counter: u64,
+    active: Option<ActiveCapture>,
+}
+
+struct ActiveCapture {
+    id: String,
+    config: NativeCaptureConfig,
+    device_name: String,
+    sample_rate: u32,
+    channels: u16,
+    sample_format: String,
+    stream: Stream,
+    shared: Arc<Mutex<SharedCaptureData>>,
+}
+
+struct SharedCaptureData {
+    started_at: Instant,
+    last_voice_at: Instant,
+    last_level_emit_at: Instant,
+    muted: bool,
+    paused: bool,
+    paused_at: Option<Instant>,
+    accumulated_paused: Duration,
+    has_voice_activity: bool,
+    samples: Vec<i16>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfigureNativeCaptureRequest {
+    pub audio_device: String,
+    pub max_recording_seconds: u64,
+    pub silence_timeout_seconds: u64,
+}
+
+impl NativeCaptureState {
+    pub fn load(config: NativeCaptureConfig) -> Self {
+        Self {
+            config,
+            counter: 0,
+            active: None,
+        }
+    }
+
+    pub fn is_recording(&self) -> bool {
+        self.active.is_some()
+    }
+
+    fn status(&self) -> NativeCaptureStatus {
+        if let Some(active) = &self.active {
+            let (muted, paused, silence_seconds) = active
+                .shared
+                .lock()
+                .map(|shared| {
+                    let silence =
+                        if shared.paused || effective_elapsed(&shared) < Duration::from_secs(1) {
+                            0.0
+                        } else {
+                            effective_silence_elapsed(&shared).as_secs_f64()
+                        };
+                    (shared.muted, shared.paused, silence)
+                })
+                .unwrap_or((false, false, 0.0));
+
+            NativeCaptureStatus {
+                is_recording: true,
+                muted,
+                paused,
+                device_name: Some(active.device_name.clone()),
+                sample_rate: Some(active.sample_rate),
+                channels: Some(active.channels),
+                sample_format: Some(active.sample_format.clone()),
+                active_capture_id: Some(active.id.clone()),
+                silence_seconds,
+            }
+        } else {
+            NativeCaptureStatus {
+                is_recording: false,
+                muted: false,
+                paused: false,
+                device_name: None,
+                sample_rate: None,
+                channels: None,
+                sample_format: None,
+                active_capture_id: None,
+                silence_seconds: 0.0,
+            }
+        }
+    }
+
+    fn configure(&mut self, request: ConfigureNativeCaptureRequest) -> NativeCaptureStatus {
+        self.config.audio_device = request.audio_device;
+        self.config.max_recording_seconds = request.max_recording_seconds;
+        self.config.silence_timeout_seconds = request.silence_timeout_seconds;
+        self.status()
+    }
+}
+
+#[tauri::command]
+pub fn native_capture_status(
+    state: State<'_, Mutex<NativeCaptureState>>,
+) -> Result<NativeCaptureStatus, String> {
+    let state = state.lock().map_err(|error| error.to_string())?;
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn configure_native_capture(
+    request: ConfigureNativeCaptureRequest,
+    state: State<'_, Mutex<NativeCaptureState>>,
+) -> Result<NativeCaptureStatus, String> {
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    Ok(state.configure(request))
+}
+
+#[tauri::command]
+pub fn list_native_input_devices() -> Result<Vec<NativeInputDevice>, String> {
+    let host = cpal::default_host();
+    let default_name = host.default_input_device().and_then(|device| device.name().ok());
+    let devices = host
+        .input_devices()
+        .map_err(|error| format!("Could not list input devices: {error}"))?;
+
+    let mut seen = HashSet::new();
+    let mut options = Vec::new();
+
+    for device in devices {
+        let Ok(name) = device.name() else {
+            continue;
+        };
+
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+
+        let is_default = default_name.as_ref().is_some_and(|value| value == &name);
+        options.push(NativeInputDevice { name, is_default });
+    }
+
+    if let Some(default_name) = default_name {
+        if seen.insert(default_name.clone()) {
+            options.push(NativeInputDevice {
+                name: default_name,
+                is_default: true,
+            });
+        }
+    }
+
+    options.sort_by(|left, right| {
+        right
+            .is_default
+            .cmp(&left.is_default)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+
+    Ok(options)
+}
+
+#[tauri::command]
+pub fn toggle_native_capture_mute(
+    app: AppHandle,
+    state: State<'_, Mutex<NativeCaptureState>>,
+) -> Result<NativeCaptureStatus, String> {
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    let active = state
+        .active
+        .as_mut()
+        .ok_or_else(|| "No native capture is active.".to_string())?;
+    let muted = {
+        let mut shared = active.shared.lock().map_err(|error| error.to_string())?;
+        shared.muted = !shared.muted;
+        shared.muted
+    };
+    let _ = app.emit(
+        "wordscript-event",
+        serde_json::json!({ "event": "muted", "muted": muted }),
+    );
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn toggle_native_capture_pause(
+    app: AppHandle,
+    state: State<'_, Mutex<NativeCaptureState>>,
+) -> Result<NativeCaptureStatus, String> {
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    toggle_native_capture_pause_inner(&app, &mut state)
+}
+
+pub fn toggle_native_capture_pause_for_app<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<NativeCaptureStatus, String> {
+    let state = app
+        .try_state::<Mutex<NativeCaptureState>>()
+        .ok_or_else(|| "Native capture state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    toggle_native_capture_pause_inner(app, &mut state)
+}
+
+fn toggle_native_capture_pause_inner<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &mut NativeCaptureState,
+) -> Result<NativeCaptureStatus, String> {
+    let active = state
+        .active
+        .as_mut()
+        .ok_or_else(|| "No native capture is active.".to_string())?;
+
+    let paused = {
+        let mut shared = active.shared.lock().map_err(|error| error.to_string())?;
+        if shared.paused {
+            if let Some(paused_at) = shared.paused_at.take() {
+                shared.accumulated_paused += paused_at.elapsed();
+            }
+            shared.paused = false;
+            shared.last_voice_at = Instant::now();
+            shared.last_level_emit_at =
+                Instant::now() - Duration::from_millis(AUDIO_LEVEL_INTERVAL_MS);
+        } else {
+            shared.paused = true;
+            shared.paused_at = Some(Instant::now());
+        }
+        shared.paused
+    };
+
+    if paused {
+        active
+            .stream
+            .pause()
+            .map_err(|error| format!("Could not pause native capture stream: {error}"))?;
+    } else {
+        active
+            .stream
+            .play()
+            .map_err(|error| format!("Could not resume native capture stream: {error}"))?;
+    }
+
+    let _ = app.emit(
+        "wordscript-event",
+        serde_json::json!({ "event": "paused", "paused": paused }),
+    );
+    Ok(state.status())
+}
+
+pub fn start_native_capture<R: Runtime + 'static>(
+    app: &AppHandle<R>,
+) -> Result<NativeCaptureStatus, String> {
+    let state = app
+        .try_state::<Mutex<NativeCaptureState>>()
+        .ok_or_else(|| "Native capture state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+
+    if state.active.is_some() {
+        return Err("A native audio capture is already active.".to_string());
+    }
+
+    let config = NativeCaptureConfig::load_from_disk();
+    let host = cpal::default_host();
+    let device = select_input_device(&host, &config.audio_device)?;
+    let device_name = device
+        .name()
+        .unwrap_or_else(|_| "Default microphone".to_string());
+    let supported_config = device
+        .default_input_config()
+        .map_err(|error| format!("Could not read input stream config: {error}"))?;
+    let sample_format = supported_config.sample_format();
+    let stream_config = supported_config.config();
+
+    let shared = Arc::new(Mutex::new(SharedCaptureData {
+        started_at: Instant::now(),
+        last_voice_at: Instant::now(),
+        last_level_emit_at: Instant::now() - Duration::from_millis(AUDIO_LEVEL_INTERVAL_MS),
+        muted: false,
+        paused: false,
+        paused_at: None,
+        accumulated_paused: Duration::ZERO,
+        has_voice_activity: false,
+        samples: Vec::new(),
+    }));
+
+    let stream = build_stream(
+        app.clone(),
+        &device,
+        &stream_config,
+        sample_format,
+        shared.clone(),
+    )?;
+    stream
+        .play()
+        .map_err(|error| format!("Could not start native capture stream: {error}"))?;
+
+    state.counter += 1;
+    state.config = config.clone();
+    state.active = Some(ActiveCapture {
+        id: format!("capture-{}", state.counter),
+        config,
+        device_name,
+        sample_rate: stream_config.sample_rate.0,
+        channels: stream_config.channels,
+        sample_format: sample_format_label(sample_format).to_string(),
+        stream,
+        shared,
+    });
+
+    Ok(state.status())
+}
+
+pub fn stop_native_capture<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Option<serde_json::Value>, String> {
+    let state = app
+        .try_state::<Mutex<NativeCaptureState>>()
+        .ok_or_else(|| "Native capture state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    let active = state
+        .active
+        .take()
+        .ok_or_else(|| "No native audio capture is active.".to_string())?;
+    let _ = active.stream.pause();
+
+    let (has_voice_activity, samples) = active
+        .shared
+        .lock()
+        .map_err(|error| error.to_string())
+        .map(|shared| (shared.has_voice_activity, shared.samples.clone()))?;
+
+    if samples.is_empty() || !has_voice_activity {
+        return Ok(None);
+    }
+
+    let audio_path = write_capture_wav(
+        &active.config,
+        &active.id,
+        active.sample_rate,
+        active.channels,
+        &samples,
+    )?;
+    let audio_duration_seconds = capture_duration_seconds(
+        samples.len(),
+        active.sample_rate,
+        active.channels,
+    );
+
+    Ok(Some(serde_json::json!({
+        "event": "audio_ready",
+        "audio_path": audio_path.to_string_lossy(),
+        "audio_duration_seconds": audio_duration_seconds,
+        "provider": active.config.backend,
+        "model": active.config.model,
+        "language": active.config.language,
+        "prompt": active.config.prompt,
+        "dictionary_entries": active.config.dictionary_entries,
+        "snippet_entries": active.config.snippet_entries,
+        "post_process": active.config.post_process,
+        "correction_model": active.config.correction_model,
+        "filter_fillers": active.config.filter_fillers,
+        "professionalize": active.config.professionalize
+    })))
+}
+
+pub fn abort_native_capture<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let state = app
+        .try_state::<Mutex<NativeCaptureState>>()
+        .ok_or_else(|| "Native capture state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    let Some(active) = state.active.take() else {
+        return Ok(());
+    };
+    let _ = active.stream.pause();
+    let _ = app.emit(
+        "wordscript-event",
+        serde_json::json!({ "event": "muted", "muted": false }),
+    );
+    let _ = app.emit(
+        "wordscript-event",
+        serde_json::json!({ "event": "paused", "paused": false }),
+    );
+    Ok(())
+}
+
+pub fn monitor_native_capture<R: Runtime>(
+    app: &AppHandle<R>,
+    capture_id: &str,
+) -> Result<NativeCaptureMonitorState, String> {
+    let state = app
+        .try_state::<Mutex<NativeCaptureState>>()
+        .ok_or_else(|| "Native capture state is not available.".to_string())?;
+    let state = state.lock().map_err(|error| error.to_string())?;
+    let Some(active) = state.active.as_ref() else {
+        return Ok(NativeCaptureMonitorState::Finished);
+    };
+
+    if active.id != capture_id {
+        return Ok(NativeCaptureMonitorState::Finished);
+    }
+
+    let shared = active.shared.lock().map_err(|error| error.to_string())?;
+    if let Some(reason) = capture_stop_reason(&active.config, &shared) {
+        return Ok(NativeCaptureMonitorState::Stop(reason));
+    }
+
+    Ok(NativeCaptureMonitorState::Continue)
+}
+
+fn select_input_device(host: &cpal::Host, preferred_name: &str) -> Result<Device, String> {
+    if !preferred_name.trim().is_empty() {
+        let devices = host
+            .input_devices()
+            .map_err(|error| format!("Could not list input devices: {error}"))?;
+        let preferred = preferred_name.to_lowercase();
+        for device in devices {
+            let Ok(name) = device.name() else {
+                continue;
+            };
+            if name.to_lowercase().contains(&preferred) {
+                return Ok(device);
+            }
+        }
+    }
+
+    host.default_input_device()
+        .ok_or_else(|| default_input_error())
+}
+
+fn build_stream<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    device: &Device,
+    config: &StreamConfig,
+    sample_format: SampleFormat,
+    shared: Arc<Mutex<SharedCaptureData>>,
+) -> Result<Stream, String> {
+    let error_app = app.clone();
+    let error_callback = move |error| {
+        let message = format!("Native capture stream error: {error}");
+        let _ = error_app.emit(
+            "wordscript-event",
+            serde_json::json!({ "event": "error", "message": message }),
+        );
+    };
+
+    match sample_format {
+        SampleFormat::F32 => device
+            .build_input_stream(
+                config,
+                move |data: &[f32], _| handle_f32_input(&app, &shared, data),
+                error_callback,
+                None,
+            )
+            .map_err(|error| format!("Could not build native input stream: {error}")),
+        SampleFormat::I16 => device
+            .build_input_stream(
+                config,
+                move |data: &[i16], _| handle_i16_input(&app, &shared, data),
+                error_callback,
+                None,
+            )
+            .map_err(|error| format!("Could not build native input stream: {error}")),
+        SampleFormat::U16 => device
+            .build_input_stream(
+                config,
+                move |data: &[u16], _| handle_u16_input(&app, &shared, data),
+                error_callback,
+                None,
+            )
+            .map_err(|error| format!("Could not build native input stream: {error}")),
+        other => Err(format!(
+            "Unsupported native audio sample format '{}'.",
+            sample_format_label(other)
+        )),
+    }
+}
+
+fn handle_f32_input<R: Runtime>(
+    app: &AppHandle<R>,
+    shared: &Arc<Mutex<SharedCaptureData>>,
+    data: &[f32],
+) {
+    process_samples(
+        app,
+        shared,
+        data.iter().copied().map(|sample| sample.clamp(-1.0, 1.0)),
+    );
+}
+
+fn handle_i16_input<R: Runtime>(
+    app: &AppHandle<R>,
+    shared: &Arc<Mutex<SharedCaptureData>>,
+    data: &[i16],
+) {
+    process_samples(
+        app,
+        shared,
+        data.iter()
+            .copied()
+            .map(|sample| f32::from(sample) / f32::from(i16::MAX)),
+    );
+}
+
+fn handle_u16_input<R: Runtime>(
+    app: &AppHandle<R>,
+    shared: &Arc<Mutex<SharedCaptureData>>,
+    data: &[u16],
+) {
+    process_samples(
+        app,
+        shared,
+        data.iter()
+            .copied()
+            .map(|sample| (f32::from(sample) / f32::from(u16::MAX)) * 2.0 - 1.0),
+    );
+}
+
+fn process_samples<R: Runtime>(
+    app: &AppHandle<R>,
+    shared: &Arc<Mutex<SharedCaptureData>>,
+    samples: impl IntoIterator<Item = f32>,
+) {
+    let mut peak = 0.0_f32;
+    let mut rms = 0.0_f32;
+    let mut waveform = vec![0.0_f32; WAVEFORM_BUCKET_COUNT];
+    let mut should_emit_level = false;
+    let mut muted = false;
+    let mut paused = false;
+
+    if let Ok(mut shared) = shared.lock() {
+        muted = shared.muted;
+        paused = shared.paused;
+        let normalized_samples = samples
+            .into_iter()
+            .map(|normalized| {
+                if muted || paused {
+                    0.0
+                } else {
+                    normalized.clamp(-1.0, 1.0)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for sample in &normalized_samples {
+            peak = peak.max(sample.abs());
+            rms += sample.powi(2);
+            if !paused {
+                shared.samples.push(f32_to_i16(*sample));
+            }
+        }
+
+        if !normalized_samples.is_empty() && !paused {
+            rms = (rms / normalized_samples.len() as f32).sqrt();
+            waveform = waveform_buckets(&normalized_samples).to_vec();
+        }
+
+        if !muted && !paused && peak > DEFAULT_VOICE_THRESHOLD {
+            shared.last_voice_at = Instant::now();
+            shared.has_voice_activity = true;
+        }
+
+        if shared.last_level_emit_at.elapsed() >= Duration::from_millis(AUDIO_LEVEL_INTERVAL_MS) {
+            shared.last_level_emit_at = Instant::now();
+            should_emit_level = true;
+        }
+    }
+
+    if should_emit_level {
+        let _ = app.emit(
+            "wordscript-event",
+            serde_json::json!({
+                "event": "audio_level",
+                "level": if muted || paused { 0.0 } else { peak },
+                "rms": if muted || paused { 0.0 } else { rms },
+                "waveform": if muted || paused { vec![0.0_f32; WAVEFORM_BUCKET_COUNT] } else { waveform }
+            }),
+        );
+    }
+}
+
+fn effective_elapsed(shared: &SharedCaptureData) -> Duration {
+    let current_pause = shared
+        .paused_at
+        .map(|paused_at| paused_at.elapsed())
+        .unwrap_or(Duration::ZERO);
+    shared
+        .started_at
+        .elapsed()
+        .saturating_sub(shared.accumulated_paused + current_pause)
+}
+
+fn effective_silence_elapsed(shared: &SharedCaptureData) -> Duration {
+    if shared.paused {
+        Duration::ZERO
+    } else {
+        shared.last_voice_at.elapsed()
+    }
+}
+
+fn capture_duration_seconds(sample_count: usize, sample_rate: u32, channels: u16) -> f64 {
+    let frames_per_second = f64::from(sample_rate.max(1)) * f64::from(channels.max(1));
+    sample_count as f64 / frames_per_second
+}
+
+fn waveform_buckets(samples: &[f32]) -> [f32; WAVEFORM_BUCKET_COUNT] {
+    let mut sums = [0.0_f32; WAVEFORM_BUCKET_COUNT];
+    let mut peaks = [0.0_f32; WAVEFORM_BUCKET_COUNT];
+    let mut counts = [0_usize; WAVEFORM_BUCKET_COUNT];
+
+    if samples.is_empty() {
+        return sums;
+    }
+
+    for (index, sample) in samples.iter().enumerate() {
+        let bucket = (index * WAVEFORM_BUCKET_COUNT / samples.len()).min(WAVEFORM_BUCKET_COUNT - 1);
+        let amplitude = sample.abs();
+        sums[bucket] += amplitude;
+        peaks[bucket] = peaks[bucket].max(amplitude);
+        counts[bucket] += 1;
+    }
+
+    let mut buckets = [0.0_f32; WAVEFORM_BUCKET_COUNT];
+    for index in 0..WAVEFORM_BUCKET_COUNT {
+        if counts[index] == 0 {
+            continue;
+        }
+        let average = sums[index] / counts[index] as f32;
+        buckets[index] = (average * 0.42 + peaks[index] * 0.58).clamp(0.0, 1.0);
+    }
+
+    buckets
+}
+
+fn write_capture_wav(
+    config: &NativeCaptureConfig,
+    capture_id: &str,
+    sample_rate: u32,
+    channels: u16,
+    samples: &[i16],
+) -> Result<PathBuf, String> {
+    let directory = capture_temp_dir(config)?;
+    let file_path = directory.join(format!("{capture_id}.wav"));
+    let transcription_samples = prepare_transcription_samples(samples, sample_rate, channels);
+    let spec = hound::WavSpec {
+        channels: TRANSCRIPTION_CHANNELS,
+        sample_rate: TRANSCRIPTION_SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let mut writer = hound::WavWriter::create(&file_path, spec)
+        .map_err(|error| format!("Could not create native capture WAV file: {error}"))?;
+    for sample in &transcription_samples {
+        writer
+            .write_sample(*sample)
+            .map_err(|error| format!("Could not write native capture sample: {error}"))?;
+    }
+    writer
+        .finalize()
+        .map_err(|error| format!("Could not finalize native capture WAV file: {error}"))?;
+
+    if let Ok(metadata) = std::fs::metadata(&file_path) {
+        runtime_log::record(format!(
+            "[WordScript] Native capture export done input_rate={} input_channels={} output_rate={} output_channels={} input_samples={} output_samples={} file_bytes={}",
+            sample_rate,
+            channels,
+            TRANSCRIPTION_SAMPLE_RATE,
+            TRANSCRIPTION_CHANNELS,
+            samples.len(),
+            transcription_samples.len(),
+            metadata.len(),
+        ));
+    }
+
+    Ok(file_path)
+}
+
+fn prepare_transcription_samples(samples: &[i16], sample_rate: u32, channels: u16) -> Vec<i16> {
+    let mono = downmix_to_mono(samples, channels);
+    resample_mono_samples(&mono, sample_rate, TRANSCRIPTION_SAMPLE_RATE)
+}
+
+fn downmix_to_mono(samples: &[i16], channels: u16) -> Vec<i16> {
+    let channel_count = usize::from(channels.max(1));
+
+    if channel_count == 1 {
+        return samples.to_vec();
+    }
+
+    samples
+        .chunks(channel_count)
+        .map(|frame| {
+            let frame_len = i32::try_from(frame.len()).unwrap_or(1);
+            let sum = frame.iter().fold(0_i32, |acc, sample| acc + i32::from(*sample));
+            (sum / frame_len).clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
+        })
+        .collect()
+}
+
+fn resample_mono_samples(samples: &[i16], input_sample_rate: u32, output_sample_rate: u32) -> Vec<i16> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+
+    let normalized_input_rate = input_sample_rate.max(1);
+    let normalized_output_rate = output_sample_rate.max(1);
+
+    if normalized_input_rate == normalized_output_rate {
+        return samples.to_vec();
+    }
+
+    let last_index = samples.len().saturating_sub(1);
+    let output_len = (((last_index as f64) * f64::from(normalized_output_rate)
+        / f64::from(normalized_input_rate))
+        .floor() as usize)
+        + 1;
+
+    (0..output_len)
+        .map(|index| {
+            let source_position = index as f64 * f64::from(normalized_input_rate)
+                / f64::from(normalized_output_rate);
+            let left_index = source_position.floor() as usize;
+            let right_index = (left_index + 1).min(last_index);
+            let fraction = source_position - left_index as f64;
+            let left = f64::from(samples[left_index.min(last_index)]);
+            let right = f64::from(samples[right_index]);
+
+            (left + (right - left) * fraction)
+                .round()
+                .clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16
+        })
+        .collect()
+}
+
+fn capture_temp_dir(config: &NativeCaptureConfig) -> Result<PathBuf, String> {
+    let directory = if config.temp_audio_dir.trim().is_empty() {
+        user_data_dir().join("tmp")
+    } else {
+        PathBuf::from(config.temp_audio_dir.trim())
+    };
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Could not create native capture temp dir: {error}"))?;
+    Ok(directory)
+}
+
+fn sample_format_label(sample_format: SampleFormat) -> &'static str {
+    match sample_format {
+        SampleFormat::F32 => "f32",
+        SampleFormat::I16 => "i16",
+        SampleFormat::U16 => "u16",
+        _ => "unsupported",
+    }
+}
+
+fn f32_to_i16(sample: f32) -> i16 {
+    let clamped = sample.clamp(-1.0, 1.0);
+    (clamped * f32::from(i16::MAX)).round() as i16
+}
+
+fn default_input_error() -> String {
+    if cfg!(target_os = "linux") {
+        "No audio input device found. Check PulseAudio/PipeWire and microphone permissions."
+            .to_string()
+    } else if cfg!(target_os = "macos") {
+        "No audio input device found. Check System Settings -> Privacy & Security -> Microphone."
+            .to_string()
+    } else {
+        "No audio input device found. Check the microphone connection and whether another app is blocking it.".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn clamps_f32_to_i16_range() {
+        assert_eq!(f32_to_i16(1.5), i16::MAX);
+        assert_eq!(f32_to_i16(-1.5), i16::MIN + 1);
+        assert_eq!(f32_to_i16(0.0), 0);
+    }
+
+    #[test]
+    fn builds_waveform_buckets_from_real_sample_amplitudes() {
+        let samples = [
+            0.0, 0.5, -1.0, 0.25, 0.75, -0.25, 0.0, 1.0, -0.5, 0.25, 0.0, 0.0, 0.25, 0.5, 0.75,
+            1.0, 0.0, 0.0, -0.25,
+        ];
+        let buckets = waveform_buckets(&samples);
+
+        assert_eq!(buckets.len(), WAVEFORM_BUCKET_COUNT);
+        assert_eq!(buckets[0], 0.0);
+        assert_eq!(buckets[2], 1.0);
+        assert!(buckets.iter().any(|bucket| *bucket > 0.7));
+    }
+
+    #[test]
+    fn writes_transcription_friendly_wav() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "wordscript-capture-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let config = NativeCaptureConfig {
+            temp_audio_dir: temp_dir.to_string_lossy().to_string(),
+            ..NativeCaptureConfig::default()
+        };
+        let mut stereo_samples = Vec::with_capacity(48_000 * 2);
+
+        for index in 0..48_000 {
+            let left = if index % 2 == 0 { 12_000 } else { -12_000 };
+            let right = 6_000;
+            stereo_samples.push(left);
+            stereo_samples.push(right);
+        }
+
+        let file_path = write_capture_wav(&config, "capture-test", 48_000, 2, &stereo_samples)
+            .expect("capture wav should be written");
+
+        let reader = hound::WavReader::open(&file_path).expect("capture wav should be readable");
+        let spec = reader.spec();
+        let output_samples = reader
+            .into_samples::<i16>()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("samples should decode");
+
+        assert_eq!(spec.sample_rate, TRANSCRIPTION_SAMPLE_RATE);
+        assert_eq!(spec.channels, TRANSCRIPTION_CHANNELS);
+        assert_eq!(output_samples.len(), TRANSCRIPTION_SAMPLE_RATE as usize);
+        assert!(output_samples.iter().any(|sample| *sample != 0));
+
+        let _ = std::fs::remove_file(&file_path);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn stops_when_max_duration_is_reached() {
+        let shared = Arc::new(Mutex::new(SharedCaptureData {
+            started_at: Instant::now() - Duration::from_secs(5),
+            last_voice_at: Instant::now(),
+            last_level_emit_at: Instant::now(),
+            muted: false,
+            paused: false,
+            paused_at: None,
+            accumulated_paused: Duration::ZERO,
+            has_voice_activity: true,
+            samples: vec![],
+        }));
+
+        let reason = capture_stop_reason(
+            &NativeCaptureConfig {
+                max_recording_seconds: 4,
+                silence_timeout_seconds: 30,
+                ..NativeCaptureConfig::default()
+            },
+            &shared.lock().unwrap(),
+        );
+
+        assert_eq!(reason, Some(NativeCaptureStopReason::MaxDuration));
+    }
+
+    #[test]
+    fn stops_when_silence_timeout_is_reached() {
+        let shared = Arc::new(Mutex::new(SharedCaptureData {
+            started_at: Instant::now() - Duration::from_secs(6),
+            last_voice_at: Instant::now() - Duration::from_secs(4),
+            last_level_emit_at: Instant::now(),
+            muted: false,
+            paused: false,
+            paused_at: None,
+            accumulated_paused: Duration::ZERO,
+            has_voice_activity: true,
+            samples: vec![],
+        }));
+
+        let reason = capture_stop_reason(
+            &NativeCaptureConfig {
+                max_recording_seconds: 30,
+                silence_timeout_seconds: 3,
+                ..NativeCaptureConfig::default()
+            },
+            &shared.lock().unwrap(),
+        );
+
+        assert_eq!(reason, Some(NativeCaptureStopReason::SilenceTimeout));
+    }
+
+    #[test]
+    fn does_not_stop_while_capture_is_paused() {
+        let shared = SharedCaptureData {
+            started_at: Instant::now() - Duration::from_secs(8),
+            last_voice_at: Instant::now() - Duration::from_secs(5),
+            last_level_emit_at: Instant::now(),
+            muted: false,
+            paused: true,
+            paused_at: Some(Instant::now() - Duration::from_secs(6)),
+            accumulated_paused: Duration::ZERO,
+            has_voice_activity: true,
+            samples: vec![],
+        };
+
+        let reason = capture_stop_reason(
+            &NativeCaptureConfig {
+                max_recording_seconds: 4,
+                silence_timeout_seconds: 3,
+                ..NativeCaptureConfig::default()
+            },
+            &shared,
+        );
+
+        assert_eq!(reason, None);
+    }
+}
+
+
+        #[test]
+        fn derives_capture_duration_from_samples() {
+            let duration = capture_duration_seconds(32_000, 16_000, 1);
+            assert!((duration - 2.0).abs() < f64::EPSILON);
+
+            let stereo_duration = capture_duration_seconds(96_000, 48_000, 2);
+            assert!((stereo_duration - 1.0).abs() < f64::EPSILON);
+        }
+fn capture_stop_reason(
+    config: &NativeCaptureConfig,
+    shared: &SharedCaptureData,
+) -> Option<NativeCaptureStopReason> {
+    let elapsed = effective_elapsed(shared);
+    let silence = effective_silence_elapsed(shared);
+
+    if config.max_recording_seconds > 0
+        && elapsed >= Duration::from_secs(config.max_recording_seconds)
+    {
+        return Some(NativeCaptureStopReason::MaxDuration);
+    }
+
+    if shared.paused {
+        return None;
+    }
+
+    if config.silence_timeout_seconds > 0
+        && elapsed >= Duration::from_secs(MIN_SILENCE_AUTOSTOP_SECONDS)
+        && silence >= Duration::from_secs(config.silence_timeout_seconds)
+    {
+        return Some(NativeCaptureStopReason::SilenceTimeout);
+    }
+
+    None
+}

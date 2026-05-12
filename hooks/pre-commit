@@ -1,13 +1,6 @@
 #!/bin/sh
-# Auto-generate BUILD_ID and build_info.json on every commit.
+# Legacy build metadata files are not part of the active Tauri/Rust repo.
+# Keep the hook path alive, but avoid regenerating BUILD_ID/build_info.json.
 
-VERSION=$(cat VERSION | tr -d '[:space:]')
-BUILD_DATE=$(date "+%d.%m.%y %H:%M")
-
-# Plain text build ID
-printf '%s - Build: %s\n' "$VERSION" "$BUILD_DATE" > BUILD_ID
-
-# JSON for dynamic shields.io badge
-printf '{\n  "version": "%s",\n  "build": "%s"\n}\n' "$VERSION" "$BUILD_DATE" > build_info.json
-
-git add BUILD_ID build_info.json
+rm -f BUILD_ID build_info.json
+exit 0

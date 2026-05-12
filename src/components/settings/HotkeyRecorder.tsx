@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { HOTKEY_MODIFIER_KEYS, splitHotkeyParts } from "../../lib/hotkeys";
 
 // Browser event.code → pynput key name
 const CODE_TO_PYNPUT: Record<string, string> = {
@@ -39,7 +40,7 @@ function sortKeys(keys: string[]): string[] {
 }
 
 function parseHotkey(hotkey: string): string[] {
-  return hotkey.split("+").map((k) => k.trim()).filter(Boolean);
+  return splitHotkeyParts(hotkey);
 }
 
 interface Props {
@@ -47,10 +48,12 @@ interface Props {
   onChange: (value: string) => void;
   onStartRecording?: () => void;
   onStopRecording?: () => void;
+  allowModifierOnly?: boolean;
 }
 
-export function HotkeyRecorder({ value, onChange, onStartRecording, onStopRecording }: Props) {
+export function HotkeyRecorder({ value, onChange, onStartRecording, onStopRecording, allowModifierOnly = false }: Props) {
   const [recording, setRecording] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [liveKeys, setLiveKeys] = useState<string[]>([]);
 
   // Use refs so event handlers always see current values without re-registering
@@ -59,13 +62,20 @@ export function HotkeyRecorder({ value, onChange, onStartRecording, onStopRecord
 
   const finalize = useCallback(() => {
     const keys = sortKeys(capturedRef.current);
-    if (keys.length > 0) onChange(keys.join("+"));
+    if (keys.length > 0) {
+      if (!allowModifierOnly && keys.every((key) => HOTKEY_MODIFIER_KEYS.has(key))) {
+        setError("Add a real key like F9, Escape or a letter. Modifier-only shortcuts are rejected.");
+      } else {
+        onChange(keys.join("+"));
+        setError(null);
+      }
+    }
     setRecording(false);
     setLiveKeys([]);
     heldRef.current.clear();
     capturedRef.current = [];
     onStopRecording?.();
-  }, [onChange, onStopRecording]);
+  }, [allowModifierOnly, onChange, onStopRecording]);
 
   const cancel = useCallback(() => {
     setRecording(false);
@@ -116,6 +126,7 @@ export function HotkeyRecorder({ value, onChange, onStartRecording, onStopRecord
     heldRef.current.clear();
     capturedRef.current = [];
     setLiveKeys([]);
+    setError(null);
     setRecording(true);
     onStartRecording?.();
   };
@@ -147,7 +158,7 @@ export function HotkeyRecorder({ value, onChange, onStartRecording, onStopRecord
           )}
         </>
       ) : (
-        <span className="hotkey-recorder__hint">Click to record</span>
+        <span className="hotkey-recorder__hint">{error ?? "Click to record"}</span>
       )}
     </div>
   );

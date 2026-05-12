@@ -1,7 +1,7 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [react()],
   // Tauri expects a fixed origin in dev; don't expose to network
   clearScreen: false,
@@ -24,4 +24,9 @@ export default defineConfig(async () => ({
     sourcemap: !!process.env.TAURI_DEBUG,
     outDir: "dist",
   },
-}));
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./vitest.setup.ts"],
+    css: true,
+  },
+});

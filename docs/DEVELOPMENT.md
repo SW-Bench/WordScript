@@ -1,91 +1,207 @@
-# WordScript — Development Guide
+# WordScript — Development
 
-## Voraussetzungen
+Stand: 2026-05-12
 
-- Node.js 18+
-- Rust + Cargo (Tauri 2)
-- Python 3.10+ mit venv
-- Linux: `libwebkit2gtk-4.1-0`, `libayatana-appindicator3-1`, `libxdo3`, `wl-clipboard` (Wayland)
+## Zweck
+
+Dieses Dokument beschreibt, wie am aktuellen WordScript-Produktpfad gearbeitet wird.
+
+Wichtig: Der aktive Pfad ist kein Python-Sidecar-Rebuild mehr. Produktlogik liegt in Tauri/Rust, die React-UI stellt diesen Zustand dar und konfiguriert ihn.
+
+## Stack und aktive Bereiche
+
+- Frontend: React 18, TypeScript, Vite, Vitest
+- Desktop host: Tauri v2
+- Runtime: Rust mit `cpal`, `hound`, `reqwest`, `keyring`, `rodio`, `arboard`, `enigo`
+- Versionstand: `0.2.2-alpha`
+
+Die aktiven Arbeitsbereiche sind:
+
+- `src/` fuer Overlay, Settings, Hooks, UI-Vertraege und Tests
+- `src-tauri/src/` fuer Trigger, Capture, Provider, Transform, Insert, Recovery und Sound
+- `docs/` fuer die bewusst kleine Dokumentationsbasis
+
+Diese Bereiche sind keine Grundlage fuer neue Produktlogik:
+
+- alte Sidecar- oder Glue-Pfade
+- Renderer-only Zustandsmaschinen fuer Runtime-Orchestrierung
+- ungetypte JSON-Zwischenschichten, die Rust-Ownership wieder verwischen
 
 ## Setup
 
+### Voraussetzungen
+
+- Node.js 18+
+- Rust + Cargo
+- macOS: Xcode Command Line Tools; Homebrew is recommended for `setup-tauri.sh`
+- Windows: Visual Studio Build Tools mit C++-Workload und Microsoft WebView2 Runtime
+- Linux: `libwebkit2gtk-4.1-0`, `libayatana-appindicator3-1`, `libxdo3`
+
+### Bootstrap pro Plattform
+
+macOS und Linux:
+
 ```bash
-# 1. Node-Dependencies
+bash setup-tauri.sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup-tauri.ps1
+```
+
+### Lokaler Start
+
+```bash
 npm install
-
-# 2. Python venv + Dependencies
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# 3. Dev-Server starten
 npm run tauri dev
 ```
 
-## Wie der Dev-Mode funktioniert
+`npm run tauri dev` startet den nativen Produktpfad. Das ist heute die benutzbare Dev-Version von WordScript. Es wird kein Python-Sidecar gebaut oder gestartet.
 
-`npm run tauri dev` startet:
-1. **Vite** Dev-Server auf `localhost:1420`
-2. **Cargo** kompiliert `src-tauri/` und startet die Desktop-App
-3. **Tauri** spawnt den Python-Sidecar:
-   - Dev: `.venv/bin/python -m wordscript sidecar` (Pfad via `CARGO_MANIFEST_DIR`)
-   - Prod: Gebundelte PyInstaller-Binary
+Parallel dazu wird am ersten offiziellen Cross-Platform-App-Release fuer Linux, macOS und Windows gearbeitet. Dieser Release-Aufbau ersetzt die Dev-Version noch nicht.
 
-### Wichtig: Rust-Rebuild
+Wichtiger Plattformhinweis fuer echte Insert-Checks:
 
-Tauri's Hot-Reload erkennt Dateiänderungen in `src-tauri/src/`. Falls Änderungen nicht übernommen werden:
+- macOS Dev-Mode kann Accessibility und je nach Launcher auch Input Monitoring fuer Terminal, VS Code oder die spaeter paketierte WordScript-App verlangen
+- Windows-Ziele mit hoeheren Rechten koennen simuliertes Paste blockieren, wenn WordScript nicht auf demselben Privileg-Level laeuft
+- Linux Wayland bleibt ein Clipboard-/Helper-lastiger Experimentalpfad
+
+## Arbeitsregeln
+
+### 1. Am owning surface anfangen
+
+- UI-Themen starten bei `src/windows/`, `src/components/settings/` oder `src/hooks/`
+- Runtime-Themen starten bei `src-tauri/src/core/`
+- Architekturfragen zuerst gegen [ARCHITECTURE.md](./ARCHITECTURE.md) pruefen
+- Produkt- und Scope-Fragen zuerst gegen [VISION.md](./VISION.md) pruefen
+
+### 2. Rust bleibt Runtime-Owner
+
+Die folgenden Themen gehoeren in Rust, nicht in React:
+
+- globale Hotkeys
+- Capture-Lifecycle
+- Session-Orchestrierung
+- Provider-Aufruf
+- Transform-Reihenfolge
+- Insert und Recovery
+
+React darf diese Dinge anzeigen, konfigurieren und diagnostisch erklaeren, aber nicht semantisch neu erfinden.
+
+### 3. Kleine, pruefbare Slices bauen
+
+Jede groessere Aenderung sollte mindestens eines davon sichtbar schliessen:
+
+- typed contract
+- nativer Zustand
+- echte Nutzerwirkung im Produktpfad
+- testbare Regression oder reproduzierbare Build-Validierung
+
+### 4. Dokumentation gleichzeitig pflegen
+
+Wenn sich Produktrealitaet aendert, muessen mindestens die passenden Kern-Dokumente mitgezogen werden:
+
+- [README.md](../README.md) fuer Projektueberblick
+- [VISION.md](./VISION.md) fuer Richtung und Scope
+- [ARCHITECTURE.md](./ARCHITECTURE.md) fuer Ownership und Fluss
+- [DEVELOPMENT.md](./DEVELOPMENT.md) fuer Workflow und Validation
+- [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) fuer UI-Regeln
+- [REFERENCE.md](./REFERENCE.md) fuer aktuelle Fakten, Grenzen und offene Punkte
+- [CHANGELOG.md](../CHANGELOG.md) fuer veroeffentlichte Aenderungen
+
+### 5. Repo sauber halten
+
+- generierte Metadaten wie `BUILD_ID` und `build_info.json` gehoeren nicht mehr zum aktiven Repo-Pfad
+- lokale Tool-Spuren wie `.playwright-mcp/`, `wordscript.log` oder alte Python-`__pycache__`-Reste duerfen nicht in Git landen
+- vor Pushes `git status --short` gegen unbeabsichtigte lokale Artefakte pruefen
+
+## Validation
+
+### UI-only Aenderungen
+
+1. engsten betroffenen Vitest laufen lassen
+2. `npm run build`
+
+### Rust- oder Runtime-Aenderungen
+
+1. `cd src-tauri && cargo test`
+2. wenn noetig zusaetzlich `cd src-tauri && cargo check`
+
+### Cross-cutting Aenderungen
+
 ```bash
-cd src-tauri && touch src/lib.rs && cargo build --no-default-features
+npm test
+npm run build
+cd src-tauri && cargo test
 ```
 
-## Projektstruktur
+### Release-build-up Aenderungen
 
-```
-WordScript/
-├── src/                    # React Frontend (TypeScript)
-│   ├── hooks/              # useSidecar State-Machine
-│   ├── windows/            # Overlay + Settings Windows
-│   └── types/              # IPC-Typen
-├── src-tauri/              # Rust/Tauri Backend
-│   └── src/lib.rs          # Sidecar-Spawn, Event-Routing
-├── wordscript/             # Python Sidecar
-│   ├── sidecar.py          # Headless Backend
-│   ├── transcription.py    # Groq Whisper + LLM
-│   ├── recorder.py         # Audio-Aufnahme
-│   ├── hotkey.py           # Globaler Hotkey
-│   ├── paster.py           # Clipboard + Paste
-│   └── config.py           # Konfiguration
-├── requirements.txt        # Python-Dependencies
-└── docs/                   # Dokumentation
-```
-
-## Production Build
+Wenn Bundle-Ziele, Release-Workflow, Runbook oder die About-Release-Flaeche angepasst werden:
 
 ```bash
-# Sidecar-Binary bauen
-./build-sidecar.sh          # Linux/macOS
-./build-sidecar.ps1         # Windows
-
-# App bauen
+npm run build
+cd src-tauri && cargo test
 npm run tauri build
 ```
 
-## Debugging
+Ein reiner Browser-Check reicht fuer Tauri-gebundene Ansichten nicht aus, weil `invoke()` und Event-Bridges ohne nativen Host nur einen Teil des Produktpfads abdecken.
 
-### Python-Sidecar separat testen
-```bash
-source .venv/bin/activate
-python -m wordscript sidecar
-# JSON-Commands über stdin senden, z.B.:
-# {"cmd": "reload_config"}
-```
+Wichtig fuer den aktuellen Stand:
 
-### Häufige Probleme
+- `npm run tauri build` bleibt ein Build-Up-Check und kein Beweis fuer einen fertigen oeffentlichen Release-Pfad
+- Linux-AppImage-Packaging kann aktuell noch an `linuxdeploy` scheitern; das ist derzeit ein bekannter Packaging-Befund waehrend der Release-Aufbau weiter stabilisiert wird
 
-| Problem | Ursache | Lösung |
-|---|---|---|
-| "No module named wordscript" | System-Python statt venv | `source .venv/bin/activate && pip install -r requirements.txt` |
-| 60s Timeout bei Transkription | IPv6-Connect-Timeout | Bereits behoben: IPv4 erzwungen in `transcription.py` |
-| "Connecting to backend..." | Sidecar startet nicht | Logs prüfen: `npm run tauri dev` Output |
-| Kein Audio | PulseAudio/PipeWire fehlt | `pactl info` prüfen |
-| Clipboard leer (Wayland) | `wl-copy` fehlt | `sudo pacman -S wl-clipboard` |
+## CI
+
+- `.github/workflows/ci.yml` prueft Pull Requests und `main` auf Ubuntu, macOS und Windows mit Frontend-Tests, Frontend-Build, `cargo check` und `cargo test`
+- `.github/workflows/release.yml` ist der aktuelle manuelle Release-Build-Up-Workflow fuer Linux, macOS und Windows; er fuehrt Frontend-Tests, Rust-Tests, Frontend-Build und danach erst das Bundling aus
+- Packaging, Signing und Updater-Arbeit sind wieder Teil des aktiven Aufbaupfads, duerfen aber erst nach dem ersten echten Release als live bezeichnet werden
+
+## Repo-Orientierung
+
+### Frontend
+
+- `src/App.tsx`: Routing fuer Overlay und Settings
+- `src/windows/`: Fenster-Komposition
+- `src/components/settings/`: aktive Settings-Tabs
+- `src/hooks/`: Runtime-, Provider-, Insert-, Log- und Diagnostics-Hooks
+- `src/types/`: getypte UI-Vertraege fuer Runtime, Text Rules, Insertion und Release-Status
+
+### Backend
+
+- `src-tauri/src/lib.rs`: Window-Setup, Commands und Event-Bridges
+- `src-tauri/src/core/config.rs`: Config-Lifecycle und Disk-I/O
+- `src-tauri/src/core/trigger.rs`: Start/Stop, Pause/Resume, Abort
+- `src-tauri/src/core/capture.rs`: Mikrofon-Capture, Levels, WAV und Auto-Stop
+- `src-tauri/src/core/providers/groq.rs`: Groq-BYOK und Provider-Fehler
+- `src-tauri/src/core/transform.rs`: Cleanup, Dictionary und Snippets
+- `src-tauri/src/core/insertion.rs`: Paste-Modi, Clipboard-Restore, Scratchpad und Recovery
+- `src-tauri/src/core/updates.rs`: ehrlicher GitHub-Release-Status fuer die About-Flaeche und den Release-Aufbaupfad
+- `src-tauri/src/core/runtime_log.rs`: gepufferte Runtime-Logs
+
+## Verbleibender Dokumentensatz
+
+Jede verbliebene Datei im Doku-Set hat einen klaren Zweck:
+
+- `README.md`: Projektueberblick fuer neue Nutzer und Entwickler
+- `docs/VISION.md`: Produktziel, V1, V2 und aktueller Fokus
+- `docs/ARCHITECTURE.md`: Systemgrenzen und aktiver Runtime-Fluss
+- `docs/DEVELOPMENT.md`: Arbeitsmodus und Validation
+- `docs/DESIGN_SYSTEM.md`: UI-Regeln fuer Overlay und Settings
+- `docs/REFERENCE.md`: aktuelle Produktrealitaet, Limits, Support und offene Punkte
+- `docs/RELEASE_RUNBOOK.md`: aktueller manueller Build-Matrix- und Release-Aufbaupfad
+
+Wenn eine weitere Doku-Datei hinzukommt, braucht sie einen engeren Zweck als diese Kern-Dokumente.
+
+## Aktueller Entwicklungsfokus
+
+Die naechste Arbeit ist nicht weiterer Scope-Ausbau, sondern V1-Konsolidierung:
+
+1. Trigger-, Capture-, Insert- und Recovery-Pfad weiter stabilisieren
+2. Text Rules, Diagnostics und Support-Kommunikation im bestehenden Produktpfad weiter schaerfen
+3. den kommerziellen Release-Aufbau ohne falsche Verfuegbarkeitssignale sauber mitfuehren
+
+Lokale Profile bleiben eine moegliche naechste Produktstufe, sind aber heute nicht implementiert und duerfen in der Doku nicht als aktive Funktion beschrieben werden.

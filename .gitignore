@@ -1,4 +1,4 @@
-# ── Python ────────────────────────────────────────────────────────────────
+# ── Legacy Python / local experiments ─────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -14,7 +14,6 @@ build/
 dist/
 dist-python/
 *.spec
-!WordScript.spec
 
 # ── Node / npm ────────────────────────────────────────────────────────────
 node_modules/
@@ -23,7 +22,6 @@ node_modules/
 # ── Tauri / Rust ──────────────────────────────────────────────────────────
 src-tauri/target/
 src-tauri/gen/
-src-tauri/binaries/
 
 # ── Icon source (build artefact, not for version control) ─────────────────
 src-tauri/icons/ws-logo.png
@@ -38,6 +36,7 @@ build_info.json
 # ── Temp / Claude tooling ─────────────────────────────────────────────────
 tmpclaude-*
 nul
+.playwright-mcp/
 
 # ── OS ────────────────────────────────────────────────────────────────────
 .DS_Store

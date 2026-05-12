@@ -1,97 +1,119 @@
-# WordScript — Vision & Roadmap
+# WordScript — Vision
 
-## What it is
+Stand: 2026-05-12
 
-WordScript is a lightweight, always-on desktop utility (Windows, macOS, Linux) that lets you interact with your computer using voice or text — fast, via a global hotkey. No context switching, no open browser tab.
+## Nordstern
 
-**Core idea:** One shortcut. Two modes. Always ready.
+WordScript soll eine offene Desktop-Diktier-App werden, die fuer Vielschreiber schneller und ehrlicher ist als generische Sprachtools.
 
----
+Nicht als allgemeiner AI-Assistent. Nicht als Feature-Sammlung. Sondern als Produkt fuer einen klaren Moment:
 
-## Current State
+**Trigger. Sprechen. Brauchbarer Text. Saubere Recovery. Weiterarbeiten.**
 
-- Global hotkey triggers microphone recording
-- Audio is transcribed via Groq Whisper API (ultra-fast)
-- Transcribed text is auto-pasted into the focused application
-- System tray icon, tap/hold modes, multilingual support
+## Community-Haltung
 
----
+WordScript entsteht unter SW bench, der Open-Source-brand von SW labs. Das Produkt soll als Community-Build wachsen: offen im Repo, nachvollziehbar im Runtime-Pfad und attraktiv fuer Leute, die ein gutes Diktierprodukt bauen wollen statt nur ein weiteres Abo-Modell. 
 
-## Planned Features
+Ein spaeterer kommerzieller Release-Aufbau ist nicht ausgeschlossen. Aber die Richtung ist klar: zuerst ein richtig gutes Produkt, keine kuenstliche Bezahlschranke auf Basis-Produktivitaet wie Sprechen, Tippen und Weiterarbeiten. 
 
-### 1. Audio Visualizer
-A minimal overlay (bottom of screen) showing a live waveform or level indicator while recording — so you always have visual confirmation that the mic is active.
+## Was WordScript einmal werden soll
 
-**Options:**
-- Waveform bar overlay (simple, no dependencies)
-- Animated ring around tray icon (even lighter)
+Langfristig soll WordScript eine starke, offene Diktierbasis fuer Desktop-Workflows werden:
 
-### 2. AI Voice / Text Assistant Mode
-A second mode switchable via hotkey: instead of transcribing and pasting, the recorded/typed input is sent to an AI and a concise answer is returned.
+- schnell genug fuer IDEs, Chat, Mail und Dokumente
+- flexibel genug fuer unterschiedliche Provider und spaetere Arbeitsprofile
+- ehrlich genug, um Plattformgrenzen und Recovery nicht hinter Marketing zu verstecken
+- offen genug, dass Nutzer ihre Regeln, Daten und Workflows kontrollieren koennen
 
-**Use cases:**
-- Quick question about something on screen (with optional screenshot context)
-- Summarize, explain, rewrite selected text
-- Short tasks: "What does this error mean?", "Translate this paragraph"
+## Was V1 ist
 
-**Input:** Voice (via Whisper) or typed text in a small popup  
-**Output:** Short AI response shown in an overlay or copied to clipboard
+V1 ist ein enges Diktierprodukt fuer Desktop-Textfelder.
 
-### 3. Screen Context (Visual Q&A)
-Optionally attach a screenshot (full screen or selected region) as context when sending a question to the AI — enabling questions like *"What is this UI element doing?"* or *"Explain this chart."*
+V1 bedeutet:
 
-### 4. Switchable Backends
+- globaler Trigger
+- stabiler Capture-to-Insert-Loop
+- cloud-first Transkription als Standardpfad
+- persoenliches Dictionary und erste Snippets
+- klares Recovery-Modell
+- ehrliche Support-Tiers
+- eine kleine, produktive Desktopoberflaeche statt Tool-Sammlung
 
-| Use case | Backend |
-|---|---|
-| Transcription | Groq Whisper (current) |
-| Quick AI answers | Groq LLaMA / Claude Haiku via API |
-| Deep tasks / coding | Claude Opus / Sonnet via API |
-| Self-hosted / offline | Open WebUI + local model |
+V1 bedeutet nicht:
 
-The goal is to stay fast and cheap for quick interactions, and only escalate to a heavier model when needed.
+- kein allgemeiner AI-Assistant
+- kein Screen-Context-System
+- keine Team- oder Admin-Flaeche
+- keine mobile Paritaet
+- kein als fertig verkaufter halb fertiger Auto-Updater
 
----
+## Was V2 ist
 
-## Shortcut Design (Concept)
+V2 beginnt erst auf einem funktionierenden Diktierkern.
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl + Win` | Transcribe (current behavior) |
-| `Ctrl + Alt + Win` | Ask AI (voice or text input) |
-| `Ctrl + Shift + Win` | Ask AI with screenshot context |
+Erst dann werden Themen wie diese sinnvoll:
 
----
+- lokale Profile fuer unterschiedliche Arbeitskontexte
+- spaetere Rewrite-Styles und produktivere Textmodi
+- Team-Dictionaries oder geteilte Snippet-Sets
+- tieferere IDE-Integrationen
+- spaetere Assistant- oder Command-Workflows
+- moeglicher Hosted Mode mit eigenem Backend
 
-## Integration into Other Projects
+V2 ist also ein Ausbau auf Basis eines guten Kerns, nicht eine Abkuerzung an V1 vorbei.
 
-WordScript is designed to be self-contained and embeddable:
+## Wo wir gerade stehen
 
-- **As a subprocess:** Any Python or Electron app can spawn it and read output via stdout/named pipe
-- **As a module:** Core transcription and AI query logic can be imported directly
-- **As a REST microservice:** A lightweight local HTTP server mode (`--serve`) could expose endpoints for other tools to call
+Der aktuelle Stand ist `0.2.2-alpha`.
 
-**VS Code integration** (via Continue / Cline):  
-The assistant mode can complement AI coding tools — use WordScript for quick voice queries, Continue/Cline for deep in-editor tasks. Clear boundary: WordScript = ambient assistant, Continue/Cline = code agent.
+Der Produktkern ist real:
 
----
+- native Hotkeys
+- native Aufnahme
+- Groq-BYOK
+- native Transform-Pipeline
+- native Insertion mit Recovery
+- aktive Settings- und Diagnostics-Flaechen
 
-## Open Questions
+Was noch fehlt, ist vor allem Produktkonsolidierung:
 
-- Overlay UI: `tkinter` (built-in) vs. `PyQt6` vs. a small web-based popup (Flask + browser)
-- AI response: show inline overlay vs. paste into focused window vs. speak via TTS
-- When does a "quick task" justify switching to Claude Desktop / a full agent?
+- heute wird WordScript praktisch als Dev-Version via `npm run tauri dev` benutzt
+- ein sauberer kommerzieller Release-Aufbau ohne falsche Release- oder Update-Versprechen
+- weitere Schaerfung bei Recovery, Support-Kommunikation und Text Rules
 
----
+Parallel dazu wird das erste offizielle Cross-Platform-App-Release fuer Linux, macOS und Windows aufgebaut.
 
-## Platform Target
+## Aktuelle Entscheidungen
 
-WordScript will be rebuilt as an **Electron app** to run natively on Windows, macOS, and Linux.
+- Der aktive Kern bleibt Tauri/Rust plus React-UI.
+- Cloud ist fuer V1 der Standardpfad.
+- Groq ist der erste echte Provider im Produkt.
+- BYOK bleibt die aktuelle Credential-Strategie.
+- Dictionary und Snippets liegen im nativen Transform-Pfad.
+- Recovery mit Clipboard, Scratchpad und Last-Transcript-Restore ist Teil des Produktversprechens.
+- Distribution, Signierung und Updater sind aktive Aufbaupfade, aber noch kein fertiges Nutzer-Versprechen.
 
-- Current Python prototype validates the core logic
-- Electron provides a proper cross-platform shell, global hotkey support, system tray, and overlay UI
-- Core transcription / AI logic stays in Python (called as a subprocess or sidecar) or gets ported to Node.js where feasible
-- Distribution: packaged binaries per platform via `electron-builder`
+## Plattformziel
 
----
+- macOS: Tier 1 Zielpfad
+- Windows: Tier 1 Zielpfad
+- Linux X11: Preview
+- Linux Wayland: Experimental
 
+## Was jetzt nicht passieren soll
+
+Die aktuelle Arbeit darf nicht wieder in diese Richtung driften:
+
+- Scope-Ausweitung auf Assistant-, Agent- oder Account-Themen
+- neue tote Settings-Optionen ohne echten Runtime-Pfad
+- Dokumentation, die geplante Themen als implementiert beschreibt
+
+## Was wir jetzt konkret bearbeiten
+
+Die unmittelbaren Produktprioritaeten sind:
+
+1. Den kommerziellen Release-Aufbau ehrlich zeigen, ohne publizierte Releases oder funktionierende Updates vorzutaeuschen.
+2. Im bestehenden V1-Pfad Text Rules, Recovery und Supportfuehrung weiter schaerfen.
+3. Plattformgrenzen und Diagnostics im aktiven Produktpfad weiter schaerfen.
+
+Wenn Profile vorgezogen werden, dann nur als lokaler, diktiernaher Ausbau fuer Context, Dictionary, Snippets und spaetere Rewrite-Defaults, nicht als verkappter Assistant-Scope.
