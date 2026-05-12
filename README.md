@@ -1,4 +1,4 @@
-![WordScript](assets/wordscript_wordmark+logo.png)
+![WordScript](assets/OG.png)
 
 ![SW bench](assets/SW%20bench_wordmark.png)
 
