@@ -1,6 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
+import { useTranscriptionHistory } from "../../hooks/useTranscriptionHistory";
 import { useRuntimeLogs } from "../../hooks/useRuntimeLogs";
 import { useV1Slice } from "../../hooks/useV1Slice";
+import type { AppConfig } from "../../types/ipc";
+import type {
+  TranscriptionHistoryEntry,
+  TranscriptionHistoryQuery,
+  TranscriptionHistorySource,
+  TranscriptionHistoryStatus,
+} from "../../types/history";
 import type { SliceStage } from "../../types/v1Slice";
 
 const DEFAULT_TEXT = "wir shippen morgen die neue WordScript Version und brauchen klare release notes ohne Halluzinationen oder Fallback Chaos";
@@ -20,6 +29,35 @@ const PROFILE_OPTIONS = [
 const INSERT_TARGET_OPTIONS = [
   { value: "editor_preview", label: "Editor preview" },
   { value: "clipboard_preview", label: "Clipboard fallback preview" },
+] as const;
+
+const HISTORY_PROVIDER_OPTIONS = [
+  { value: "all", label: "All providers" },
+  { value: "groq", label: "Groq" },
+  { value: "local_preview", label: "Local preview" },
+] as const;
+
+const HISTORY_STATUS_OPTIONS = [
+  { value: "all", label: "All statuses" },
+  { value: "completed", label: "Completed" },
+  { value: "empty", label: "Empty" },
+  { value: "failed", label: "Failed" },
+] as const;
+
+const HISTORY_SOURCE_OPTIONS = [
+  { value: "all", label: "All sources" },
+  { value: "native_pipeline", label: "Native pipeline" },
+  { value: "retry", label: "Retry only" },
+] as const;
+
+const HISTORY_VIEW_LIMIT_OPTIONS = [8, 25, 50] as const;
+const HISTORY_LIMIT_OPTIONS = [50, 100, 200, 500, 1000] as const;
+const HISTORY_RETENTION_OPTIONS = [
+  { value: 7, label: "7 days" },
+  { value: 30, label: "30 days" },
+  { value: 90, label: "90 days" },
+  { value: 365, label: "1 year" },
+  { value: 0, label: "Keep indefinitely" },
 ] as const;
 
 function stageLabel(stage: SliceStage | undefined) {
@@ -191,6 +229,36 @@ function describeCorrectionOutcome(corrected: boolean | null) {
   }
 }
 
+function historyStatusLabel(status: TranscriptionHistoryStatus) {
+  switch (status) {
+    case "completed":
+      return "Completed";
+    case "empty":
+      return "Empty";
+    case "failed":
+    default:
+      return "Failed";
+  }
+}
+
+function historySourceLabel(source: TranscriptionHistorySource) {
+  switch (source) {
+    case "retry":
+      return "Retry run";
+    case "native_pipeline":
+    default:
+      return "Native pipeline";
+  }
+}
+
+function formatHistoryTimestamp(createdAtMs: number) {
+  return new Date(createdAtMs).toISOString().slice(0, 16).replace("T", " ");
+}
+
+function canRetryHistoryEntry(entry: TranscriptionHistoryEntry) {
+  return Boolean(entry.raw_transcript?.trim());
+}
+
 function parseRuntimeLogRuleHints(entries: string[]): RuntimeLogRuleHint[] {
   return entries
     .filter((entry) => entry.includes(" rules="))
@@ -221,16 +289,27 @@ function parseRuntimeLogRuleHints(entries: string[]): RuntimeLogRuleHint[] {
 
 interface RebuildLabTabProps {
   isActive: boolean;
+  config: AppConfig;
+  onChange: (patch: Partial<AppConfig>) => void;
 }
 
-export function RebuildLabTab({ isActive }: RebuildLabTabProps) {
+export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps) {
   const { status, result, error, isPending, refresh, startCapture, completeCapture, reset } = useV1Slice();
+  const transcriptionHistory = useTranscriptionHistory(isActive);
   const runtimeLogs = useRuntimeLogs(isActive);
   const [trigger, setTrigger] = useState("hold_to_talk");
   const [profile, setProfile] = useState("developer");
   const [insertTarget, setInsertTarget] = useState("editor_preview");
   const [rawText, setRawText] = useState(DEFAULT_TEXT);
   const [editorValue, setEditorValue] = useState("");
+  const [historyProviderFilter, setHistoryProviderFilter] = useState("all");
+  const [historyProfileFilter, setHistoryProfileFilter] = useState("all");
+  const [historyStatusFilter, setHistoryStatusFilter] = useState("all");
+  const [historySourceFilter, setHistorySourceFilter] = useState("all");
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyErrorsOnly, setHistoryErrorsOnly] = useState(false);
+  const [historyViewLimit, setHistoryViewLimit] = useState<number>(8);
+  const [historyFeedback, setHistoryFeedback] = useState<string | null>(null);
 
   const capabilityText = useMemo(() => {
     if (!status) return [];
@@ -249,6 +328,20 @@ export function RebuildLabTab({ isActive }: RebuildLabTabProps) {
     () => parseRuntimeLogRuleHints(runtimeLogs.entries),
     [runtimeLogs.entries],
   );
+  const historyQuery = useMemo<TranscriptionHistoryQuery>(() => ({
+    limit: historyViewLimit,
+    provider: historyProviderFilter === "all" ? undefined : historyProviderFilter,
+    active_profile: historyProfileFilter === "all"
+      ? undefined
+      : config.text_profiles.find((profileOption) => profileOption.id === historyProfileFilter)?.label,
+    status: historyStatusFilter === "all" ? undefined : historyStatusFilter as TranscriptionHistoryStatus,
+    source: historySourceFilter === "all" ? undefined : historySourceFilter as TranscriptionHistorySource,
+    search: historySearch,
+    include_errors_only: historyErrorsOnly,
+  }), [config.text_profiles, historyErrorsOnly, historyProfileFilter, historyProviderFilter, historySearch, historySourceFilter, historyStatusFilter, historyViewLimit]);
+  const visibleHistoryEntries = transcriptionHistory.entries;
+  const retentionLabel = HISTORY_RETENTION_OPTIONS.find((option) => option.value === config.history_retention_days)?.label
+    ?? `${config.history_retention_days} days`;
 
   const stage = status?.stage;
   const runtimeLogText = runtimeLogs.entries.length
@@ -256,6 +349,11 @@ export function RebuildLabTab({ isActive }: RebuildLabTabProps) {
     : "No runtime logs yet.";
   const canStartSession = !isPending && stage !== "capturing" && stage !== "processing";
   const canCompleteSession = !isPending && stage === "capturing";
+
+  useEffect(() => {
+    if (!isActive) return;
+    void transcriptionHistory.refresh(historyQuery);
+  }, [historyQuery, isActive, transcriptionHistory.refresh]);
 
   const appendPreview = (text: string) => {
     setEditorValue((current) => (current ? `${current}\n${text}` : text));
@@ -300,6 +398,20 @@ export function RebuildLabTab({ isActive }: RebuildLabTabProps) {
 
   const handleLoadSample = () => {
     setRawText(DEFAULT_TEXT);
+  };
+
+  const handleExportHistory = async () => {
+    const target = await save({
+      title: "Export transcription history",
+      defaultPath: "wordscript-transcription-history.json",
+      filters: [{ name: "WordScript history", extensions: ["json"] }],
+    });
+    if (!target) return;
+
+    const response = await transcriptionHistory.exportEntries(target, historyQuery);
+    if (response) {
+      setHistoryFeedback(`Exported ${response.exported_count} history entries to ${response.path.split(/[\\/]/).pop() ?? response.path}.`);
+    }
   };
 
   return (
@@ -422,7 +534,10 @@ export function RebuildLabTab({ isActive }: RebuildLabTabProps) {
 
       <div className="form-section">Transcript Output</div>
       <div className="settings__about-card">
-        <strong className="settings__about-title">Last transcript</strong>
+        <strong className="settings__about-title">Current diagnostic transcript</strong>
+        <p className="form-dim" style={{ margin: 0 }}>
+          This preview belongs to the active diagnostics lane in this window. It is not the recovery scratchpad from Input and not the persisted history store below.
+        </p>
         <p className="form-dim" style={{ margin: 0 }}>
           {result?.transcript.final_text ?? status?.last_transcript ?? "No transcript yet."}
         </p>
@@ -469,10 +584,178 @@ export function RebuildLabTab({ isActive }: RebuildLabTabProps) {
         </div>
       </div>
 
+      <div className="form-section">Transcription History</div>
+      <div className="settings__about-card">
+        <p className="form-dim" style={{ marginTop: 0 }}>
+          History is stored natively and survives the diagnostics UI. Retry re-runs transform and insertion from the stored raw transcript instead of only restoring clipboard state, so this is a separate store from Input recovery.
+        </p>
+        <div className="form-row">
+          <label>History store</label>
+          <div className="provider-status provider-status--stacked">
+            <span className={`provider-status__dot${transcriptionHistory.storagePath ? " provider-status__dot--ok" : ""}`} />
+            <div>
+              <strong>Persistent transcript log</strong>
+              <span className="provider-status__path">{transcriptionHistory.storagePath ?? "Loading native history path"}</span>
+            </div>
+          </div>
+        </div>
+        <div className="form-row">
+          <label htmlFor="history-provider-filter">Provider filter</label>
+          <select id="history-provider-filter" aria-label="History provider filter" value={historyProviderFilter} onChange={(event) => setHistoryProviderFilter(event.target.value)}>
+            {HISTORY_PROVIDER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="history-status-filter">Status filter</label>
+          <select id="history-status-filter" aria-label="History status filter" value={historyStatusFilter} onChange={(event) => setHistoryStatusFilter(event.target.value)}>
+            {HISTORY_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="history-profile-filter">Profile filter</label>
+          <select id="history-profile-filter" aria-label="History profile filter" value={historyProfileFilter} onChange={(event) => setHistoryProfileFilter(event.target.value)}>
+            <option value="all">All profiles</option>
+            {config.text_profiles.map((profileOption) => (
+              <option key={profileOption.id} value={profileOption.id}>{profileOption.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="history-source-filter">Source filter</label>
+          <select id="history-source-filter" aria-label="History source filter" value={historySourceFilter} onChange={(event) => setHistorySourceFilter(event.target.value)}>
+            {HISTORY_SOURCE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="history-search">Search history</label>
+          <input
+            id="history-search"
+            aria-label="Search history"
+            type="search"
+            value={historySearch}
+            placeholder="Find transcript text, errors or models"
+            onChange={(event) => setHistorySearch(event.target.value)}
+          />
+        </div>
+        <div className="form-row">
+          <label htmlFor="history-view-limit">Visible entries</label>
+          <select id="history-view-limit" aria-label="History visible entries" value={historyViewLimit} onChange={(event) => setHistoryViewLimit(Number(event.target.value))}>
+            {HISTORY_VIEW_LIMIT_OPTIONS.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="history-errors-only">Only failed entries</label>
+          <input
+            id="history-errors-only"
+            aria-label="Only failed history entries"
+            type="checkbox"
+            checked={historyErrorsOnly}
+            onChange={(event) => setHistoryErrorsOnly(event.target.checked)}
+          />
+        </div>
+        <div className="form-section">History Policy</div>
+        <div className="form-row">
+          <label htmlFor="history-limit">Stored entries</label>
+          <select id="history-limit" aria-label="Stored history entries" value={config.history_limit} onChange={(event) => onChange({ history_limit: Number(event.target.value) })}>
+            {HISTORY_LIMIT_OPTIONS.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="history-retention-days">Retention window</label>
+          <select id="history-retention-days" aria-label="History retention window" value={config.history_retention_days} onChange={(event) => onChange({ history_retention_days: Number(event.target.value) })}>
+            {HISTORY_RETENTION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
+        <p className="form-dim">
+          Native retention currently keeps up to {config.history_limit} entries and prunes anything older than {retentionLabel.toLowerCase()}. Save settings to apply policy changes to the runtime store.
+        </p>
+        <div className="settings__provider-actions">
+          <button className="btn btn--cancel" type="button" onClick={() => void transcriptionHistory.refresh(historyQuery)} disabled={transcriptionHistory.isLoading}>
+            Refresh history
+          </button>
+          <button className="btn btn--cancel" type="button" onClick={() => void handleExportHistory()} disabled={transcriptionHistory.isLoading || !visibleHistoryEntries.length}>
+            Export history
+          </button>
+          <button className="btn btn--cancel" type="button" onClick={() => void transcriptionHistory.clear()} disabled={transcriptionHistory.isLoading || !transcriptionHistory.entries.length}>
+            Clear history
+          </button>
+        </div>
+        {visibleHistoryEntries.length > 0 ? (
+          <div style={{ display: "grid", gap: 12 }}>
+            {visibleHistoryEntries.map((entry) => (
+              <div key={entry.id} className="settings__rule-issue">
+                <strong>{historyStatusLabel(entry.status)} · {humanizeValue(entry.provider, "Provider")}</strong>
+                <p className="form-dim" style={{ margin: "4px 0 0" }}>
+                  {formatHistoryTimestamp(entry.created_at_ms)} · {historySourceLabel(entry.source)}
+                  {entry.retry_of ? ` · retry of ${entry.retry_of}` : ""}
+                </p>
+                <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
+                  <span className="settings__rule-chip">{entry.model ?? "default model"}</span>
+                  {entry.insert_mode && <span className="settings__rule-chip">{humanizeValue(entry.insert_mode, "Insert mode")}</span>}
+                  {entry.active_driver && <span className="settings__rule-chip">{humanizeValue(entry.active_driver, "Driver")}</span>}
+                  <span className="settings__rule-chip">{entry.active_profile ?? "Global rules"}</span>
+                </div>
+                <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                  <div>
+                    <strong>Raw transcript</strong>
+                    <p className="form-dim" style={{ margin: "4px 0 0" }}>
+                      {entry.raw_transcript ?? "No raw transcript stored."}
+                    </p>
+                  </div>
+                  <div>
+                    <strong>Final transcript</strong>
+                    <p className="form-dim" style={{ margin: "4px 0 0" }}>
+                      {entry.transformed_transcript ?? entry.error ?? "No transformed transcript stored."}
+                    </p>
+                  </div>
+                </div>
+                <div className="settings__provider-actions settings__provider-actions--compact">
+                  <button
+                    className="btn btn--cancel"
+                    type="button"
+                    aria-label={`Retry history entry ${entry.id}`}
+                    disabled={transcriptionHistory.isLoading || !canRetryHistoryEntry(entry)}
+                    onClick={() => void transcriptionHistory.retry(entry.id)}
+                  >
+                    Retry
+                  </button>
+                  <button
+                    className="btn btn--cancel"
+                    type="button"
+                    aria-label={`Delete history entry ${entry.id}`}
+                    disabled={transcriptionHistory.isLoading}
+                    onClick={() => void transcriptionHistory.remove(entry.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="form-dim">No history entries match the current filters.</p>
+        )}
+        <p className={`form-dim${transcriptionHistory.error ? " form-dim--error" : ""}`}>
+          {transcriptionHistory.error ?? historyFeedback ?? `${transcriptionHistory.entries.length} history entries match the current filters.`}
+        </p>
+      </div>
+
       <div className="form-section">Runtime Logs</div>
       <div className="settings__about-card">
         <p className="form-dim" style={{ marginTop: 0 }}>
-          Structured native logs stay enabled and are buffered here for fast inspection while the runtime is active.
+          Structured native logs stay enabled and are buffered here for fast inspection while the runtime is active. History above keeps the durable transcript record separate from this transient log stream.
         </p>
         <div className="settings__provider-actions">
           <button className="btn btn--cancel" type="button" onClick={() => void runtimeLogs.refresh()} disabled={runtimeLogs.isLoading}>

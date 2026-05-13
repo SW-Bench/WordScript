@@ -1,6 +1,6 @@
 # WordScript — Development
 
-Stand: 2026-05-12
+Stand: 2026-05-13
 
 ## Zweck
 
@@ -12,7 +12,7 @@ Wichtig: Der aktive Pfad ist kein Python-Sidecar-Rebuild mehr. Produktlogik lieg
 
 - Frontend: React 18, TypeScript, Vite, Vitest
 - Desktop host: Tauri v2
-- Runtime: Rust mit `cpal`, `hound`, `reqwest`, `keyring`, `rodio`, `arboard`, `enigo`
+- Runtime: Rust mit `cpal`, `hound`, `reqwest`, `keyring`, `rodio`, `arboard`, `enigo` und optionalem externen `whisper-cli` fuer die lokale Preview-Lane
 - Versionstand: `0.2.2-alpha`
 
 Die aktiven Arbeitsbereiche sind:
@@ -68,6 +68,12 @@ Wichtiger Plattformhinweis fuer echte Insert-Checks:
 - Windows-Ziele mit hoeheren Rechten koennen simuliertes Paste blockieren, wenn WordScript nicht auf demselben Privileg-Level laeuft
 - Linux Wayland bleibt ein Clipboard-/Helper-lastiger Experimentalpfad
 
+Optionaler lokaler Preview-Pfad:
+
+- `local_preview` braucht `whisper-cli` in `PATH` oder `WORDSCRIPT_LOCAL_WHISPER_CLI`
+- dazu `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin`
+- die Lane ist aktuell STT-only; AI cleanup bleibt Groq-first und faellt sonst auf das rohe Transkript zurueck
+
 ## Arbeitsregeln
 
 ### 1. Am owning surface anfangen
@@ -76,6 +82,8 @@ Wichtiger Plattformhinweis fuer echte Insert-Checks:
 - Runtime-Themen starten bei `src-tauri/src/core/`
 - Architekturfragen zuerst gegen [ARCHITECTURE.md](./ARCHITECTURE.md) pruefen
 - Produkt- und Scope-Fragen zuerst gegen [VISION.md](./VISION.md) pruefen
+- Provider-Slices starten bei `src-tauri/src/core/providers/` und duerfen nicht mehr direkt am Groq-Einzelfall vorbei in UI oder Host verdrahtet werden
+- Preview-/Offline-Slices muessen ihre externen Runtime-Voraussetzungen in Settings, README und REFERENCE explizit benennen statt einen eingebetteten Local-Mode vorzutaeuschen
 
 ### 2. Rust bleibt Runtime-Owner
 
@@ -110,6 +118,10 @@ Wenn sich Produktrealitaet aendert, muessen mindestens die passenden Kern-Dokume
 - [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) fuer UI-Regeln
 - [REFERENCE.md](./REFERENCE.md) fuer aktuelle Fakten, Grenzen und offene Punkte
 - [CHANGELOG.md](../CHANGELOG.md) fuer veroeffentlichte Aenderungen
+
+Wenn es um Ausbaupfade, Donor-Repos und Feature-Staging geht, ist zusaetzlich [BENCHMARK_MATRIX.md](./BENCHMARK_MATRIX.md) die Arbeitsreferenz.
+
+Wenn es um die konkrete Reihenfolge der naechsten Kern-Slices geht, ist [CORE_EXECUTION_PLAN.md](./CORE_EXECUTION_PLAN.md) die operative Referenz.
 
 ### 5. Repo sauber halten
 
@@ -166,18 +178,21 @@ Wichtig fuer den aktuellen Stand:
 
 - `src/App.tsx`: Routing fuer Overlay und Settings
 - `src/windows/`: Fenster-Komposition
-- `src/components/settings/`: aktive Settings-Tabs
-- `src/hooks/`: Runtime-, Provider-, Insert-, Log- und Diagnostics-Hooks
+- `src/components/settings/`: aktive Settings-Tabs inklusive Profil-Dock, gefuehrtem Text-Rules-Workspace mit kompakter Setup-Zone fuer Profile/Starter, oberer Stage-Navigation und getrennter Hauptarbeitsflaeche fuer Recovery-/Diagnostics-nahe Editoren
+- `src/hooks/`: Runtime-, Provider-, Insert-, Log- und Diagnostics-Hooks inklusive nativer History-Store-Status-Bridge
+- `src/lib/textProfileTemplates.ts`: kuratierte lokale Starterprofile und Create/Merge-Helfer fuer Text Profiles
 - `src/types/`: getypte UI-Vertraege fuer Runtime, Text Rules, Insertion und Release-Status
 
 ### Backend
 
 - `src-tauri/src/lib.rs`: Window-Setup, Commands und Event-Bridges
 - `src-tauri/src/core/config.rs`: Config-Lifecycle und Disk-I/O
+- `src-tauri/src/core/history.rs`: persistenter Transkriptverlauf mit Retry-, Filter-, Export- und Retention-Logik
 - `src-tauri/src/core/trigger.rs`: Start/Stop, Pause/Resume, Abort
 - `src-tauri/src/core/capture.rs`: Mikrofon-Capture, Levels, WAV und Auto-Stop
 - `src-tauri/src/core/providers/groq.rs`: Groq-BYOK und Provider-Fehler
-- `src-tauri/src/core/transform.rs`: Cleanup, Dictionary und Snippets
+- `src-tauri/src/core/providers/local_preview.rs`: externe `whisper-cli`-Preview-Lane und lokale Model-Aufloesung
+- `src-tauri/src/core/transform.rs`: Cleanup, aktive Profile, Dictionary und Snippets
 - `src-tauri/src/core/insertion.rs`: Paste-Modi, Clipboard-Restore, Scratchpad und Recovery
 - `src-tauri/src/core/updates.rs`: ehrlicher GitHub-Release-Status fuer die About-Flaeche und den Release-Aufbaupfad
 - `src-tauri/src/core/runtime_log.rs`: gepufferte Runtime-Logs
@@ -201,7 +216,14 @@ Wenn eine weitere Doku-Datei hinzukommt, braucht sie einen engeren Zweck als die
 Die naechste Arbeit ist nicht weiterer Scope-Ausbau, sondern V1-Konsolidierung:
 
 1. Trigger-, Capture-, Insert- und Recovery-Pfad weiter stabilisieren
-2. Text Rules, Diagnostics und Support-Kommunikation im bestehenden Produktpfad weiter schaerfen
-3. den kommerziellen Release-Aufbau ohne falsche Verfuegbarkeitssignale sauber mitfuehren
+2. History-, Retry- und Diagnostics-Pfad auf dem nativen Verlauf weiter ausbauen
+3. lokale Textprofile nach Sidebar-Dock und kuratierten Starter-Templates mit spaeterer Aktivierungslogik und ehrlicher Runtime-Kommunikation weiter verdichten
+4. die neue Local-Preview-Lane mit ehrlichen Diagnostics und sauberer Fallback-Kommunikation festigen
+5. Text Rules, Diagnostics und Support-Kommunikation im bestehenden Produktpfad weiter schaerfen
+6. den kommerziellen Release-Aufbau ohne falsche Verfuegbarkeitssignale sauber mitfuehren
 
-Lokale Profile bleiben eine moegliche naechste Produktstufe, sind aber heute nicht implementiert und duerfen in der Doku nicht als aktive Funktion beschrieben werden.
+Lokale Profile sind jetzt implementiert. Shell und Text-Rules-Editor teilen sich dafuer denselben Profil-Patch-Pfad, und die Text-Rules-Flaeche bringt eine lokale Starter-Library fuer zentrale ICPs mit. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung und spaetere Rewrite-Defaults ueber den aktiven Profilzustand hinaus.
+
+Langfristige Themen wie Notes, Sync, MCP, API, Assistant oder Browser-/Computer-Use sind explizit nicht ausgeschlossen. Sie muessen aber ueber gestufte Ausbaupfade auf einem stabilen Kern entstehen, nicht als Parallelprodukt neben dem aktiven Dictation-Pfad.
+
+Fuer spaetere Sync-Arbeit gilt als aktuelle Planungsrichtung: WordScript-eigener optionaler local-first Sync statt Peer-to-Peer-Primarmodell oder externer Hub-Pflicht. Solange dieser Pfad nicht real gebaut ist, duerfen Doku und UI weder Accounts noch Cloud-Workspaces als aktive Produktrealitaet darstellen.

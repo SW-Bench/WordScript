@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod config;
+pub mod history;
 pub mod insertion;
 pub mod paths;
 pub mod providers;

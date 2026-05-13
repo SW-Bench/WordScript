@@ -1,6 +1,6 @@
 # WordScript — Reference
 
-Stand: 2026-05-12
+Stand: 2026-05-13
 
 ## Zweck
 
@@ -28,8 +28,10 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - native Mikrofonaufnahme mit Waveform-/Level-Events
 - Silence-Timeout und Max-Duration-Autostop
 - Groq-BYOK mit OS secret store
+- `local_preview` als STT-only Preview-Lane ueber externes `whisper-cli` und lokale ggml-Modelle
 - Halluzinationsfilter und optionale AI-Nachkorrektur
-- Personal Dictionary und Snippets im nativen Transform-Pfad
+- lokale Textprofile fuer Transcription Context, Dictionary und Snippets im nativen Transform-Pfad
+- persistenter nativer Transkriptverlauf mit Retry, Delete/Clear, serverseitigen Filtern, JSON-Export und separater Diagnostics-Darstellung neben Runtime-Logs
 - Text-Rules-Validation, Preview, Import/Export und Konfliktbehandlung
 - native Insertion mit mehreren Fallback-Stufen
 - Scratchpad und Last-Transcript-Restore
@@ -71,12 +73,19 @@ Die native Plattformdiagnostik kommt aus `core::insertion` und wird sichtbar in 
 
 ## Provider- und Runtime-Grenzen
 
-### Groq-Modell
+### Provider-Lanes heute
 
-- aktuell ist nur Groq im aktiven Produktpfad implementiert
-- der Nutzer speichert den eigenen API-Key lokal im OS secret store
-- die JSON-Konfiguration wird beim Speichern gescrubbt
+- `groq` ist der cloud-first Produktionspfad
+- `local_preview` ist die aktuelle lokale Preview-Lane fuer STT ueber einen externen `whisper-cli`-Runner
+- der Nutzer speichert den eigenen Groq-API-Key lokal im OS secret store
+- die JSON-Konfiguration wird beim Speichern gescrubbt und alte JSON-Groq-Secrets werden nativ in den Secret Store migriert
 - ein WordScript-Proxy oder Hosted Mode existiert nicht
+
+### Lokale Preview-Voraussetzungen
+
+- `whisper-cli` in `PATH` oder `WORDSCRIPT_LOCAL_WHISPER_CLI`
+- `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin` sowie gaengige Varianten wie quantisierte oder `.en`-Dateien
+- die Lane ist aktuell STT-only; AI cleanup bleibt Groq-first und faellt im Preview-Pfad auf das rohe lokale Transkript zurueck
 
 ### Audio- und Upload-Relevanz
 
@@ -95,23 +104,43 @@ Diese Werte sind nur insofern Teil der Produktreferenz, wie sie den aktiven Desk
 
 ### Heute aktiv
 
-- ein globaler `Transcription Context`
-- ein globales Personal Dictionary
-- eine globale Snippet-Liste
+- lokale Textprofile mit aktivem `Transcription Context`
+- profileigenes Personal Dictionary
+- profileigene Snippet-Liste
 - globale Schalter fuer AI cleanup, filler filter und rewrite phrasing
 
 ### Heute nicht aktiv
 
-- kein lokales Profilsystem
 - keine Prompt-Library als Produktfunktion
 - keine Assistant-Identitaeten
 - kein Team- oder Sync-Modell
 
+### Profilrealitaet heute
+
+- Profile werden lokal in der nativen Config gehalten
+- der alte globale Rule-Zustand wird beim Laden in ein Standardprofil migriert
+- die Settings-Sidebar zeigt den aktiven Profilnamen global und erlaubt manuellen Wechsel oder schnelles Anlegen neuer Profile
+- die Text-Rules-UI kann Profile anlegen, duplizieren, waehlen und loeschen sowie kuratierte lokale Starter-Templates als neues Profil anlegen oder in das aktive Profil mergen
+- die Text-Rules-UI ist als Workspace organisiert: Profil-/Starter-Rail links, aktive Context-/Preview-Karten oben und getrennte Dictionary-/Snippet-Arbeitsbereiche darunter
+- History speichert den aktiven Profilnamen als Teil des Verlaufs
+- automatische app- oder hotkey-basierte Profilaktivierung existiert noch nicht
+
 Wichtige Doku-Regel dazu:
 
 - `Transcription Context` bleibt eine STT-Hilfe
-- Profile sind geplant, aber nicht implementiert
-- geplante Profile duerfen nicht als aktive Funktion beschrieben werden
+- Profile sind implementiert, aber bleiben lokal und manuell aktiviert
+- Starter-Templates sind lokale Baselines fuer zentrale ICPs und keine serverseitige Prompt-Library
+- geplante Profil-Automation duerfen nicht als aktive Funktion beschrieben werden
+
+## Planungsstand fuer spaetere Sync-Themen
+
+Diese Punkte beschreiben keine aktive Funktion, sondern die aktuelle Zielrichtung fuer spaeteren Ausbau:
+
+- WordScript bleibt local-first; ein Konto waere additiv und nicht Voraussetzung fuer den Produktkern
+- wenn spaeter Sync kommt, dann als WordScript-eigener Dienst fuer WordScript-Daten statt als Pflicht-Abhaengigkeit von einem externen Produkt-Hub
+- der primaere Ausbaupfad ist kein Peer-to-Peer- oder Client-to-Client-Primarmodell
+- fruehe Sync-Kandidaten sind Profile, Dictionary, Snippets, ausgewaehlte Settings und spaeter optional Verlauf oder Workspaces
+- Provider-Credentials wie der Groq-API-Key bleiben lokal im OS secret store und sind kein impliziter Sync-Bestandteil
 
 ## Insertion- und Recovery-Modell
 
@@ -126,6 +155,7 @@ Zusatzregeln des aktiven Pfads:
 
 - erfolgreicher Direct Insert stellt den vorherigen Clipboard-Inhalt best effort wieder her
 - Scratchpad und Last-Transcript-Restore bleiben sichtbar in der Input-UX
+- Scratchpad-Recovery in Input, diagnostische Preview-Transkripte in Diagnostics und der persistente History-Store sind drei getrennte native Datenflaechen
 - Overlay, Input und About lesen denselben nativen Plattformstatus
 
 ## Bekannte offene Produktluecken
@@ -134,8 +164,10 @@ Zusatzregeln des aktiven Pfads:
 - kein signierter In-Place-Auto-Updater
 - Release- und Signing-Validation mit echten Secrets ist noch kein regelmaessiger Routinepfad
 - Linux Wayland bleibt experimentell
-- mehrere Provider oder lokaler Offline-Standardpfad sind noch nicht implementiert
-- Profile ueber den globalen Text-Rules-Zustand hinaus sind noch nicht implementiert
+- ein eingebetteter lokaler Offline-Standardpfad ist noch nicht implementiert; `local_preview` bleibt ein externer Helper-Pfad
+- mehrere vollwertige Produktionsprovider ueber Groq hinaus sind noch nicht implementiert
+- automatische Profilaktivierung ueber Apps, Hotkeys oder spaetere Session-Modes ist noch nicht implementiert
+- spaetere Notes- und weitergehende Workflow-Aufbauten auf Basis des neuen History-Kerns sind noch nicht implementiert
 
 ## Release build-up status
 

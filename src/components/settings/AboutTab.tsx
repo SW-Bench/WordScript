@@ -10,6 +10,7 @@ import {
   APP_SITE_URL,
   APP_VERSION,
 } from "../../lib/appMeta";
+import type { NativeInsertDriver } from "../../types/nativeInsertion";
 import type { AppUpdateStatus, AppUpdateStatusKind, ReleaseBuildState } from "../../types/updates";
 
 interface AboutTabProps {
@@ -41,6 +42,27 @@ function insertPathLabel(value: string | undefined) {
       return "Scratchpad fallback";
     default:
       return "Detecting current path";
+  }
+}
+
+function insertDriverLabel(value: NativeInsertDriver | undefined) {
+  switch (value) {
+    case "wl_copy":
+      return "wl-copy";
+    case "arboard":
+      return "arboard clipboard";
+    case "xdotool":
+      return "xdotool";
+    case "wtype":
+      return "wtype";
+    case "ydotool":
+      return "ydotool";
+    case "enigo":
+      return "enigo";
+    case "scratchpad":
+      return "scratchpad recovery";
+    default:
+      return "Detecting current driver";
   }
 }
 
@@ -91,6 +113,7 @@ export function AboutTab({ isActive }: AboutTabProps) {
   const insertion = useNativeInsertion();
   const platformStatus = insertion.status?.platform;
   const scratchpadEntries = insertion.status?.scratchpad_entries.length ?? 0;
+  const driverChain = platformStatus?.driver_chain ?? [];
   const platformChecks = platformStatus?.prerequisites ?? [];
   const platformCaveats = platformStatus?.caveats ?? [];
 
@@ -252,11 +275,32 @@ export function AboutTab({ isActive }: AboutTabProps) {
             <span>{insertPathLabel(platformStatus?.insert_strategy)}</span>
           </div>
           <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Active driver</span>
+            <span>{insertDriverLabel(platformStatus?.active_driver)}</span>
+          </div>
+          <div className="settings__provider-meta-item">
             <span className="settings__provider-meta-label">Fallback recovery</span>
             <span>{scratchpadEntries === 1 ? "1 stored transcript" : `${scratchpadEntries} stored transcripts`}</span>
             <code>{insertion.status?.scratchpad_path ?? "Loading recovery store"}</code>
           </div>
         </div>
+
+        {driverChain.length > 0 && (
+          <div className="settings__rule-issues" style={{ marginTop: 14 }}>
+            {driverChain.map((item) => (
+              <div
+                key={`driver:${item.role}:${item.driver}`}
+                className={`settings__rule-issue${!item.available ? " settings__rule-issue--warning" : ""}`}
+              >
+                <strong>{item.active ? "Active driver" : item.available ? "Fallback driver" : "Unavailable driver"}</strong>
+                <div className="settings__rule-issue-copy">
+                  <span>{`${item.label} · ${item.role}`}</span>
+                  <span>{item.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {(platformChecks.length > 0 || platformCaveats.length > 0) && (
           <div className="settings__rule-issues" style={{ marginTop: 14 }}>

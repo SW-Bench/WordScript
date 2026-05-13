@@ -1,3 +1,5 @@
+export type ProviderId = "groq" | "local_preview";
+
 export type ProviderErrorKind =
   | "missing_api_key"
   | "secret_store_unavailable"
@@ -33,15 +35,19 @@ export interface ProviderProfile {
   requires_api_key: boolean;
 }
 
-export interface GroqProviderStatus {
+export interface ProviderStatus {
   provider: string;
   default_profile: string;
   credential: ProviderCredentialStatus;
   profiles: ProviderProfile[];
 }
 
-export interface ValidateGroqApiKeyResponse {
+export type GroqProviderStatus = ProviderStatus;
+
+export interface ValidateProviderApiKeyResponse {
   ok: boolean;
   provider: string;
   checked_with: string;
 }
+
+export type ValidateGroqApiKeyResponse = ValidateProviderApiKeyResponse;

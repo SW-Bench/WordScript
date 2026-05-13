@@ -96,6 +96,7 @@ describe("PromptsTab", () => {
 
     render(<Harness />);
 
+    await user.click(screen.getByRole("tab", { name: /open dictionary workspace/i }));
     await user.click(screen.getByRole("button", { name: /add dictionary term/i }));
     await user.type(screen.getByRole("textbox", { name: /heard as/i }), "word script");
     await user.type(screen.getByRole("textbox", { name: /replace with/i }), "WordScript");
@@ -103,17 +104,21 @@ describe("PromptsTab", () => {
     expect(screen.getByRole("textbox", { name: /heard as/i })).toHaveValue("word script");
     expect(screen.getByRole("textbox", { name: /replace with/i })).toHaveValue("WordScript");
 
+    await user.click(screen.getByRole("tab", { name: /open snippets workspace/i }));
     await user.click(screen.getByRole("button", { name: /add snippet/i }));
-    await user.type(screen.getByRole("textbox", { name: /label/i }), "Support follow-up");
+    const snippetCard = screen.getByText("Snippet 1").closest("article");
+    expect(snippetCard).not.toBeNull();
+
+    await user.type(within(snippetCard as HTMLElement).getByRole("textbox", { name: /label/i }), "Support follow-up");
     await user.type(screen.getByRole("textbox", { name: /trigger phrase/i }), "follow up note");
     await user.type(
       screen.getByRole("textbox", { name: /expansion/i }),
       "Thanks for the update. We will send the next status tomorrow morning.",
     );
 
-    expect(screen.getByRole("textbox", { name: /label/i })).toHaveValue("Support follow-up");
-    expect(screen.getByRole("textbox", { name: /trigger phrase/i })).toHaveValue("follow up note");
-    expect(screen.getByRole("textbox", { name: /expansion/i })).toHaveValue(
+    expect(within(snippetCard as HTMLElement).getByRole("textbox", { name: /label/i })).toHaveValue("Support follow-up");
+    expect(within(snippetCard as HTMLElement).getByRole("textbox", { name: /trigger phrase/i })).toHaveValue("follow up note");
+    expect(within(snippetCard as HTMLElement).getByRole("textbox", { name: /expansion/i })).toHaveValue(
       "Thanks for the update. We will send the next status tomorrow morning.",
     );
   });
@@ -150,11 +155,21 @@ describe("PromptsTab", () => {
     expect(screen.getByText(/preview runs the literal dictionary-plus-snippet pass/i)).toBeInTheDocument();
   });
 
+  it("organizes the editor into explicit workspace stages", () => {
+    render(<Harness />);
+
+    expect(screen.getByRole("tablist", { name: /text rules workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /open context and preview workspace/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /open dictionary workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /open snippets workspace/i })).toBeInTheDocument();
+  });
+
   it("reorders dictionary entries so the current sequence matches the authored priority", async () => {
     const user = userEvent.setup();
 
     render(<Harness />);
 
+    await user.click(screen.getByRole("tab", { name: /open dictionary workspace/i }));
     await user.click(screen.getByRole("button", { name: /add dictionary term/i }));
     await user.type(screen.getByRole("textbox", { name: /heard as/i }), "alpha term");
     await user.type(screen.getByRole("textbox", { name: /replace with/i }), "Alpha");
@@ -228,14 +243,86 @@ describe("PromptsTab", () => {
     expect(await screen.findByText("Snippet: Support follow-up")).toBeInTheDocument();
 
     const dictionaryRuleLink = await screen.findByRole("button", { name: "Dictionary: word script" });
-    const dictionaryCard = screen.getByText("Dictionary term 1").closest("article");
-    expect(dictionaryCard).not.toBeNull();
-
-    expect(within(dictionaryCard as HTMLElement).getByText("Dictionary phrase collides with another rule.")).toBeInTheDocument();
-
     await user.click(dictionaryRuleLink);
 
-    expect(dictionaryCard).toHaveClass("settings__rule-card--active");
+    const dictionaryCard = await screen.findByText("Dictionary term 1");
+    const dictionaryCardArticle = dictionaryCard.closest("article");
+    expect(dictionaryCardArticle).not.toBeNull();
+
+    expect(within(dictionaryCardArticle as HTMLElement).getByText("Dictionary phrase collides with another rule.")).toBeInTheDocument();
+
+    expect(dictionaryCardArticle).toHaveClass("settings__rule-card--active");
     expect(screen.getByRole("textbox", { name: /heard as/i })).toHaveFocus();
+  });
+
+  it("creates, duplicates and switches local text profiles", async () => {
+    const user = userEvent.setup();
+
+    render(<Harness />);
+
+    const activeProfileSelect = screen.getByRole("combobox", { name: /active profile/i });
+    expect(activeProfileSelect).toHaveValue("general");
+
+    await user.click(screen.getByRole("button", { name: /new profile/i }));
+
+    const profileLabelInput = screen.getByRole("textbox", { name: /profile label/i });
+    expect(profileLabelInput).toHaveValue("New profile");
+
+    await user.clear(profileLabelInput);
+    await user.type(profileLabelInput, "Support reply");
+    await user.type(screen.getByRole("textbox", { name: /transcription context/i }), "Escalation contacts");
+
+    await user.click(screen.getByRole("button", { name: /duplicate profile/i }));
+
+    const duplicatedOption = screen.getByRole("option", { name: /support reply copy/i });
+    expect(duplicatedOption).toBeInTheDocument();
+
+    await user.selectOptions(activeProfileSelect, "general");
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("General writing");
+    expect(screen.getByRole("textbox", { name: /transcription context/i })).toHaveValue("");
+
+    await user.selectOptions(activeProfileSelect, duplicatedOption);
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Support reply copy");
+    expect(screen.getByRole("textbox", { name: /transcription context/i })).toHaveValue("Escalation contacts");
+  });
+
+  it("creates a curated starter profile and can merge another starter into the active profile", async () => {
+    const user = userEvent.setup();
+
+    render(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: /select customer success replies starter/i }));
+    await user.click(screen.getByRole("button", { name: /create profile from starter/i }));
+
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies");
+
+    expect((screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement).value).toContain("ticket IDs");
+
+    await user.click(screen.getByRole("tab", { name: /open dictionary workspace/i }));
+    expect(screen.getByDisplayValue("SEV-1")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /open snippets workspace/i }));
+    expect(screen.getByDisplayValue("Status update")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /open context and preview workspace/i }));
+    const promptField = screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement;
+
+    await user.clear(promptField);
+    await user.type(promptField, "custom org names");
+
+    await user.click(screen.getByRole("button", { name: /select product and engineering starter/i }));
+    await user.click(screen.getByRole("button", { name: /merge starter into active/i }));
+
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies");
+
+    const mergedPrompt = screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement;
+    expect(mergedPrompt.value).toContain("custom org names");
+    expect(mergedPrompt.value).toContain("API names");
+
+    await user.click(screen.getByRole("tab", { name: /open dictionary workspace/i }));
+    expect(screen.getByDisplayValue("API")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /open snippets workspace/i }));
+    expect(screen.getByDisplayValue("Release note")).toBeInTheDocument();
   });
 });

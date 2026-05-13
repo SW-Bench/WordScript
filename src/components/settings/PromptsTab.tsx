@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AppConfig, DictionaryEntry, SnippetEntry } from "../../types/ipc";
+import type { AppConfig, DictionaryEntry, SnippetEntry, TextProfile } from "../../types/ipc";
+import {
+  buildTextProfilesPatch,
+  cloneTextProfile,
+  createTextProfile,
+  resolveActiveTextProfile,
+  textProfileInitials,
+} from "../../lib/textProfiles";
+import {
+  TEXT_PROFILE_TEMPLATES,
+  createTextProfileFromTemplate,
+  mergeTemplateIntoTextProfile,
+} from "../../lib/textProfileTemplates";
 import type {
   ExportTextRulesResponse,
   ImportTextRulesResponse,
@@ -143,6 +155,14 @@ function createRuleId(prefix: string) {
   return `${prefix}-${random}`;
 }
 
+function countPromptLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .length;
+}
+
 function makeDictionaryEntry(): DictionaryEntry {
   return {
     id: createRuleId("dict"),
@@ -161,6 +181,10 @@ function makeSnippetEntry(): SnippetEntry {
 }
 
 export function PromptsTab({ config, onChange, onValidationChange }: Props) {
+  const textProfiles = config.text_profiles?.length
+    ? config.text_profiles.map((profile) => cloneTextProfile(profile))
+    : [resolveActiveTextProfile(config)];
+  const activeTextProfile = resolveActiveTextProfile(config);
   const dictionaryEntries = config.dictionary_entries ?? [];
   const snippetEntries = config.snippet_entries ?? [];
   const [sampleText, setSampleText] = useState(DEFAULT_SAMPLE_TEXT);
@@ -173,7 +197,12 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(TEXT_PROFILE_TEMPLATES[0]?.id ?? "");
+  const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<"context" | "dictionary" | "snippets">("context");
+  const [showStarterDetails, setShowStarterDetails] = useState(false);
+  const [pendingFocusRuleId, setPendingFocusRuleId] = useState<string | null>(null);
   const ruleCardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const selectedTemplate = TEXT_PROFILE_TEMPLATES.find((template) => template.id === selectedTemplateId) ?? TEXT_PROFILE_TEMPLATES[0] ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -201,8 +230,67 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     };
   }, [config.prompt, dictionaryEntries, onValidationChange, sampleText, snippetEntries]);
 
+  const applyProfiles = (nextProfiles: TextProfile[], nextActiveProfileId = activeTextProfile.id) => {
+    onChange(buildTextProfilesPatch(config, nextProfiles, nextActiveProfileId));
+  };
+
+  const updateActiveProfile = (update: Partial<TextProfile> | ((profile: TextProfile) => TextProfile)) => {
+    const nextProfiles = textProfiles.map((profile) => {
+      if (profile.id !== activeTextProfile.id) return profile;
+      return typeof update === "function"
+        ? update(profile)
+        : cloneTextProfile(profile, update);
+    });
+
+    applyProfiles(nextProfiles, activeTextProfile.id);
+  };
+
+  const createProfile = () => {
+    const nextProfile = createTextProfile();
+    applyProfiles([...textProfiles, nextProfile], nextProfile.id);
+    setActiveWorkspacePanel("context");
+  };
+
+  const createProfileFromStarter = () => {
+    if (!selectedTemplate) return;
+
+    const nextProfile = createTextProfileFromTemplate(
+      selectedTemplate,
+      textProfiles.map((profile) => profile.label),
+    );
+
+    applyProfiles([...textProfiles, nextProfile], nextProfile.id);
+    setActiveWorkspacePanel("context");
+    setMessage(true, `Created profile from ${selectedTemplate.label}.`);
+  };
+
+  const mergeStarterIntoActiveProfile = () => {
+    if (!selectedTemplate) return;
+
+    updateActiveProfile((profile) => mergeTemplateIntoTextProfile(profile, selectedTemplate));
+    setActiveWorkspacePanel("context");
+    setMessage(true, `Merged ${selectedTemplate.label} into ${activeTextProfile.label}.`);
+  };
+
+  const duplicateProfile = () => {
+    const nextProfileId = createTextProfile().id;
+    const nextProfile = cloneTextProfile(activeTextProfile, {
+      id: nextProfileId,
+      label: activeTextProfile.label.trim() ? `${activeTextProfile.label} copy` : "Profile copy",
+    });
+    applyProfiles([...textProfiles, nextProfile], nextProfile.id);
+    setActiveWorkspacePanel("context");
+  };
+
+  const deleteActiveProfile = () => {
+    if (textProfiles.length <= 1) return;
+
+    const nextProfiles = textProfiles.filter((profile) => profile.id !== activeTextProfile.id);
+    applyProfiles(nextProfiles, nextProfiles[0]?.id);
+  };
+
   const updateDictionaryEntry = (id: string, key: keyof DictionaryEntry, value: string) => {
-    onChange({
+    updateActiveProfile({
       dictionary_entries: dictionaryEntries.map((entry) => (
         entry.id === id ? { ...entry, [key]: value } : entry
       )),
@@ -210,7 +298,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   };
 
   const removeDictionaryEntry = (id: string) => {
-    onChange({
+    updateActiveProfile({
       dictionary_entries: dictionaryEntries.filter((entry) => entry.id !== id),
     });
   };
@@ -219,14 +307,14 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     const index = dictionaryEntries.findIndex((entry) => entry.id === id);
     if (index < 0) return;
 
-    onChange({
+    updateActiveProfile({
       dictionary_entries: moveItem(dictionaryEntries, index, direction),
     });
     setActiveRuleId(id);
   };
 
   const updateSnippetEntry = (id: string, key: keyof SnippetEntry, value: string) => {
-    onChange({
+    updateActiveProfile({
       snippet_entries: snippetEntries.map((entry) => (
         entry.id === id ? { ...entry, [key]: value } : entry
       )),
@@ -234,7 +322,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   };
 
   const removeSnippetEntry = (id: string) => {
-    onChange({
+    updateActiveProfile({
       snippet_entries: snippetEntries.filter((entry) => entry.id !== id),
     });
   };
@@ -243,7 +331,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     const index = snippetEntries.findIndex((entry) => entry.id === id);
     if (index < 0) return;
 
-    onChange({
+    updateActiveProfile({
       snippet_entries: moveItem(snippetEntries, index, direction),
     });
     setActiveRuleId(id);
@@ -286,7 +374,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
 
   const applyImport = () => {
     if (!pendingImport) return;
-    onChange({
+    updateActiveProfile({
       prompt: pendingImport.payload.document.prompt,
       dictionary_entries: pendingImport.payload.document.dictionary_entries,
       snippet_entries: pendingImport.payload.document.snippet_entries,
@@ -336,14 +424,56 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const currentIssueMap = buildIssueMap(analysis?.issues ?? []);
   const previewRuleChips = (previewSource?.preview.applied_rules ?? []).map((rule) => buildPreviewRuleChip(rule, previewRuleLookup));
   const hasImportedOnlyIssues = Boolean(pendingImport && issueList.some((entry) => entry.rule_ids.some((ruleId) => !currentRuleLookup.has(ruleId))));
+  const activePromptLineCount = countPromptLines(activeTextProfile.prompt);
+  const selectedTemplatePromptLines = selectedTemplate ? countPromptLines(selectedTemplate.prompt) : 0;
+  const selectedTemplateContextLines = selectedTemplate?.prompt.split(/\r?\n/).filter(Boolean) ?? [];
+  const selectedTemplateDictionaryPreview = selectedTemplate?.dictionary_entries.slice(0, 4) ?? [];
+  const selectedTemplateSnippetPreview = selectedTemplate?.snippet_entries.slice(0, 4) ?? [];
+  const activeWorkspaceCopy = activeWorkspacePanel === "context"
+    ? {
+      step: "Step 1 of 3",
+      title: "Context & Preview",
+      summary: "Teach the recognizer your names and jargon, then verify the literal rule pass on a likely transcript.",
+      status: `${activePromptLineCount} context lines`,
+      note: "Start here. Keep the context concrete, then test with a transcript the model is actually likely to produce.",
+    }
+    : activeWorkspacePanel === "dictionary"
+      ? {
+        step: "Step 2 of 3",
+        title: "Dictionary",
+        summary: "Add literal replacements for product names, people, acronyms and recurring mishears.",
+        status: `${dictionaryEntries.length} dictionary rules`,
+        note: "Author one rule per likely transcript variant. If the recognizer says the same thing in three ways, model those three ways explicitly.",
+      }
+      : {
+        step: "Step 3 of 3",
+        title: "Snippets",
+        summary: "Create deliberate spoken macros for reusable expansions such as follow-ups, handoffs and recap blocks.",
+        status: `${snippetEntries.length} snippets`,
+        note: "Only use snippet triggers you are comfortable saying almost verbatim. They are literal phrase matches, not semantic intents.",
+      };
 
-  const focusRuleCard = (ruleId: string) => {
-    const target = ruleCardRefs.current[ruleId];
+  useEffect(() => {
+    if (!pendingFocusRuleId) return;
+
+    const target = ruleCardRefs.current[pendingFocusRuleId];
     if (!target) return;
 
-    setActiveRuleId(ruleId);
     target.scrollIntoView?.({ behavior: "smooth", block: "center" });
     target.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea")?.focus();
+    setPendingFocusRuleId(null);
+  }, [activeWorkspacePanel, dictionaryEntries, pendingFocusRuleId, snippetEntries]);
+
+  const focusRuleCard = (ruleId: string) => {
+    const rule = currentRuleLookup.get(ruleId);
+    if (rule?.kind === "dictionary") {
+      setActiveWorkspacePanel("dictionary");
+    } else if (rule?.kind === "snippet") {
+      setActiveWorkspacePanel("snippets");
+    }
+
+    setActiveRuleId(ruleId);
+    setPendingFocusRuleId(ruleId);
   };
 
   return (
@@ -366,26 +496,6 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
             Export rules
           </button>
         </div>
-      </div>
-
-      <div className="settings__rule-guide">
-        <article className="settings__rule-guide-card">
-          <strong>How matching works</strong>
-          <ul className="settings__rule-guide-list">
-            <li>Text Rules match transcript phrases, not raw audio and not semantic intent.</li>
-            <li>Matching is case-insensitive and tolerant of repeated spaces, but it still relies on the phrase appearing in the transcript.</li>
-            <li>Dictionary runs first, snippets second, and later rules see the result of earlier ones.</li>
-            <li>For everyday reliability, add separate rules for common transcript variants instead of expecting fuzzy matching.</li>
-          </ul>
-        </article>
-        <article className="settings__rule-guide-card">
-          <strong>When to use which rule</strong>
-          <ul className="settings__rule-guide-list">
-            <li>Use Dictionary for names, brands and recurring mishears like word script to WordScript.</li>
-            <li>Use Snippets for deliberate spoken macros you are happy to say almost verbatim, such as follow up note or meeting recap.</li>
-            <li>Use Preview with the transcript you expect Whisper to return. It checks rule shape and phrase resolution only, not microphone capture or AI post-correction.</li>
-          </ul>
-        </article>
       </div>
 
       {feedback && (
@@ -423,311 +533,553 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
         </div>
       )}
 
-      <div className="form-section">Transcription Context</div>
-      <p className="form-dim">
-        Optional request context for names, jargon, abbreviations and domain-specific wording. WordScript forwards this text as a plain prompt string with the speech-to-text request; it does not parse it into special fields or trigger dictionary or snippet rules on its own.
-      </p>
-      <p className="form-dim">
-        Best practice: keep it compact and concrete. A short list of names, product terms, abbreviations and likely phrases works better than long prose. One item per line is easiest to maintain, but commas also work because the whole box is sent as plain text.
-      </p>
-      <textarea
-        className="form-textarea"
-        value={config.prompt}
-        rows={6}
-        onChange={(e) => onChange({ prompt: e.target.value })}
-        placeholder={"WordScript\nGroq\nTauri\nCPAL\ncustomer names\ninternal product terms"}
-      />
-
-      <div className="form-sep" />
-      <div className="form-section">Rule Check & Preview</div>
-      <p className="form-dim">
-        Validation checks for empty fields, duplicates and collisions. Preview runs the literal dictionary-plus-snippet pass on the sample text below, without microphone, insertion or semantic guessing.
-      </p>
-      <label className="settings__rule-field settings__rule-field--wide">
-        <span>Preview sample transcription</span>
-        <textarea
-          value={sampleText}
-          onChange={(event) => setSampleText(event.target.value)}
-          placeholder="e.g. word script follow up note"
-          rows={3}
-        />
-      </label>
-      <p className="form-dim">
-        Everyday tip: type what the transcript is likely to say, not what you hope the AI meant. If one spoken idea appears in several transcript forms, model those variants as separate rules.
-      </p>
-
-      <div className="settings__rule-preview-grid">
-        <article className="settings__rule-preview-card">
-          <span className="settings__rule-preview-label">Resolved output</span>
-          <strong>{previewSource?.preview.output || "No preview yet"}</strong>
-          {previewRuleChips.length > 0 ? (
-            <div className="settings__rule-chip-row">
-              {previewRuleChips.map((rule) => (
-                <span key={rule.key} className="settings__rule-chip" title={rule.title}>{rule.label}</span>
-              ))}
-            </div>
-          ) : (
-            <p className="form-dim" style={{ margin: 0 }}>
-              No dictionary or snippet rule matched this preview sample.
-            </p>
-          )}
-        </article>
-        <article className="settings__rule-preview-card">
-          <span className="settings__rule-preview-label">Validation diagnostics</span>
-          {issueList.length === 0 ? (
-            <strong>No blocking rule conflicts right now.</strong>
-          ) : (
-            <ul className="settings__rule-issues">
-              {issueList.map((entry) => (
-                <li key={`${entry.code}-${entry.rule_ids.join("-")}-${entry.message}`} className={`settings__rule-issue settings__rule-issue--${entry.severity}`}>
-                  <strong>{entry.severity}</strong>
-                  <div className="settings__rule-issue-copy">
-                    <span>{entry.message}</span>
-                    {entry.rule_ids.length > 0 && (
-                      <div className="settings__rule-issue-links">
-                        {entry.rule_ids.map((ruleId) => {
-                          const currentRule = currentRuleLookup.get(ruleId);
-                          const previewRule = previewRuleLookup.get(ruleId);
-                          const rule = previewRule ?? currentRule;
-
-                          if (!rule) {
-                            return (
-                              <span key={ruleId} className="settings__rule-issue-target">
-                                Rule {ruleId}
-                              </span>
-                            );
-                          }
-
-                          if (!currentRule) {
-                            return (
-                              <span key={ruleId} className="settings__rule-issue-target" title="This issue comes from the imported preview file.">
-                                {rule.label}
-                              </span>
-                            );
-                          }
-
-                          return (
-                            <button
-                              key={ruleId}
-                              className="settings__rule-link"
-                              type="button"
-                              onClick={() => focusRuleCard(ruleId)}
-                            >
-                              {rule.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          {hasImportedOnlyIssues && (
-            <p className="form-dim" style={{ margin: 0 }}>
-              Some diagnostics belong to the imported preview file. Apply that import first if you want those incoming rules to appear as editable cards in this tab.
-            </p>
-          )}
-        </article>
-      </div>
-
-      <div className="form-sep" />
-      <div className="form-section">Personal Dictionary</div>
-      <p className="form-dim">
-        Dictionary entries replace literal transcript phrases after transcription and post-correction. Use them for names, product terms and recurring spelling fixes that are predictable in everyday dictation.
-      </p>
-      <p className="form-dim">
-        Matching is phrase-based and case-insensitive. If Groq alternates between several spellings or phrasings, add one dictionary entry per likely variant.
-      </p>
-
-      <div className="settings__rule-stack">
-        {dictionaryEntries.length === 0 ? (
-          <div className="settings__rule-empty">
-            No dictionary entries yet. Add the phrases Groq hears wrong and the exact output WordScript should insert instead.
-          </div>
-        ) : dictionaryEntries.map((entry, index) => {
-          const entryIssues = currentIssueMap.get(entry.id) ?? [];
-          const cardClassName = `settings__rule-card${activeRuleId === entry.id ? " settings__rule-card--active" : ""}${hasSeverity(entryIssues, "error") ? " settings__rule-card--error" : hasSeverity(entryIssues, "warning") ? " settings__rule-card--warning" : ""}`;
-
-          return (
-          <article
-            key={entry.id}
-            ref={(element) => {
-              ruleCardRefs.current[entry.id] = element;
-            }}
-            className={cardClassName}
-          >
-            <div className="settings__rule-card-head">
-              <div className="settings__rule-card-heading">
-                <strong className="settings__rule-card-title">Dictionary term {index + 1}</strong>
-                <span className="settings__rule-meta">
-                  Runs in order. Later rules see the output of earlier ones.
-                </span>
+      <div className="settings__editor-shell">
+        <div className="settings__editor-setup-grid">
+          <article className="settings__editor-setup-card">
+            <div className="settings__editor-setup-head">
+              <div className="settings__editor-setup-copy">
+                <span className="settings__template-kicker">Profile setup</span>
+                <strong>Pick the profile you want to shape</strong>
+                <p>Keep switching and renaming here. Everything below edits the active profile only.</p>
               </div>
-              <div className="settings__rule-card-buttons">
-                <button className="settings__rule-mini-btn" type="button" onClick={() => moveDictionaryEntry(entry.id, -1)} disabled={index === 0}>
-                  Move up
-                </button>
-                <button className="settings__rule-mini-btn" type="button" onClick={() => moveDictionaryEntry(entry.id, 1)} disabled={index === dictionaryEntries.length - 1}>
-                  Move down
-                </button>
-              </div>
+              <div className="settings__editor-profile-badge" aria-hidden="true">{textProfileInitials(activeTextProfile)}</div>
             </div>
-            <div className="settings__rule-grid">
-              <label className="settings__rule-field">
-                <span>Heard as</span>
+            <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-setup-pills">
+              <span className="settings__template-highlight">{activeTextProfile.label}</span>
+              <span className="settings__template-highlight">{activePromptLineCount} context lines</span>
+              <span className="settings__template-highlight">{dictionaryEntries.length} terms</span>
+              <span className="settings__template-highlight">{snippetEntries.length} snippets</span>
+            </div>
+            <div className="settings__editor-setup-fields">
+              <div className="form-row">
+                <label htmlFor="text-profile-select">Active profile</label>
+                <select
+                  id="text-profile-select"
+                  aria-label="Active profile"
+                  value={activeTextProfile.id}
+                  onChange={(event) => applyProfiles(textProfiles, event.target.value)}
+                >
+                  {textProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>{profile.label}</option>
+                  ))}
+                </select>
+              </div>
+              <label className="settings__rule-field settings__rule-field--wide">
+                <span>Profile label</span>
                 <input
                   type="text"
-                  value={entry.phrase}
-                  onChange={(event) => updateDictionaryEntry(entry.id, "phrase", event.target.value)}
-                  placeholder="e.g. word script"
-                />
-              </label>
-              <label className="settings__rule-field">
-                <span>Replace with</span>
-                <input
-                  type="text"
-                  value={entry.replace_with}
-                  onChange={(event) => updateDictionaryEntry(entry.id, "replace_with", event.target.value)}
-                  placeholder="e.g. WordScript"
+                  value={activeTextProfile.label}
+                  onChange={(event) => updateActiveProfile({ label: event.target.value })}
+                  placeholder="e.g. Support reply"
                 />
               </label>
             </div>
-            <div className="settings__rule-actions">
-              <span className="settings__rule-meta">Literal whole-phrase match, case-insensitive. Add separate entries for variants.</span>
-              <button className="btn btn--cancel" type="button" onClick={() => removeDictionaryEntry(entry.id)}>
-                Remove
+            <div className="settings__editor-setup-actions">
+              <button className="btn btn--cancel" type="button" onClick={createProfile}>
+                New profile
+              </button>
+              <button className="btn btn--cancel" type="button" onClick={duplicateProfile}>
+                Duplicate profile
+              </button>
+              <button className="btn btn--cancel" type="button" onClick={deleteActiveProfile} disabled={textProfiles.length <= 1}>
+                Delete profile
               </button>
             </div>
-            {entryIssues.length > 0 && (
-              <div className="settings__rule-inline-issues">
-                {entryIssues.map((issue) => (
-                  <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
-                    <strong>{issue.severity}</strong>
-                    <span>{issue.message}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <p className="settings__editor-setup-note">Each profile carries its own context, dictionary and snippets. Preview, import/export and runtime all follow the same active profile.</p>
           </article>
-        )})}
-      </div>
 
-      <div className="settings__rule-toolbar">
-        <button
-          className="btn btn--cancel"
-          type="button"
-          onClick={() => onChange({ dictionary_entries: [...dictionaryEntries, makeDictionaryEntry()] })}
-        >
-          Add dictionary term
-        </button>
-      </div>
-
-      <div className="form-sep" />
-      <div className="form-section">Snippets</div>
-      <p className="form-dim">
-        Snippets expand reusable text blocks when the trigger phrase appears in the transcript. Start with short spoken cues you are comfortable saying deliberately, for example support follow up or send closing note.
-      </p>
-      <p className="form-dim">
-        Snippet triggers are also literal phrase rules, not fuzzy or semantic matching. If a trigger can land in multiple transcript forms, add multiple snippet entries or normalize those forms in Dictionary first.
-      </p>
-
-      <div className="settings__rule-stack">
-        {snippetEntries.length === 0 ? (
-          <div className="settings__rule-empty">
-            No snippets yet. Add a trigger phrase and the full expansion WordScript should drop into the final transcript.
-          </div>
-        ) : snippetEntries.map((entry, index) => {
-          const entryIssues = currentIssueMap.get(entry.id) ?? [];
-          const cardClassName = `settings__rule-card${activeRuleId === entry.id ? " settings__rule-card--active" : ""}${hasSeverity(entryIssues, "error") ? " settings__rule-card--error" : hasSeverity(entryIssues, "warning") ? " settings__rule-card--warning" : ""}`;
-
-          return (
-          <article
-            key={entry.id}
-            ref={(element) => {
-              ruleCardRefs.current[entry.id] = element;
-            }}
-            className={cardClassName}
-          >
-            <div className="settings__rule-card-head">
-              <div className="settings__rule-card-heading">
-                <strong className="settings__rule-card-title">Snippet {index + 1}</strong>
-                <span className="settings__rule-meta">
-                  Runs after Dictionary. Reorder when triggers overlap or one snippet should win over another.
-                </span>
-              </div>
-              <div className="settings__rule-card-buttons">
-                <button className="settings__rule-mini-btn" type="button" onClick={() => moveSnippetEntry(entry.id, -1)} disabled={index === 0}>
-                  Move up
-                </button>
-                <button className="settings__rule-mini-btn" type="button" onClick={() => moveSnippetEntry(entry.id, 1)} disabled={index === snippetEntries.length - 1}>
-                  Move down
-                </button>
+          <article className="settings__editor-setup-card settings__editor-setup-card--starter">
+            <div className="settings__editor-setup-head">
+              <div className="settings__editor-setup-copy">
+                <span className="settings__template-kicker">Starter library</span>
+                <strong>Start from a real working baseline</strong>
+                <p>Select a starter, then create a profile from it or merge missing building blocks into the active one.</p>
               </div>
             </div>
-            <div className="settings__rule-grid settings__rule-grid--three">
-              <label className="settings__rule-field">
-                <span>Label</span>
-                <input
-                  type="text"
-                  value={entry.label}
-                  onChange={(event) => updateSnippetEntry(entry.id, "label", event.target.value)}
-                  placeholder="e.g. Support follow-up"
-                />
-              </label>
-              <label className="settings__rule-field">
-                <span>Trigger phrase</span>
-                <input
-                  type="text"
-                  value={entry.trigger}
-                  onChange={(event) => updateSnippetEntry(entry.id, "trigger", event.target.value)}
-                  placeholder="e.g. follow up note"
-                />
-              </label>
+            {selectedTemplate && (
+              <div className="settings__editor-starter-summary">
+                <div className="settings__editor-starter-summary-copy">
+                  <span className="settings__template-kicker">Selected starter</span>
+                  <strong>{selectedTemplate.label}</strong>
+                  <p>{selectedTemplate.summary}</p>
+                </div>
+                <div className="settings__template-highlight-row settings__template-highlight-row--compact">
+                  <span className="settings__template-highlight">{selectedTemplatePromptLines} context lines</span>
+                  <span className="settings__template-highlight">{selectedTemplate.dictionary_entries.length} terms</span>
+                  <span className="settings__template-highlight">{selectedTemplate.snippet_entries.length} snippets</span>
+                </div>
+                <div className="settings__editor-setup-actions settings__editor-setup-actions--starter">
+                  <button className="settings__rule-mini-btn" type="button" onClick={createProfileFromStarter}>
+                    Create profile from starter
+                  </button>
+                  <button className="settings__rule-mini-btn" type="button" onClick={mergeStarterIntoActiveProfile}>
+                    Merge starter into active
+                  </button>
+                  <button className="settings__rule-mini-btn" type="button" onClick={() => setShowStarterDetails((current) => !current)}>
+                    {showStarterDetails ? "Hide starter details" : "Show starter details"}
+                  </button>
+                </div>
+                {showStarterDetails && (
+                  <div className="settings__editor-starter-detail-list">
+                    <article className="settings__editor-starter-detail-card">
+                      <span className="settings__rule-preview-label">Context focus</span>
+                      <ul className="settings__template-list">
+                        {selectedTemplateContextLines.slice(0, 4).map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    </article>
+                    <article className="settings__editor-starter-detail-card">
+                      <span className="settings__rule-preview-label">Key replacements</span>
+                      <ul className="settings__template-list">
+                        {selectedTemplateDictionaryPreview.slice(0, 3).map((entry) => (
+                          <li key={entry.phrase}>{entry.phrase}{" -> "}{entry.replace_with}</li>
+                        ))}
+                      </ul>
+                    </article>
+                    <article className="settings__editor-starter-detail-card">
+                      <span className="settings__rule-preview-label">Ready snippets</span>
+                      <ul className="settings__template-list">
+                        {selectedTemplateSnippetPreview.slice(0, 3).map((entry) => (
+                          <li key={entry.trigger}>{entry.label}: {entry.trigger}</li>
+                        ))}
+                      </ul>
+                    </article>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="settings__editor-template-list" role="list" aria-label="Curated profile starters">
+              {TEXT_PROFILE_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className={`settings__template-tile settings__template-tile--compact${selectedTemplate?.id === template.id ? " settings__template-tile--active" : ""}`}
+                  aria-label={`Select ${template.label} starter`}
+                  aria-pressed={selectedTemplate?.id === template.id}
+                  onClick={() => setSelectedTemplateId(template.id)}
+                >
+                  <span className="settings__template-kicker">{template.audience}</span>
+                  <strong>{template.label}</strong>
+                  <div className="settings__rule-chip-row">
+                    <span className="settings__rule-chip">{template.dictionary_entries.length} terms</span>
+                    <span className="settings__rule-chip">{template.snippet_entries.length} snippets</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </article>
+        </div>
+
+        <article className="settings__editor-workspace-bar">
+          <div className="settings__editor-workspace-copy">
+            <span className="settings__template-kicker">{activeWorkspaceCopy.step}</span>
+            <strong className="settings__editor-workspace-title">{activeWorkspaceCopy.title}</strong>
+            <p>{activeWorkspaceCopy.summary}</p>
+          </div>
+          <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-workspace-pills">
+            <span className="settings__template-highlight">{activeTextProfile.label}</span>
+            <span className="settings__template-highlight">{activeWorkspaceCopy.status}</span>
+          </div>
+        </article>
+
+        <div className="settings__editor-step-list" role="tablist" aria-label="Text rules workspace">
+            <button
+              className={`settings__editor-step-button${activeWorkspacePanel === "context" ? " settings__editor-step-button--active" : ""}`}
+              type="button"
+              role="tab"
+              aria-label="Open context and preview workspace"
+              aria-selected={activeWorkspacePanel === "context"}
+              onClick={() => setActiveWorkspacePanel("context")}
+            >
+              <div className="settings__editor-step-button-head">
+                <span className="settings__editor-step-index" aria-hidden="true">1</span>
+                <div className="settings__editor-step-button-copy">
+                  <strong>Context & Preview</strong>
+                  <span>{activePromptLineCount} context lines</span>
+                </div>
+              </div>
+            </button>
+            <button
+              className={`settings__editor-step-button${activeWorkspacePanel === "dictionary" ? " settings__editor-step-button--active" : ""}`}
+              type="button"
+              role="tab"
+              aria-label="Open dictionary workspace"
+              aria-selected={activeWorkspacePanel === "dictionary"}
+              onClick={() => setActiveWorkspacePanel("dictionary")}
+            >
+              <div className="settings__editor-step-button-head">
+                <span className="settings__editor-step-index" aria-hidden="true">2</span>
+                <div className="settings__editor-step-button-copy">
+                  <strong>Dictionary</strong>
+                  <span>{dictionaryEntries.length} literal replacements</span>
+                </div>
+              </div>
+            </button>
+            <button
+              className={`settings__editor-step-button${activeWorkspacePanel === "snippets" ? " settings__editor-step-button--active" : ""}`}
+              type="button"
+              role="tab"
+              aria-label="Open snippets workspace"
+              aria-selected={activeWorkspacePanel === "snippets"}
+              onClick={() => setActiveWorkspacePanel("snippets")}
+            >
+              <div className="settings__editor-step-button-head">
+                <span className="settings__editor-step-index" aria-hidden="true">3</span>
+                <div className="settings__editor-step-button-copy">
+                  <strong>Snippets</strong>
+                  <span>{snippetEntries.length} reusable expansions</span>
+                </div>
+              </div>
+            </button>
+        </div>
+
+        {activeWorkspacePanel === "context" && (
+          <section className="settings__editor-stage">
+            <article className="settings__editor-stage-card settings__editor-stage-card--context">
+              <div className="settings__editor-stage-card-head">
+                <div className="settings__rule-card-heading">
+                  <span className="settings__template-kicker">Context</span>
+                  <strong className="settings__rule-card-title">Transcription context</strong>
+                </div>
+              </div>
+              <p className="form-dim">
+                Add names, acronyms and domain terms the recognizer should bias toward. This text is forwarded as one plain prompt string, so short line-based lists work better than prose.
+              </p>
+              <textarea
+                className="form-textarea settings__editor-context-input"
+                value={config.prompt}
+                aria-label="Transcription context"
+                rows={12}
+                onChange={(event) => updateActiveProfile({ prompt: event.target.value })}
+                placeholder={"WordScript\nGroq\nTauri\nCPAL\ncustomer names\ninternal product terms"}
+              />
+              <div className="settings__editor-context-notes">
+                <div className="settings__editor-context-note">
+                  <strong>What belongs here</strong>
+                  <span>Company names, products, acronyms, people, ticket prefixes and phrases the model should recognize reliably.</span>
+                </div>
+                <div className="settings__editor-context-note">
+                  <strong>Good starting size</strong>
+                  <span>Start with 5 to 10 high-value terms. Add more only when preview still misses obvious vocabulary.</span>
+                </div>
+              </div>
+            </article>
+
+            <article className="settings__editor-stage-card">
+              <div className="settings__editor-stage-card-head">
+                <div className="settings__rule-card-heading">
+                  <span className="settings__template-kicker">Preview</span>
+                  <strong className="settings__rule-card-title">Rule check and preview</strong>
+                </div>
+              </div>
+              <p className="form-dim">
+                Validation checks for empty fields, duplicates and collisions. Preview runs the literal dictionary-plus-snippet pass on the sample text below, with no microphone capture or semantic guessing.
+              </p>
               <label className="settings__rule-field settings__rule-field--wide">
-                <span>Expansion</span>
+                <span>Preview sample transcription</span>
                 <textarea
-                  value={entry.expansion}
-                  onChange={(event) => updateSnippetEntry(entry.id, "expansion", event.target.value)}
-                  placeholder="e.g. Thanks for the update. We will send the next status tomorrow morning."
+                  value={sampleText}
+                  onChange={(event) => setSampleText(event.target.value)}
+                  placeholder="e.g. word script follow up note"
                   rows={4}
                 />
               </label>
-            </div>
-            <div className="settings__rule-actions">
-              <span className="settings__rule-meta">Literal trigger phrase match, case-insensitive, in the final transcript.</span>
-              <button className="btn btn--cancel" type="button" onClick={() => removeSnippetEntry(entry.id)}>
-                Remove
-              </button>
-            </div>
-            {entryIssues.length > 0 && (
-              <div className="settings__rule-inline-issues">
-                {entryIssues.map((issue) => (
-                  <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
-                    <strong>{issue.severity}</strong>
-                    <span>{issue.message}</span>
-                  </div>
-                ))}
+              <p className="form-dim">Type what the recognizer is likely to return, not what you wish it meant. If one spoken idea lands in several transcript forms, model those forms explicitly.</p>
+
+              <div className="settings__editor-preview-split">
+                <article className="settings__rule-preview-card">
+                  <span className="settings__rule-preview-label">Resolved output</span>
+                  <strong>{previewSource?.preview.output || "No preview yet"}</strong>
+                  {previewRuleChips.length > 0 ? (
+                    <div className="settings__rule-chip-row">
+                      {previewRuleChips.map((rule) => (
+                        <span key={rule.key} className="settings__rule-chip" title={rule.title}>{rule.label}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="form-dim" style={{ margin: 0 }}>
+                      No dictionary or snippet rule matched this preview sample.
+                    </p>
+                  )}
+                </article>
+                <article className="settings__rule-preview-card">
+                  <span className="settings__rule-preview-label">Validation diagnostics</span>
+                  {issueList.length === 0 ? (
+                    <strong>No blocking rule conflicts right now.</strong>
+                  ) : (
+                    <ul className="settings__rule-issues">
+                      {issueList.map((entry) => (
+                        <li key={`${entry.code}-${entry.rule_ids.join("-")}-${entry.message}`} className={`settings__rule-issue settings__rule-issue--${entry.severity}`}>
+                          <strong>{entry.severity}</strong>
+                          <div className="settings__rule-issue-copy">
+                            <span>{entry.message}</span>
+                            {entry.rule_ids.length > 0 && (
+                              <div className="settings__rule-issue-links">
+                                {entry.rule_ids.map((ruleId) => {
+                                  const currentRule = currentRuleLookup.get(ruleId);
+                                  const previewRule = previewRuleLookup.get(ruleId);
+                                  const rule = previewRule ?? currentRule;
+
+                                  if (!rule) {
+                                    return (
+                                      <span key={ruleId} className="settings__rule-issue-target">
+                                        Rule {ruleId}
+                                      </span>
+                                    );
+                                  }
+
+                                  if (!currentRule) {
+                                    return (
+                                      <span key={ruleId} className="settings__rule-issue-target" title="This issue comes from the imported preview file.">
+                                        {rule.label}
+                                      </span>
+                                    );
+                                  }
+
+                                  return (
+                                    <button
+                                      key={ruleId}
+                                      className="settings__rule-link"
+                                      type="button"
+                                      onClick={() => focusRuleCard(ruleId)}
+                                    >
+                                      {rule.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {hasImportedOnlyIssues && (
+                    <p className="form-dim" style={{ margin: 0 }}>
+                      Some diagnostics belong to the imported preview file. Apply that import first if you want those incoming rules to appear as editable cards in this tab.
+                    </p>
+                  )}
+                </article>
               </div>
-            )}
-          </article>
-        )})}
-      </div>
+            </article>
 
-      <div className="settings__rule-toolbar">
-        <button
-          className="btn btn--cancel"
-          type="button"
-          onClick={() => onChange({ snippet_entries: [...snippetEntries, makeSnippetEntry()] })}
-        >
-          Add snippet
-        </button>
-      </div>
+            <div className="settings__editor-inline-note settings__editor-stage-guide">
+              <strong>Literal rule model</strong>
+              <span>Text Rules match transcript phrases, not raw audio and not semantic intent. Dictionary runs first, snippets second. For everyday reliability, add separate rules for common transcript variants instead of expecting fuzzy matching.</span>
+            </div>
+          </section>
+        )}
 
-      <p className="form-dim">
-        Team-sharing stays outside V1. These rules stay personal and exportable, with ordering and preview meant for daily solo dictation instead of a shared automation system.
-      </p>
+        {activeWorkspacePanel === "dictionary" && (
+            <section className="settings__editor-stage settings__editor-stage--stacked">
+              <article className="settings__editor-stage-banner">
+                <div className="settings__editor-stage-banner-head">
+                  <div className="settings__rule-card-heading">
+                    <span className="settings__template-kicker">Dictionary</span>
+                    <strong className="settings__rule-card-title">Personal dictionary</strong>
+                    <p className="settings__rule-meta">Literal replacements for names, brands and recurring mishears that should always resolve the same way.</p>
+                  </div>
+                  <button
+                    className="btn btn--cancel"
+                    type="button"
+                    onClick={() => updateActiveProfile({ dictionary_entries: [...dictionaryEntries, makeDictionaryEntry()] })}
+                  >
+                    Add dictionary term
+                  </button>
+                </div>
+                <p className="form-dim">
+                  Add one rule for each phrase the recognizer gets wrong. Matching is literal and case-insensitive, so separate transcript variants need separate entries.
+                </p>
+              </article>
+
+              <div className="settings__rule-stack">
+                {dictionaryEntries.length === 0 ? (
+                  <div className="settings__rule-empty">
+                    No dictionary entries yet. Add the phrases Groq hears wrong and the exact output WordScript should insert instead.
+                  </div>
+                ) : dictionaryEntries.map((entry, index) => {
+                  const entryIssues = currentIssueMap.get(entry.id) ?? [];
+                  const cardClassName = `settings__rule-card${activeRuleId === entry.id ? " settings__rule-card--active" : ""}${hasSeverity(entryIssues, "error") ? " settings__rule-card--error" : hasSeverity(entryIssues, "warning") ? " settings__rule-card--warning" : ""}`;
+
+                  return (
+                    <article
+                      key={entry.id}
+                      ref={(element) => {
+                        ruleCardRefs.current[entry.id] = element;
+                      }}
+                      className={cardClassName}
+                    >
+                      <div className="settings__rule-card-head">
+                        <div className="settings__rule-card-heading">
+                          <strong className="settings__rule-card-title">Dictionary term {index + 1}</strong>
+                          <span className="settings__rule-meta">
+                            Runs in order. Later rules see the output of earlier ones.
+                          </span>
+                        </div>
+                        <div className="settings__rule-card-buttons">
+                          <button className="settings__rule-mini-btn" type="button" onClick={() => moveDictionaryEntry(entry.id, -1)} disabled={index === 0}>
+                            Move up
+                          </button>
+                          <button className="settings__rule-mini-btn" type="button" onClick={() => moveDictionaryEntry(entry.id, 1)} disabled={index === dictionaryEntries.length - 1}>
+                            Move down
+                          </button>
+                        </div>
+                      </div>
+                      <div className="settings__rule-grid">
+                        <label className="settings__rule-field">
+                          <span>Heard as</span>
+                          <input
+                            type="text"
+                            value={entry.phrase}
+                            onChange={(event) => updateDictionaryEntry(entry.id, "phrase", event.target.value)}
+                            placeholder="e.g. word script"
+                          />
+                        </label>
+                        <label className="settings__rule-field">
+                          <span>Replace with</span>
+                          <input
+                            type="text"
+                            value={entry.replace_with}
+                            onChange={(event) => updateDictionaryEntry(entry.id, "replace_with", event.target.value)}
+                            placeholder="e.g. WordScript"
+                          />
+                        </label>
+                      </div>
+                      <div className="settings__rule-actions">
+                        <span className="settings__rule-meta">Literal whole-phrase match, case-insensitive. Add separate entries for variants.</span>
+                        <button className="btn btn--cancel" type="button" onClick={() => removeDictionaryEntry(entry.id)}>
+                          Remove
+                        </button>
+                      </div>
+                      {entryIssues.length > 0 && (
+                        <div className="settings__rule-inline-issues">
+                          {entryIssues.map((issue) => (
+                            <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
+                              <strong>{issue.severity}</strong>
+                              <span>{issue.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+        )}
+
+        {activeWorkspacePanel === "snippets" && (
+            <section className="settings__editor-stage settings__editor-stage--stacked">
+              <article className="settings__editor-stage-banner">
+                <div className="settings__editor-stage-banner-head">
+                  <div className="settings__rule-card-heading">
+                    <span className="settings__template-kicker">Snippets</span>
+                    <strong className="settings__rule-card-title">Snippets</strong>
+                    <p className="settings__rule-meta">Deliberate spoken macros for repeatable blocks like follow-ups, handoffs, recaps and status notes.</p>
+                  </div>
+                  <button
+                    className="btn btn--cancel"
+                    type="button"
+                    onClick={() => updateActiveProfile({ snippet_entries: [...snippetEntries, makeSnippetEntry()] })}
+                  >
+                    Add snippet
+                  </button>
+                </div>
+                <p className="form-dim">
+                  Snippets are deliberate spoken macros. Keep triggers short and explicit; if a trigger lands in multiple transcript forms, normalize first in Dictionary or add separate triggers.
+                </p>
+              </article>
+
+              <div className="settings__rule-stack">
+                {snippetEntries.length === 0 ? (
+                  <div className="settings__rule-empty">
+                    No snippets yet. Add a trigger phrase and the full expansion WordScript should drop into the final transcript.
+                  </div>
+                ) : snippetEntries.map((entry, index) => {
+                  const entryIssues = currentIssueMap.get(entry.id) ?? [];
+                  const cardClassName = `settings__rule-card${activeRuleId === entry.id ? " settings__rule-card--active" : ""}${hasSeverity(entryIssues, "error") ? " settings__rule-card--error" : hasSeverity(entryIssues, "warning") ? " settings__rule-card--warning" : ""}`;
+
+                  return (
+                    <article
+                      key={entry.id}
+                      ref={(element) => {
+                        ruleCardRefs.current[entry.id] = element;
+                      }}
+                      className={cardClassName}
+                    >
+                      <div className="settings__rule-card-head">
+                        <div className="settings__rule-card-heading">
+                          <strong className="settings__rule-card-title">Snippet {index + 1}</strong>
+                          <span className="settings__rule-meta">
+                            Runs after Dictionary. Reorder when triggers overlap or one snippet should win over another.
+                          </span>
+                        </div>
+                        <div className="settings__rule-card-buttons">
+                          <button className="settings__rule-mini-btn" type="button" onClick={() => moveSnippetEntry(entry.id, -1)} disabled={index === 0}>
+                            Move up
+                          </button>
+                          <button className="settings__rule-mini-btn" type="button" onClick={() => moveSnippetEntry(entry.id, 1)} disabled={index === snippetEntries.length - 1}>
+                            Move down
+                          </button>
+                        </div>
+                      </div>
+                      <div className="settings__rule-grid settings__rule-grid--three">
+                        <label className="settings__rule-field">
+                          <span>Label</span>
+                          <input
+                            type="text"
+                            value={entry.label}
+                            onChange={(event) => updateSnippetEntry(entry.id, "label", event.target.value)}
+                            placeholder="e.g. Support follow-up"
+                          />
+                        </label>
+                        <label className="settings__rule-field">
+                          <span>Trigger phrase</span>
+                          <input
+                            type="text"
+                            value={entry.trigger}
+                            onChange={(event) => updateSnippetEntry(entry.id, "trigger", event.target.value)}
+                            placeholder="e.g. follow up note"
+                          />
+                        </label>
+                        <label className="settings__rule-field settings__rule-field--wide">
+                          <span>Expansion</span>
+                          <textarea
+                            value={entry.expansion}
+                            onChange={(event) => updateSnippetEntry(entry.id, "expansion", event.target.value)}
+                            placeholder="e.g. Thanks for the update. We will send the next status tomorrow morning."
+                            rows={4}
+                          />
+                        </label>
+                      </div>
+                      <div className="settings__rule-actions">
+                        <span className="settings__rule-meta">Literal trigger phrase match, case-insensitive, in the final transcript.</span>
+                        <button className="btn btn--cancel" type="button" onClick={() => removeSnippetEntry(entry.id)}>
+                          Remove
+                        </button>
+                      </div>
+                      {entryIssues.length > 0 && (
+                        <div className="settings__rule-inline-issues">
+                          {entryIssues.map((issue) => (
+                            <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
+                              <strong>{issue.severity}</strong>
+                              <span>{issue.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+        )}
+
+        <p className="form-dim settings__editor-footnote">
+          Team-sharing stays outside V1. These rules stay personal and exportable, with ordering and preview meant for daily solo dictation instead of a shared automation system.
+        </p>
+      </div>
     </>
   );
 }

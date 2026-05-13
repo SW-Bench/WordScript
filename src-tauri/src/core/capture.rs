@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use super::{
     config::{AppConfig, DictionaryEntry, SnippetEntry},
     paths::user_data_dir,
+    providers::default_provider_id,
     runtime_log,
 };
 
@@ -29,7 +30,7 @@ const TRANSCRIPTION_CHANNELS: u16 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeCaptureConfig {
-    pub backend: String,
+    pub provider: String,
     pub model: String,
     pub language: String,
     pub prompt: String,
@@ -48,7 +49,7 @@ pub struct NativeCaptureConfig {
 impl Default for NativeCaptureConfig {
     fn default() -> Self {
         Self {
-            backend: "groq".to_string(),
+            provider: default_provider_id().to_string(),
             model: "whisper-large-v3-turbo".to_string(),
             language: String::new(),
             prompt: String::new(),
@@ -69,10 +70,20 @@ impl Default for NativeCaptureConfig {
 impl NativeCaptureConfig {
     pub fn load_from_disk() -> Self {
         let app_config = AppConfig::load_from_disk();
+        let provider = app_config.provider;
+        let model = if provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID {
+            if app_config.local_model.trim().is_empty() {
+                "base".to_string()
+            } else {
+                app_config.local_model
+            }
+        } else {
+            app_config.model
+        };
 
         Self {
-            backend: app_config.backend,
-            model: app_config.model,
+            provider,
+            model,
             language: app_config.language,
             prompt: app_config.prompt,
             dictionary_entries: app_config.dictionary_entries,
@@ -474,21 +485,21 @@ pub fn stop_native_capture<R: Runtime>(
         active.channels,
     );
 
-    Ok(Some(serde_json::json!({
-        "event": "audio_ready",
-        "audio_path": audio_path.to_string_lossy(),
-        "audio_duration_seconds": audio_duration_seconds,
-        "provider": active.config.backend,
-        "model": active.config.model,
-        "language": active.config.language,
-        "prompt": active.config.prompt,
-        "dictionary_entries": active.config.dictionary_entries,
-        "snippet_entries": active.config.snippet_entries,
-        "post_process": active.config.post_process,
-        "correction_model": active.config.correction_model,
-        "filter_fillers": active.config.filter_fillers,
-        "professionalize": active.config.professionalize
-    })))
+        Ok(Some(serde_json::json!({
+            "event": "audio_ready",
+            "audio_path": audio_path.to_string_lossy(),
+            "audio_duration_seconds": audio_duration_seconds,
+            "provider": active.config.provider,
+            "model": active.config.model,
+            "language": active.config.language,
+            "prompt": active.config.prompt,
+            "dictionary_entries": active.config.dictionary_entries,
+            "snippet_entries": active.config.snippet_entries,
+            "post_process": active.config.post_process,
+            "correction_model": active.config.correction_model,
+            "filter_fillers": active.config.filter_fillers,
+            "professionalize": active.config.professionalize
+        })))
 }
 
 pub fn abort_native_capture<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {

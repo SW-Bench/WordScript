@@ -15,9 +15,64 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use super::paths::{config_file_path, scratchpad_file_path};
 use super::runtime_log;
-use super::sessions::{complete_from_transcription, fail_from_native_error, now_ms};
+use super::sessions::now_ms;
 
 const CLIPBOARD_RESTORE_DELAY_MS: u64 = 180;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeInsertDriver {
+    WlCopy,
+    Arboard,
+    Xdotool,
+    Wtype,
+    Ydotool,
+    Enigo,
+    Scratchpad,
+}
+
+impl NativeInsertDriver {
+    fn label(self) -> &'static str {
+        match self {
+            Self::WlCopy => "wl-copy",
+            Self::Arboard => "arboard clipboard",
+            Self::Xdotool => "xdotool",
+            Self::Wtype => "wtype",
+            Self::Ydotool => "ydotool",
+            Self::Enigo => "enigo",
+            Self::Scratchpad => "scratchpad recovery",
+        }
+    }
+
+    fn role(self) -> &'static str {
+        match self {
+            Self::WlCopy | Self::Arboard => "clipboard",
+            Self::Xdotool | Self::Wtype | Self::Ydotool | Self::Enigo => "paste",
+            Self::Scratchpad => "recovery",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeInsertDriverStatus {
+    pub driver: NativeInsertDriver,
+    pub label: String,
+    pub role: String,
+    pub available: bool,
+    pub active: bool,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NativeInsertPlatformContext {
+    pub auto_paste: bool,
+    pub is_wayland: bool,
+    pub has_x11_display: bool,
+    pub has_wl_copy: bool,
+    pub has_xdotool: bool,
+    pub has_wtype: bool,
+    pub has_ydotool: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeInsertionConfig {
@@ -80,9 +135,11 @@ pub struct ScratchpadEntry {
     pub created_at_ms: u64,
     pub corrected: bool,
     pub insert_mode: NativeInsertMode,
+    pub active_driver: NativeInsertDriver,
     pub clipboard_written: bool,
     pub paste_attempted: bool,
     pub pasted: bool,
+    pub fallback_reason: Option<String>,
     pub error: Option<String>,
 }
 
@@ -91,11 +148,13 @@ pub struct NativeInsertResult {
     pub ok: bool,
     pub text: String,
     pub insert_mode: NativeInsertMode,
+    pub active_driver: NativeInsertDriver,
     pub clipboard_written: bool,
     pub paste_attempted: bool,
     pub pasted: bool,
     pub scratchpad_entry: ScratchpadEntry,
     pub fallback_available: bool,
+    pub fallback_reason: Option<String>,
     pub error: Option<String>,
 }
 
@@ -112,7 +171,9 @@ pub struct NativeInsertionPlatformStatus {
     pub platform_label: String,
     pub support_tier: NativeSupportTier,
     pub insert_strategy: NativeInsertMode,
+    pub active_driver: NativeInsertDriver,
     pub support_message: String,
+    pub driver_chain: Vec<NativeInsertDriverStatus>,
     pub prerequisites: Vec<String>,
     pub caveats: Vec<String>,
 }
@@ -134,9 +195,13 @@ pub struct NativeInsertionState {
 }
 
 pub(crate) trait InsertIo {
-    fn write_clipboard(&mut self, text: &str) -> Result<(), String>;
+    fn write_clipboard_with_driver(
+        &mut self,
+        driver: NativeInsertDriver,
+        text: &str,
+    ) -> Result<(), String>;
     fn read_clipboard_text(&mut self) -> Option<String>;
-    fn paste_from_clipboard(&mut self) -> Result<(), String>;
+    fn paste_with_driver(&mut self, driver: NativeInsertDriver) -> Result<(), String>;
     fn schedule_clipboard_restore(&mut self, text: Option<String>, delay_ms: u64);
     fn wait_before_paste(&mut self, delay_ms: u64);
 }
@@ -144,16 +209,36 @@ pub(crate) trait InsertIo {
 struct SystemInsertIo;
 
 impl InsertIo for SystemInsertIo {
-    fn write_clipboard(&mut self, text: &str) -> Result<(), String> {
-        write_clipboard(text)
+    fn write_clipboard_with_driver(
+        &mut self,
+        driver: NativeInsertDriver,
+        text: &str,
+    ) -> Result<(), String> {
+        match driver {
+            NativeInsertDriver::WlCopy => write_wayland_clipboard(text),
+            NativeInsertDriver::Arboard => write_clipboard_with_arboard(text),
+            _ => Err(format!("{} is not a clipboard driver.", driver.label())),
+        }
     }
 
     fn read_clipboard_text(&mut self) -> Option<String> {
         read_clipboard_text()
     }
 
-    fn paste_from_clipboard(&mut self) -> Result<(), String> {
-        paste_from_clipboard()
+    fn paste_with_driver(&mut self, driver: NativeInsertDriver) -> Result<(), String> {
+        match driver {
+            NativeInsertDriver::Xdotool => {
+                paste_with_command("xdotool", &["key", "--clearmodifiers", "ctrl+v"], false)
+            }
+            NativeInsertDriver::Wtype => {
+                paste_with_command("wtype", &["-M", "ctrl", "-k", "v", "-m", "ctrl"], true)
+            }
+            NativeInsertDriver::Ydotool => {
+                paste_with_command("ydotool", &["key", "29:1", "47:1", "47:0", "29:0"], false)
+            }
+            NativeInsertDriver::Enigo => paste_with_enigo(),
+            _ => Err(format!("{} is not a paste driver.", driver.label())),
+        }
     }
 
     fn schedule_clipboard_restore(&mut self, text: Option<String>, delay_ms: u64) {
@@ -201,11 +286,12 @@ impl NativeInsertionState {
     fn insert(&mut self, request: NativeInsertRequest) -> NativeInsertResult {
         let started_at = Instant::now();
         let mut io = SystemInsertIo;
+        let auto_paste = request.auto_paste.unwrap_or(self.config.auto_paste);
         let result = execute_insert_request_with_io(
             request,
             &self.config,
             self.entries.len() + 1,
-            is_wayland_session(),
+            detect_insert_platform_context(auto_paste),
             &mut io,
         );
 
@@ -330,14 +416,6 @@ pub fn insert_transcription_from_legacy<R: Runtime>(
         started_at.elapsed().as_millis(),
     ));
 
-    let session_emit_started_at = Instant::now();
-    complete_from_transcription(app, &result.text, corrected);
-    runtime_log::record(format!(
-        "[WordScript] Native insert session emit done elapsed_ms={} total_elapsed_ms={}",
-        session_emit_started_at.elapsed().as_millis(),
-        started_at.elapsed().as_millis(),
-    ));
-
     let insert_emit_started_at = Instant::now();
     emit_insert_event(app, &result);
     runtime_log::record(format!(
@@ -347,11 +425,6 @@ pub fn insert_transcription_from_legacy<R: Runtime>(
     ));
     if result.error.is_some() {
         super::sound::play_if_enabled(super::sound::SoundCue::Error);
-    }
-    if !result.ok {
-        if let Some(error) = &result.error {
-            fail_from_native_error(app, error);
-        }
     }
 
     Ok(result)
@@ -374,7 +447,7 @@ pub(crate) fn execute_insert_request_with_io(
     request: NativeInsertRequest,
     config: &NativeInsertionConfig,
     entry_index: usize,
-    _is_wayland: bool,
+    platform: NativeInsertPlatformContext,
     io: &mut impl InsertIo,
 ) -> NativeInsertResult {
     let source = request
@@ -382,28 +455,38 @@ pub(crate) fn execute_insert_request_with_io(
         .unwrap_or_else(|| "native_insert".to_string());
     let corrected = request.corrected.unwrap_or(false);
     let insert_text = format_text_for_insert(&request.text);
-    let auto_paste = request.auto_paste.unwrap_or(config.auto_paste);
+    let auto_paste = platform.auto_paste;
     let previous_clipboard_text = auto_paste.then(|| io.read_clipboard_text()).flatten();
     let mut clipboard_written = false;
     let mut paste_attempted = false;
     let mut pasted = false;
     let mut error = None;
+    let mut fallback_reason = None;
+    let mut active_driver = NativeInsertDriver::Scratchpad;
 
-    match io.write_clipboard(&insert_text) {
-        Ok(()) => clipboard_written = true,
-        Err(cause) => error = Some(cause),
+    match run_clipboard_driver_chain(&platform, &insert_text, io) {
+        Ok(driver) => {
+            clipboard_written = true;
+            active_driver = driver;
+        }
+        Err(cause) => {
+            error = Some(cause.clone());
+            fallback_reason = Some(cause);
+        }
     }
 
     let insert_mode = if !clipboard_written {
+        active_driver = NativeInsertDriver::Scratchpad;
         NativeInsertMode::ScratchpadFallback
     } else if !auto_paste {
         NativeInsertMode::ClipboardOnly
     } else {
         paste_attempted = true;
         io.wait_before_paste(config.paste_delay_ms);
-        match io.paste_from_clipboard() {
-            Ok(()) => {
+        match run_paste_driver_chain(&platform, io) {
+            Ok(driver) => {
                 pasted = true;
+                active_driver = driver;
                 io.schedule_clipboard_restore(
                     previous_clipboard_text,
                     CLIPBOARD_RESTORE_DELAY_MS,
@@ -411,7 +494,8 @@ pub(crate) fn execute_insert_request_with_io(
                 NativeInsertMode::DirectPaste
             }
             Err(cause) => {
-                error = Some(cause);
+                error = Some(cause.clone());
+                fallback_reason = Some(cause);
                 NativeInsertMode::ClipboardFallback
             }
         }
@@ -424,9 +508,11 @@ pub(crate) fn execute_insert_request_with_io(
         created_at_ms: now_ms(),
         corrected,
         insert_mode: insert_mode.clone(),
+        active_driver,
         clipboard_written,
         paste_attempted,
         pasted,
+        fallback_reason: fallback_reason.clone(),
         error: error.clone(),
     };
 
@@ -435,36 +521,15 @@ pub(crate) fn execute_insert_request_with_io(
             && (!auto_paste || pasted || matches!(insert_mode, NativeInsertMode::ClipboardOnly)),
         text: insert_text,
         insert_mode,
+        active_driver,
         clipboard_written,
         paste_attempted,
         pasted,
         scratchpad_entry: entry,
         fallback_available: true,
+        fallback_reason,
         error,
     }
-}
-
-fn write_clipboard(text: &str) -> Result<(), String> {
-    if cfg!(target_os = "linux")
-        && original_wayland_display().is_some()
-        && command_in_path("wl-copy")
-    {
-        return write_wayland_clipboard(text).or_else(|wayland_error| {
-            write_clipboard_with_arboard(text)
-                .map_err(|arboard_error| format!("{wayland_error}; {arboard_error}"))
-        });
-    }
-
-    let arboard_result = write_clipboard_with_arboard(text);
-    if arboard_result.is_ok() {
-        return Ok(());
-    }
-
-    if cfg!(target_os = "linux") && original_wayland_display().is_some() {
-        return write_wayland_clipboard(text).or(arboard_result);
-    }
-
-    arboard_result
 }
 
 fn read_clipboard_text() -> Option<String> {
@@ -479,7 +544,7 @@ fn schedule_clipboard_restore(text: Option<String>, delay_ms: u64) {
     };
 
     thread::sleep(Duration::from_millis(delay_ms));
-    if let Err(error) = write_clipboard(&text) {
+    if let Err(error) = write_clipboard_with_system_chain(&text) {
         runtime_log::record(format!(
             "[WordScript] Native insert clipboard restore failed: {error}"
         ));
@@ -502,67 +567,132 @@ fn write_clipboard_with_arboard(text: &str) -> Result<(), String> {
     arboard_result
 }
 
-fn paste_from_clipboard() -> Result<(), String> {
+fn detect_insert_platform_context(auto_paste: bool) -> NativeInsertPlatformContext {
+    NativeInsertPlatformContext {
+        auto_paste,
+        is_wayland: is_wayland_session(),
+        has_x11_display: cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_some(),
+        has_wl_copy: cfg!(target_os = "linux") && command_in_path("wl-copy"),
+        has_xdotool: cfg!(target_os = "linux") && command_in_path("xdotool"),
+        has_wtype: cfg!(target_os = "linux") && command_in_path("wtype"),
+        has_ydotool: cfg!(target_os = "linux") && command_in_path("ydotool"),
+    }
+}
+
+fn write_clipboard_with_system_chain(text: &str) -> Result<NativeInsertDriver, String> {
+    let mut io = SystemInsertIo;
+    run_clipboard_driver_chain(&detect_insert_platform_context(false), text, &mut io)
+}
+
+fn run_clipboard_driver_chain(
+    platform: &NativeInsertPlatformContext,
+    text: &str,
+    io: &mut impl InsertIo,
+) -> Result<NativeInsertDriver, String> {
     let mut errors = Vec::new();
-    let started_at = Instant::now();
-    let has_x11_display = cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_some();
-    let has_wayland_display = original_wayland_display().is_some();
 
-    if has_x11_display {
-        match paste_with_command("xdotool", &["key", "--clearmodifiers", "ctrl+v"], false) {
+    for driver in clipboard_driver_execution_chain(platform) {
+        match io.write_clipboard_with_driver(driver, text) {
             Ok(()) => {
                 runtime_log::record(format!(
-                    "[WordScript] Native insert paste strategy=xdotool elapsed_ms={}",
-                    started_at.elapsed().as_millis(),
+                    "[WordScript] Native insert clipboard strategy={} auto_paste={}",
+                    driver.label(),
+                    platform.auto_paste,
                 ));
-                return Ok(());
+                return Ok(driver);
             }
-            Err(error) => {
-                if has_wayland_display && command_in_path("xdotool") {
-                    return Err(format!(
-                        "{error}; skipped Wayland fake-input fallbacks in hybrid X11/Wayland session to avoid compositor permission prompts"
-                    ));
-                }
-                errors.push(error);
-            }
+            Err(error) => errors.push(format!("{}: {error}", driver.label())),
         }
-    }
-
-    if has_wayland_display {
-        match paste_with_command("wtype", &["-M", "ctrl", "-k", "v", "-m", "ctrl"], true) {
-            Ok(()) => {
-                runtime_log::record(format!(
-                    "[WordScript] Native insert paste strategy=wtype elapsed_ms={}",
-                    started_at.elapsed().as_millis(),
-                ));
-                return Ok(());
-            }
-            Err(error) => errors.push(error),
-        }
-        match paste_with_command("ydotool", &["key", "29:1", "47:1", "47:0", "29:0"], false) {
-            Ok(()) => {
-                runtime_log::record(format!(
-                    "[WordScript] Native insert paste strategy=ydotool elapsed_ms={}",
-                    started_at.elapsed().as_millis(),
-                ));
-                return Ok(());
-            }
-            Err(error) => errors.push(error),
-        }
-    }
-
-    match paste_with_enigo() {
-        Ok(()) => {
-            runtime_log::record(format!(
-                "[WordScript] Native insert paste strategy=enigo elapsed_ms={}",
-                started_at.elapsed().as_millis(),
-            ));
-            return Ok(());
-        }
-        Err(error) => errors.push(error),
     }
 
     Err(errors.join("; "))
+}
+
+fn run_paste_driver_chain(
+    platform: &NativeInsertPlatformContext,
+    io: &mut impl InsertIo,
+) -> Result<NativeInsertDriver, String> {
+    let mut errors = Vec::new();
+    let started_at = Instant::now();
+    let execution_chain = paste_driver_execution_chain(platform);
+
+    if execution_chain.is_empty() {
+        return Err(no_available_paste_driver_reason(platform));
+    }
+
+    for driver in execution_chain {
+        match io.paste_with_driver(driver) {
+            Ok(()) => {
+            runtime_log::record(format!(
+                "[WordScript] Native insert paste strategy={} elapsed_ms={}",
+                driver.label(),
+                started_at.elapsed().as_millis(),
+            ));
+                return Ok(driver);
+            }
+            Err(error) => errors.push(format!("{}: {error}", driver.label())),
+        }
+    }
+
+    Err(errors.join("; "))
+}
+
+fn clipboard_driver_execution_chain(
+    platform: &NativeInsertPlatformContext,
+) -> Vec<NativeInsertDriver> {
+    let mut chain = Vec::new();
+
+    if cfg!(target_os = "linux") && platform.is_wayland && platform.has_wl_copy {
+        chain.push(NativeInsertDriver::WlCopy);
+    }
+
+    chain.push(NativeInsertDriver::Arboard);
+    chain
+}
+
+fn paste_driver_execution_chain(platform: &NativeInsertPlatformContext) -> Vec<NativeInsertDriver> {
+    if cfg!(target_os = "windows") || cfg!(target_os = "macos") {
+        return vec![NativeInsertDriver::Enigo];
+    }
+
+    let mut chain = Vec::new();
+
+    if platform.has_x11_display && platform.has_xdotool {
+        chain.push(NativeInsertDriver::Xdotool);
+        if platform.is_wayland {
+            return chain;
+        }
+    }
+
+    if platform.is_wayland {
+        if platform.has_wtype {
+            chain.push(NativeInsertDriver::Wtype);
+        }
+        if platform.has_ydotool {
+            chain.push(NativeInsertDriver::Ydotool);
+        }
+        chain.push(NativeInsertDriver::Enigo);
+        return chain;
+    }
+
+    chain.push(NativeInsertDriver::Enigo);
+    chain
+}
+
+fn no_available_paste_driver_reason(platform: &NativeInsertPlatformContext) -> String {
+    if cfg!(target_os = "linux") && platform.is_wayland {
+        if platform.has_x11_display {
+            return "No usable paste driver available: xdotool is missing in PATH for the active XWayland lane.".to_string();
+        }
+
+        return "No usable paste driver available: install wtype or ydotool, or keep clipboard-only recovery enabled on Wayland.".to_string();
+    }
+
+    if cfg!(target_os = "linux") {
+        return "No usable paste driver available: install xdotool or fall back to clipboard-only recovery on Linux.".to_string();
+    }
+
+    "No usable paste driver available for this platform path.".to_string()
 }
 
 fn command_in_path(program: &str) -> bool {
@@ -679,20 +809,29 @@ fn is_wayland_session() -> bool {
 }
 
 fn platform_status(auto_paste: bool) -> NativeInsertionPlatformStatus {
+    platform_status_from_context(detect_insert_platform_context(auto_paste))
+}
+
+fn platform_status_from_context(platform: NativeInsertPlatformContext) -> NativeInsertionPlatformStatus {
+    let active_driver = preferred_active_driver(&platform);
+    let driver_chain = build_driver_chain(&platform, active_driver);
+
     if cfg!(target_os = "windows") {
         NativeInsertionPlatformStatus {
             platform_label: "Windows".to_string(),
             support_tier: NativeSupportTier::Tier1,
-            insert_strategy: if auto_paste {
+            insert_strategy: if platform.auto_paste {
                 NativeInsertMode::DirectPaste
             } else {
                 NativeInsertMode::ClipboardOnly
             },
-            support_message: if auto_paste {
+            active_driver,
+            support_message: if platform.auto_paste {
                 "Tier-1 path: direct auto-paste is the default, and the scratchpad keeps a recovery copy if insertion still fails.".to_string()
             } else {
                 "Tier-1 path with manual paste: WordScript writes to the clipboard and keeps a scratchpad recovery copy.".to_string()
             },
+            driver_chain,
             prerequisites: vec![
                 "Keep focus on the target app before the auto-paste step runs.".to_string(),
                 "Use clipboard-only mode if you want recovery without simulated Ctrl+V.".to_string(),
@@ -705,16 +844,18 @@ fn platform_status(auto_paste: bool) -> NativeInsertionPlatformStatus {
         NativeInsertionPlatformStatus {
             platform_label: "macOS".to_string(),
             support_tier: NativeSupportTier::Tier1,
-            insert_strategy: if auto_paste {
+            insert_strategy: if platform.auto_paste {
                 NativeInsertMode::DirectPaste
             } else {
                 NativeInsertMode::ClipboardOnly
             },
-            support_message: if auto_paste {
+            active_driver,
+            support_message: if platform.auto_paste {
                 "Tier-1 path: direct Cmd+V auto-paste is the default, and the scratchpad keeps a recovery copy if the target app blocks insertion.".to_string()
             } else {
                 "Tier-1 path with manual paste: WordScript writes to the clipboard and keeps a scratchpad recovery copy.".to_string()
             },
+            driver_chain,
             prerequisites: vec![
                 "Allow Accessibility for WordScript, your terminal, or VS Code in System Settings -> Privacy & Security -> Accessibility before relying on auto-paste.".to_string(),
                 "If macOS prompts for Input Monitoring while sending Cmd+V, allow it for the process that launched WordScript in development mode.".to_string(),
@@ -725,25 +866,36 @@ fn platform_status(auto_paste: bool) -> NativeInsertionPlatformStatus {
                 "In development mode the permission entry may appear under Terminal or VS Code instead of a packaged WordScript app name.".to_string(),
             ],
         }
-    } else if is_wayland_session() {
+    } else if platform.is_wayland {
         NativeInsertionPlatformStatus {
             platform_label: "Linux Wayland".to_string(),
             support_tier: NativeSupportTier::Experimental,
-            insert_strategy: if auto_paste {
+            insert_strategy: if platform.auto_paste {
                 NativeInsertMode::ClipboardFallback
             } else {
                 NativeInsertMode::ClipboardOnly
             },
-            support_message: if auto_paste {
-                "Experimental path: WordScript tries direct paste through available Wayland/X11 helpers, then keeps clipboard and scratchpad recovery if the desktop blocks insertion.".to_string()
+            active_driver,
+            support_message: if platform.auto_paste {
+                format!(
+                    "Experimental path: WordScript writes through {}, then tries {} before falling back to clipboard and scratchpad recovery.",
+                    preferred_clipboard_driver(&platform).label(),
+                    preferred_paste_driver_label(&platform),
+                )
             } else {
                 "Experimental path with manual paste: WordScript writes to the clipboard and keeps a scratchpad recovery copy.".to_string()
             },
+            driver_chain,
             prerequisites: vec![
-                "Wayland helper tools and compositor policy decide whether synthetic paste can work at all.".to_string(),
+                wayland_prerequisite_message(&platform),
                 "Keep clipboard-only recovery enabled if your desktop blocks direct insert.".to_string(),
             ],
             caveats: vec![
+                if platform.has_x11_display && platform.has_xdotool {
+                    "Hybrid X11/Wayland sessions stay on the xdotool lane first; WordScript skips extra fake-input helpers there to avoid compositor permission prompts.".to_string()
+                } else {
+                    "Behavior can differ between compositors, portal setups, and XWayland fallback paths on the same distro.".to_string()
+                },
                 "Behavior can differ between compositors, portal setups, and XWayland fallback paths on the same distro.".to_string(),
             ],
         }
@@ -751,24 +903,240 @@ fn platform_status(auto_paste: bool) -> NativeInsertionPlatformStatus {
         NativeInsertionPlatformStatus {
             platform_label: "Linux X11".to_string(),
             support_tier: NativeSupportTier::Preview,
-            insert_strategy: if auto_paste {
+            insert_strategy: if platform.auto_paste {
                 NativeInsertMode::DirectPaste
             } else {
                 NativeInsertMode::ClipboardOnly
             },
-            support_message: if auto_paste {
-                "Preview path: direct auto-paste is available on X11, but WordScript still keeps clipboard and scratchpad recovery for target apps that behave differently.".to_string()
+            active_driver,
+            support_message: if platform.auto_paste {
+                format!(
+                    "Preview path: WordScript writes through {}, then prefers {} for direct paste on X11 before falling back to clipboard and scratchpad recovery.",
+                    preferred_clipboard_driver(&platform).label(),
+                    preferred_paste_driver_label(&platform),
+                )
             } else {
                 "Preview path with manual paste: WordScript writes to the clipboard and keeps a scratchpad recovery copy.".to_string()
             },
+            driver_chain,
             prerequisites: vec![
                 "Run under X11 or XWayland if you want the current direct paste path.".to_string(),
+                if platform.has_xdotool {
+                    "xdotool is available for the active X11 lane.".to_string()
+                } else {
+                    "Install xdotool if you want the preferred X11 paste helper instead of the enigo fallback.".to_string()
+                },
                 "Keep clipboard recovery enabled for apps that do not accept synthetic paste consistently.".to_string(),
             ],
             caveats: vec![
                 "Window manager quirks still make Linux less uniform than the Windows and macOS paths.".to_string(),
             ],
         }
+    }
+}
+
+fn preferred_active_driver(platform: &NativeInsertPlatformContext) -> NativeInsertDriver {
+    if platform.auto_paste {
+        if let Some(driver) = paste_driver_execution_chain(platform)
+            .into_iter()
+            .find(|driver| !platform.is_wayland || !matches!(driver, NativeInsertDriver::Enigo))
+        {
+            return driver;
+        }
+    }
+
+    if let Some(driver) = clipboard_driver_execution_chain(platform).into_iter().next() {
+        return driver;
+    }
+
+    NativeInsertDriver::Scratchpad
+}
+
+fn preferred_clipboard_driver(platform: &NativeInsertPlatformContext) -> NativeInsertDriver {
+    clipboard_driver_execution_chain(platform)
+        .into_iter()
+        .next()
+        .unwrap_or(NativeInsertDriver::Scratchpad)
+}
+
+fn preferred_paste_driver_label(platform: &NativeInsertPlatformContext) -> &'static str {
+    paste_driver_execution_chain(platform)
+        .into_iter()
+        .next()
+        .unwrap_or(NativeInsertDriver::Scratchpad)
+        .label()
+}
+
+fn wayland_prerequisite_message(platform: &NativeInsertPlatformContext) -> String {
+    if platform.has_x11_display && platform.has_xdotool {
+        return "XWayland is available, so WordScript prefers xdotool for the active hybrid session.".to_string();
+    }
+
+    let mut helpers = Vec::new();
+    if !platform.has_wtype {
+        helpers.push("wtype");
+    }
+    if !platform.has_ydotool {
+        helpers.push("ydotool");
+    }
+
+    if helpers.is_empty() {
+        "Wayland helper tools are present, but compositor policy still decides whether synthetic paste can work at all.".to_string()
+    } else {
+        format!(
+            "Wayland helper tools and compositor policy decide whether synthetic paste can work at all. Missing today: {}.",
+            helpers.join(", "),
+        )
+    }
+}
+
+fn build_driver_chain(
+    platform: &NativeInsertPlatformContext,
+    active_driver: NativeInsertDriver,
+) -> Vec<NativeInsertDriverStatus> {
+    if cfg!(target_os = "windows") || cfg!(target_os = "macos") {
+        return vec![
+            driver_status(
+                NativeInsertDriver::Arboard,
+                true,
+                active_driver,
+                "Clipboard handoff before any paste shortcut runs.",
+            ),
+            driver_status(
+                NativeInsertDriver::Enigo,
+                true,
+                active_driver,
+                "Synthetic paste shortcut for the active target app.",
+            ),
+            driver_status(
+                NativeInsertDriver::Scratchpad,
+                true,
+                active_driver,
+                "Disk-backed recovery if clipboard or paste fails.",
+            ),
+        ];
+    }
+
+    if platform.is_wayland {
+        let hybrid_lane = platform.has_x11_display && platform.has_xdotool;
+        let mut statuses = vec![
+            driver_status(
+                NativeInsertDriver::WlCopy,
+                platform.has_wl_copy,
+                active_driver,
+                if platform.has_wl_copy {
+                    "Preferred Wayland clipboard writer when wl-copy is installed."
+                } else {
+                    "wl-copy is not available in PATH for the active Wayland session."
+                },
+            ),
+            driver_status(
+                NativeInsertDriver::Arboard,
+                true,
+                active_driver,
+                "Generic clipboard writer fallback via arboard.",
+            ),
+            driver_status(
+                NativeInsertDriver::Xdotool,
+                hybrid_lane,
+                active_driver,
+                if hybrid_lane {
+                    "Preferred paste helper for hybrid X11/Wayland sessions."
+                } else if platform.has_x11_display {
+                    "DISPLAY is present but xdotool is missing in PATH."
+                } else {
+                    "XWayland is not active, so xdotool is not part of this Wayland lane."
+                },
+            ),
+            driver_status(
+                NativeInsertDriver::Wtype,
+                !hybrid_lane && platform.has_wtype,
+                active_driver,
+                if hybrid_lane {
+                    "Skipped in hybrid X11/Wayland sessions to avoid compositor fake-input prompts after xdotool."
+                } else if platform.has_wtype {
+                    "Wayland-native paste helper for compositors that allow virtual keyboard input."
+                } else {
+                    "wtype is not available in PATH."
+                },
+            ),
+            driver_status(
+                NativeInsertDriver::Ydotool,
+                !hybrid_lane && platform.has_ydotool,
+                active_driver,
+                if hybrid_lane {
+                    "Skipped in hybrid X11/Wayland sessions to avoid extra fake-input prompts after xdotool."
+                } else if platform.has_ydotool {
+                    "Wayland fallback helper when ydotool and its daemon are available."
+                } else {
+                    "ydotool is not available in PATH."
+                },
+            ),
+            driver_status(
+                NativeInsertDriver::Enigo,
+                !hybrid_lane,
+                active_driver,
+                if hybrid_lane {
+                    "Skipped in the hybrid lane; clipboard and scratchpad recovery take over after xdotool failures."
+                } else {
+                    "Last-resort synthetic paste helper after the dedicated Linux tools."
+                },
+            ),
+        ];
+        statuses.push(driver_status(
+            NativeInsertDriver::Scratchpad,
+            true,
+            active_driver,
+            "Disk-backed recovery if every clipboard or paste helper fails.",
+        ));
+        return statuses;
+    }
+
+    vec![
+        driver_status(
+            NativeInsertDriver::Arboard,
+            true,
+            active_driver,
+            "Clipboard writer for the X11 path.",
+        ),
+        driver_status(
+            NativeInsertDriver::Xdotool,
+            platform.has_xdotool,
+            active_driver,
+            if platform.has_xdotool {
+                "Preferred X11 paste helper."
+            } else {
+                "xdotool is not available in PATH."
+            },
+        ),
+        driver_status(
+            NativeInsertDriver::Enigo,
+            true,
+            active_driver,
+            "Fallback synthetic paste helper if xdotool is unavailable or rejected.",
+        ),
+        driver_status(
+            NativeInsertDriver::Scratchpad,
+            true,
+            active_driver,
+            "Disk-backed recovery if clipboard or paste fails.",
+        ),
+    ]
+}
+
+fn driver_status(
+    driver: NativeInsertDriver,
+    available: bool,
+    active_driver: NativeInsertDriver,
+    detail: &str,
+) -> NativeInsertDriverStatus {
+    NativeInsertDriverStatus {
+        driver,
+        label: driver.label().to_string(),
+        role: driver.role().to_string(),
+        available,
+        active: driver == active_driver,
+        detail: detail.to_string(),
     }
 }
 
@@ -792,41 +1160,63 @@ fn save_scratchpad_entries(entries: &[ScratchpadEntry]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     struct FakeInsertIo {
-        clipboard_result: Result<(), String>,
+        clipboard_results: HashMap<NativeInsertDriver, Result<(), String>>,
         clipboard_read: Option<String>,
-        paste_result: Result<(), String>,
+        paste_results: HashMap<NativeInsertDriver, Result<(), String>>,
         scheduled_restores: Vec<(Option<String>, u64)>,
         waits: Vec<u64>,
         clipboard_texts: Vec<String>,
+        clipboard_drivers: Vec<NativeInsertDriver>,
+        paste_drivers: Vec<NativeInsertDriver>,
     }
 
     impl FakeInsertIo {
         fn direct_paste() -> Self {
+            let mut clipboard_results = HashMap::new();
+            clipboard_results.insert(NativeInsertDriver::Arboard, Ok(()));
+            let mut paste_results = HashMap::new();
+            paste_results.insert(NativeInsertDriver::Enigo, Ok(()));
+
             Self {
-                clipboard_result: Ok(()),
+                clipboard_results,
                 clipboard_read: Some("Previous clipboard".to_string()),
-                paste_result: Ok(()),
+                paste_results,
                 scheduled_restores: Vec::new(),
                 waits: Vec::new(),
                 clipboard_texts: Vec::new(),
+                clipboard_drivers: Vec::new(),
+                paste_drivers: Vec::new(),
             }
         }
     }
 
     impl InsertIo for FakeInsertIo {
-        fn write_clipboard(&mut self, text: &str) -> Result<(), String> {
+        fn write_clipboard_with_driver(
+            &mut self,
+            driver: NativeInsertDriver,
+            text: &str,
+        ) -> Result<(), String> {
+            self.clipboard_drivers.push(driver);
             self.clipboard_texts.push(text.to_string());
-            self.clipboard_result.clone()
+            self.clipboard_results
+                .get(&driver)
+                .cloned()
+                .unwrap_or_else(|| Err(format!("{} missing fake clipboard result", driver.label())))
         }
 
         fn read_clipboard_text(&mut self) -> Option<String> {
             self.clipboard_read.clone()
         }
 
-        fn paste_from_clipboard(&mut self) -> Result<(), String> {
-            self.paste_result.clone()
+        fn paste_with_driver(&mut self, driver: NativeInsertDriver) -> Result<(), String> {
+            self.paste_drivers.push(driver);
+            self.paste_results
+                .get(&driver)
+                .cloned()
+                .unwrap_or_else(|| Err(format!("{} missing fake paste result", driver.label())))
         }
 
         fn schedule_clipboard_restore(&mut self, text: Option<String>, delay_ms: u64) {
@@ -859,14 +1249,25 @@ mod tests {
                 paste_delay_ms: 5,
             },
             1,
-            false,
+            NativeInsertPlatformContext {
+                auto_paste: true,
+                is_wayland: false,
+                has_x11_display: false,
+                has_wl_copy: false,
+                has_xdotool: false,
+                has_wtype: false,
+                has_ydotool: false,
+            },
             &mut io,
         );
 
         assert!(result.ok);
         assert_eq!(result.insert_mode, NativeInsertMode::DirectPaste);
+        assert_eq!(result.active_driver, NativeInsertDriver::Enigo);
         assert_eq!(io.waits, vec![5]);
         assert_eq!(io.clipboard_texts, vec!["Hello world".to_string()]);
+        assert_eq!(io.clipboard_drivers, vec![NativeInsertDriver::Arboard]);
+        assert_eq!(io.paste_drivers, vec![NativeInsertDriver::Enigo]);
         assert_eq!(
             io.scheduled_restores,
             vec![(Some("Previous clipboard".to_string()), CLIPBOARD_RESTORE_DELAY_MS)]
@@ -875,13 +1276,31 @@ mod tests {
 
     #[test]
     fn clipboard_fallback_surfaces_auto_paste_failure() {
+        let mut clipboard_results = HashMap::new();
+        clipboard_results.insert(NativeInsertDriver::Arboard, Ok(()));
+        let mut paste_results = HashMap::new();
+        paste_results.insert(
+            NativeInsertDriver::Wtype,
+            Err("Target app blocked paste".to_string()),
+        );
+        paste_results.insert(
+            NativeInsertDriver::Ydotool,
+            Err("ydotool daemon unavailable".to_string()),
+        );
+        paste_results.insert(
+            NativeInsertDriver::Enigo,
+            Err("Enigo input adapter unavailable".to_string()),
+        );
+
         let mut io = FakeInsertIo {
-            clipboard_result: Ok(()),
+            clipboard_results,
             clipboard_read: Some("Previous clipboard".to_string()),
-            paste_result: Err("Target app blocked paste".to_string()),
+            paste_results,
             scheduled_restores: Vec::new(),
             waits: Vec::new(),
             clipboard_texts: Vec::new(),
+            clipboard_drivers: Vec::new(),
+            paste_drivers: Vec::new(),
         };
         let result = execute_insert_request_with_io(
             NativeInsertRequest {
@@ -895,15 +1314,53 @@ mod tests {
                 paste_delay_ms: 0,
             },
             1,
-            false,
+            NativeInsertPlatformContext {
+                auto_paste: true,
+                is_wayland: true,
+                has_x11_display: false,
+                has_wl_copy: false,
+                has_xdotool: false,
+                has_wtype: true,
+                has_ydotool: true,
+            },
             &mut io,
         );
 
         assert!(!result.ok);
         assert_eq!(result.insert_mode, NativeInsertMode::ClipboardFallback);
         assert!(result.fallback_available);
-        assert_eq!(result.error.as_deref(), Some("Target app blocked paste"));
+        assert_eq!(result.active_driver, NativeInsertDriver::Arboard);
+        assert_eq!(
+            result.fallback_reason.as_deref(),
+            Some(
+                "wtype: Target app blocked paste; ydotool: ydotool daemon unavailable; enigo: Enigo input adapter unavailable"
+            )
+        );
         assert!(io.scheduled_restores.is_empty());
+    }
+
+    #[test]
+    fn wayland_platform_status_names_missing_helpers_in_driver_chain() {
+        let status = platform_status_from_context(NativeInsertPlatformContext {
+            auto_paste: true,
+            is_wayland: true,
+            has_x11_display: false,
+            has_wl_copy: false,
+            has_xdotool: false,
+            has_wtype: false,
+            has_ydotool: false,
+        });
+
+        assert_eq!(status.platform_label, "Linux Wayland");
+        assert_eq!(status.active_driver, NativeInsertDriver::Arboard);
+        assert!(status
+            .driver_chain
+            .iter()
+            .any(|item| item.driver == NativeInsertDriver::Wtype && item.detail.contains("wtype")));
+        assert!(status
+            .prerequisites
+            .iter()
+            .any(|item| item.contains("Missing today: wtype, ydotool")));
     }
 
     #[test]

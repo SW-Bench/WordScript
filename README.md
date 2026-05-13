@@ -20,6 +20,8 @@ WordScript exists because basic productivity input should not feel like a subscr
 
 The target is a genuinely good dictation product first. A commercial release path can exist later, but the project is not being built around artificial scarcity. The near-term goal is a strong open alternative to paid AI voice-dictation apps that people can inspect, run from source, improve, and ship together.
 
+Long-term, WordScript can grow beyond dictation into a broader open voice workspace with meeting transcripts, notes, search, sync, API / MCP, and later assistant-style desktop actions. The product is intentionally not starting there. The current discipline is to earn that expansion on top of a stable dictation core.
+
 ## Current status
 
 - Repo version: `0.2.2-alpha`
@@ -33,10 +35,12 @@ The target is a genuinely good dictation product first. A commercial release pat
 - native start/stop, pause/resume and abort hotkeys
 - native microphone capture with waveform, silence timeout and max-duration stop
 - Groq BYOK transcription with OS secret-store storage
-- transform pipeline with hallucination guardrails, optional AI cleanup, dictionary and snippets
-- native insertion with direct paste, clipboard fallback, scratchpad recovery and last-transcript restore
+- first generic provider contract in Rust and Tauri, with Groq as the cloud-first production lane and `local_preview` as an external-helper STT preview lane
+- transform pipeline with hallucination guardrails, optional AI cleanup, local text profiles, curated starter templates, dictionary and snippets
+- native insertion with direct paste, clipboard fallback, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
+- native transcription history with retention policy, server-side filters, JSON export, retry and a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
 - platform diagnostics and runtime logs
-- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics
+- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a persistent sidebar profile dock for manual profile switching and a sequenced Text Rules workspace with a compact setup deck, top stage navigation and one dominant working canvas at a time
 - manual release build-up lanes for Linux, macOS and Windows
 
 ## What still needs work
@@ -46,7 +50,14 @@ The target is a genuinely good dictation product first. A commercial release pat
 - Linux AppImage packaging that no longer stalls on the current linuxdeploy lane
 - live updater path after the first real release
 - stronger Linux Wayland reliability
-- more product polish around recovery, diagnostics and text-rule workflows
+- embedded local/offline runtime path that no longer depends on an external helper binary and model files
+- more product polish around automatic profile activation, additional starter depth and broader text-rule workflows beyond the current sequenced editor overhaul
+
+## Planning references
+
+- benchmark and donor matrix: [docs/BENCHMARK_MATRIX.md](docs/BENCHMARK_MATRIX.md)
+- product direction and staging: [docs/VISION.md](docs/VISION.md)
+- active system ownership: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## Contribute
 
@@ -135,13 +146,22 @@ The default repo path remains source-first. `npm run tauri build` and `.github/w
 
 ## Runtime model
 
-WordScript currently supports one active transcription provider in the product path: Groq.
+WordScript currently ships with two runtime lanes behind the same provider contract:
+
+- Groq as the cloud-first production lane with BYOK stored in the OS secret store
+- `local_preview` as an STT-only preview lane that runs through an external `whisper-cli` helper and a local ggml model
 
 Runtime credentials stay with the user:
 
 - the end user stores their own Groq API key in the OS secret store
 - the JSON config is scrubbed on save
 - there is no hosted WordScript backend or shared WordScript API key in the current product path
+
+Local preview prerequisites today:
+
+- install `whisper-cli` in `PATH` or point `WORDSCRIPT_LOCAL_WHISPER_CLI` at the binary
+- set `WORDSCRIPT_LOCAL_MODEL_PATH` to one ggml model file or `WORDSCRIPT_LOCAL_MODEL_DIR` to a directory that contains `ggml-<model>.bin` or common variant files such as quantized or `.en` model builds
+- expect speech-to-text only; AI cleanup stays cloud-first and falls back to the raw transcript when local preview is active
 
 Distribution credentials and signing remain part of the release build-up. They are intentionally not described as active user delivery while no published releases exist.
 

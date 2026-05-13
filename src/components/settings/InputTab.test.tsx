@@ -40,9 +40,11 @@ describe("InputTab", () => {
           created_at_ms: 1,
           corrected: false,
           insert_mode: "clipboard_fallback",
+          active_driver: "arboard",
           clipboard_written: true,
           paste_attempted: false,
           pasted: false,
+          fallback_reason: "wtype missing in PATH",
           error: null,
         },
         scratchpad_entries: [],
@@ -51,7 +53,26 @@ describe("InputTab", () => {
           platform_label: "Linux Wayland",
           support_tier: "experimental",
           insert_strategy: "clipboard_fallback",
+          active_driver: "wl_copy",
           support_message: "Experimental path: WordScript tries direct paste through available Wayland/X11 helpers, then keeps clipboard and scratchpad recovery if the desktop blocks insertion.",
+          driver_chain: [
+            {
+              driver: "wl_copy",
+              label: "wl-copy",
+              role: "clipboard",
+              available: true,
+              active: true,
+              detail: "Preferred Wayland clipboard writer when wl-copy is installed.",
+            },
+            {
+              driver: "wtype",
+              label: "wtype",
+              role: "paste",
+              available: false,
+              active: false,
+              detail: "wtype is not available in PATH.",
+            },
+          ],
           prerequisites: [
             "Wayland helper tools and compositor policy decide whether synthetic paste can work at all.",
           ],
@@ -97,10 +118,14 @@ describe("InputTab", () => {
     expect(screen.getByText(/manual format: use \+ between keys/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /input device/i })).toBeInTheDocument();
     expect(screen.getByText(/next capture will use built-in microphone/i)).toBeInTheDocument();
-    expect(screen.getByText(/use recovery when auto-paste failed/i)).toBeInTheDocument();
-    expect(screen.getByText(/0 fallback entries ready for recovery if direct insert fails/i)).toBeInTheDocument();
+    expect(screen.getByText(/current driver: wl-copy/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/wl-copy -> wtype/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/scratchpad recovery is separate from the diagnostics preview transcript/i)).toBeInTheDocument();
+    expect(screen.getByText(/last recoverable transcript/i)).toBeInTheDocument();
+    expect(screen.getByText(/^recovery scratchpad$/i)).toBeInTheDocument();
+    expect(screen.getByText(/wtype missing in path/i)).toBeInTheDocument();
     expect(screen.getByText(/wordscript-scratchpad\.json/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /restore last transcript/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /restore recoverable transcript/i })).toBeEnabled();
     expect(screen.queryByText("Linux Wayland")).not.toBeInTheDocument();
   });
 });

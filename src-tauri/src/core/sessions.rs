@@ -129,6 +129,20 @@ impl NativeSessionState {
         Ok(self.status())
     }
 
+    pub fn enter_processing(
+        &mut self,
+        recovery_trigger: impl Into<String>,
+        capture_is_recording: bool,
+    ) -> Result<NativeSessionStatus, String> {
+        match self.stop_for_processing() {
+            Ok(status) => Ok(status),
+            Err(_) if capture_is_recording => {
+                Ok(self.force_processing_for_active_capture(recovery_trigger))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub fn force_processing_for_active_capture(
         &mut self,
         trigger: impl Into<String>,
@@ -185,36 +199,25 @@ pub fn native_session_status(
 pub fn start_native_session(
     app: AppHandle,
     request: StartNativeSessionRequest,
-    state: State<'_, Mutex<NativeSessionState>>,
+    _state: State<'_, Mutex<NativeSessionState>>,
 ) -> Result<NativeSessionStatus, String> {
-    let mut state = state.lock().map_err(|error| error.to_string())?;
-    let status = state.start_capture(request.trigger)?;
-    emit_session_event(&app, "recording_started", &status);
-    Ok(status)
+    start_from_native(&app, &request.trigger)
 }
 
 #[tauri::command]
 pub fn stop_native_session(
     app: AppHandle,
-    state: State<'_, Mutex<NativeSessionState>>,
+    _state: State<'_, Mutex<NativeSessionState>>,
 ) -> Result<NativeSessionStatus, String> {
-    let mut state = state.lock().map_err(|error| error.to_string())?;
-    let status = state.stop_for_processing()?;
-    emit_session_event(&app, "recording_stopped", &status);
-    emit_session_event(&app, "processing", &status);
-    Ok(status)
+    processing_from_native(&app)
 }
 
 #[tauri::command]
 pub fn abort_native_session(
     app: AppHandle,
-    state: State<'_, Mutex<NativeSessionState>>,
+    _state: State<'_, Mutex<NativeSessionState>>,
 ) -> Result<NativeSessionStatus, String> {
-    let mut state = state.lock().map_err(|error| error.to_string())?;
-    let status = state.abort("Capture aborted by native trigger.");
-    emit_session_event(&app, "aborted", &status);
-    emit_session_event(&app, "empty", &status);
-    Ok(status)
+    abort_from_native(&app, "Capture aborted by native trigger.")
 }
 
 #[tauri::command]
@@ -254,6 +257,19 @@ pub fn complete_from_transcription<R: Runtime>(app: &AppHandle<R>, text: &str, c
     }
 }
 
+pub fn start_from_native<R: Runtime>(
+    app: &AppHandle<R>,
+    trigger: &str,
+) -> Result<NativeSessionStatus, String> {
+    let state = app
+        .try_state::<Mutex<NativeSessionState>>()
+        .ok_or_else(|| "Native session state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    let status = state.start_capture(trigger)?;
+    emit_session_event(app, "recording_started", &status);
+    Ok(status)
+}
+
 pub fn fail_from_native_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
     if let Some(state) = app.try_state::<Mutex<NativeSessionState>>() {
         if let Ok(mut state) = state.lock() {
@@ -266,13 +282,35 @@ pub fn fail_from_native_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
 pub fn processing_from_native<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<NativeSessionStatus, String> {
+    processing_or_recover_from_native(app, false, "native_capture_recovery")
+}
+
+pub fn processing_or_recover_from_native<R: Runtime>(
+    app: &AppHandle<R>,
+    capture_is_recording: bool,
+    recovery_trigger: &str,
+) -> Result<NativeSessionStatus, String> {
     let state = app
         .try_state::<Mutex<NativeSessionState>>()
         .ok_or_else(|| "Native session state is not available.".to_string())?;
     let mut state = state.lock().map_err(|error| error.to_string())?;
-    let status = state.stop_for_processing()?;
+    let status = state.enter_processing(recovery_trigger, capture_is_recording)?;
     emit_session_event(app, "recording_stopped", &status);
     emit_session_event(app, "processing", &status);
+    Ok(status)
+}
+
+pub fn abort_from_native<R: Runtime>(
+    app: &AppHandle<R>,
+    reason: &str,
+) -> Result<NativeSessionStatus, String> {
+    let state = app
+        .try_state::<Mutex<NativeSessionState>>()
+        .ok_or_else(|| "Native session state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    let status = state.abort(reason.to_string());
+    emit_session_event(app, "aborted", &status);
+    emit_session_event(app, "empty", &status);
     Ok(status)
 }
 
@@ -337,5 +375,44 @@ mod tests {
             Some("native_capture_recovery")
         );
         assert!(recovered.active_session_id.is_some());
+    }
+
+    #[test]
+    fn enter_processing_recovers_when_capture_state_is_authoritative() {
+        let mut state = NativeSessionState::default();
+
+        let recovered = state
+            .enter_processing("native_capture_recovery", true)
+            .unwrap();
+
+        assert_eq!(recovered.stage, NativeSessionStage::Processing);
+        assert_eq!(
+            recovered.active_trigger.as_deref(),
+            Some("native_capture_recovery")
+        );
+        assert!(recovered.active_session_id.is_some());
+    }
+
+    #[test]
+    fn abort_clears_active_session_and_keeps_reason() {
+        let mut state = NativeSessionState::default();
+
+        state.start_capture("hotkey").unwrap();
+        let aborted = state.abort("user cancelled");
+
+        assert_eq!(aborted.stage, NativeSessionStage::Aborted);
+        assert_eq!(aborted.last_error.as_deref(), Some("user cancelled"));
+        assert!(aborted.active_session_id.is_none());
+    }
+
+    #[test]
+    fn enter_processing_without_capture_or_recovery_errors() {
+        let mut state = NativeSessionState::default();
+
+        let error = state
+            .enter_processing("native_capture_recovery", false)
+            .unwrap_err();
+
+        assert_eq!(error, "No native capture session is currently recording.");
     }
 }

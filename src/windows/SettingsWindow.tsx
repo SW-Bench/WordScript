@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useGroqProvider } from "../hooks/useGroqProvider";
+import { useProvider } from "../hooks/useProvider";
 import { useRuntime } from "../hooks/useRuntime";
 import { getHotkeyValidationMessage, normalizeManualHotkey } from "../lib/hotkeys";
 import { APP_ORGANIZATION_URL, APP_REPOSITORY_URL, APP_SITE_URL, APP_VERSION } from "../lib/appMeta";
 import type { AppConfig } from "../types/ipc";
+import type { ProviderId } from "../types/providers";
 import type { TextRulesAnalysis } from "../types/textRules";
 import { ApiModelsTab }   from "../components/settings/ApiModelsTab";
 import { InputTab }       from "../components/settings/InputTab";
+import { ProfileDock } from "../components/settings/ProfileDock";
 import { PromptsTab }     from "../components/settings/PromptsTab";
 import { AboutTab }       from "../components/settings/AboutTab";
 import { RebuildLabTab }  from "../components/settings/RebuildLabTab";
@@ -23,7 +25,7 @@ const TABS = [
     id: "Provider & Models",
     icon: "gear",
     eyebrow: "Language & Region",
-    blurb: "Groq BYOK, language, model choice and post-correction.",
+    blurb: "Cloud BYOK, local preview lane, language, model choice and post-correction.",
   },
   {
     label: "Hotkeys",
@@ -72,52 +74,29 @@ function clampSettingsNumber(value: number, minimum: number, maximum: number, fa
 
 export default function SettingsWindow() {
   const { state, saveConfig } = useRuntime();
-  const { status: groqProviderStatus, saveApiKey } = useGroqProvider();
   const [form, setForm]       = useState<AppConfig | null>(null);
   const [active, setActive]   = useState<Tab>("Provider & Models");
   const [status, setStatus]   = useState<{ msg: string; ok: boolean } | null>(null);
   const [textRulesAnalysis, setTextRulesAnalysis] = useState<TextRulesAnalysis | null>(null);
-  const [legacyMigrationAttempted, setLegacyMigrationAttempted] = useState(false);
+  const selectedProvider: ProviderId = (form?.provider ?? state.config?.provider) === "local_preview"
+    ? "local_preview"
+    : "groq";
+  const { status: providerStatus } = useProvider(selectedProvider);
 
   // Populate form when the runtime provides config
   useEffect(() => {
     if (state.config && !form) {
       setForm({ ...state.config });
-      if (!state.config.groq_api_key && !groqProviderStatus?.credential.configured) {
+      if (!providerStatus?.credential.configured) {
         setActive("Provider & Models");
       }
     }
-  }, [state.config, form, groqProviderStatus]);
+  }, [state.config, form, providerStatus]);
 
   // Keep form in sync if config reloads externally
   useEffect(() => {
     if (state.config) setForm({ ...state.config });
   }, [state.config]);
-
-  useEffect(() => {
-    if (!form?.groq_api_key || !groqProviderStatus || legacyMigrationAttempted) {
-      return;
-    }
-
-    setLegacyMigrationAttempted(true);
-
-    if (groqProviderStatus.credential.configured) {
-      patch({ groq_api_key: "", backend: "groq" });
-      return;
-    }
-
-    void saveApiKey(form.groq_api_key).then((credential) => {
-      if (!credential) {
-        setActive("Provider & Models");
-        setStatus({ msg: "✗  Could not move legacy Groq key to OS secret store", ok: false });
-        return;
-      }
-
-      patch({ groq_api_key: "", backend: "groq" });
-      setStatus({ msg: "✓  Legacy Groq key moved to OS secret store", ok: true });
-      setTimeout(() => setStatus(null), 2000);
-    });
-  }, [form, groqProviderStatus, legacyMigrationAttempted, saveApiKey]);
 
   const patch = (partial: Partial<AppConfig>) =>
     setForm((prev) => (prev ? { ...prev, ...partial } : prev));
@@ -129,17 +108,24 @@ export default function SettingsWindow() {
       ? { label: "Processing", title: "WordScript is currently transcribing the last capture.", ok: true }
       : state.status === "recording"
         ? { label: state.paused ? "Paused" : "Recording", title: state.paused ? "Recording is paused." : "Recording is active.", ok: true }
-        : groqProviderStatus?.credential.configured
-          ? { label: "Ready", title: "Groq key is present and the native runtime is configured.", ok: true }
-          : { label: "Needs key", title: "Add a Groq key before transcription can run.", ok: false };
+        : providerStatus?.credential.configured
+          ? {
+              label: selectedProvider === "local_preview" ? "Preview ready" : "Ready",
+              title: selectedProvider === "local_preview"
+                ? "Local preview helper and model are configured for the native runtime."
+                : "Groq key is present and the native runtime is configured.",
+              ok: true,
+            }
+          : {
+              label: selectedProvider === "local_preview" ? "Needs helper" : "Needs key",
+              title: selectedProvider === "local_preview"
+                ? "Configure whisper-cli and a local model before the preview lane can run."
+                : "Add a Groq key before transcription can run.",
+              ok: false,
+            };
 
   const handleSave = async () => {
     if (!form) return;
-    if (form.groq_api_key) {
-      setActive("Provider & Models");
-      setStatus({ msg: "✗  Move Groq key to OS secret store before saving", ok: false });
-      return;
-    }
     if (textRulesAnalysis?.blocking) {
       setActive("Text Rules");
       setStatus({ msg: "✗  Fix blocking text-rule issues before saving", ok: false });
@@ -199,7 +185,7 @@ export default function SettingsWindow() {
         abort_hotkey: triggerStatus.registered_abort_hotkey ?? triggerStatus.abort_hotkey,
       };
       setForm(normalizedForm);
-      await saveConfig({ ...normalizedForm, groq_api_key: "" });
+      await saveConfig(normalizedForm);
       setStatus({ msg: "✓  Saved", ok: true });
       setTimeout(() => setStatus(null), 1500);
     } catch (e) {
@@ -227,7 +213,7 @@ export default function SettingsWindow() {
   if (!form) {
     return (
       <div className="settings settings--loading">
-        Connecting to backend…
+        Connecting to runtime…
       </div>
     );
   }
@@ -255,10 +241,14 @@ export default function SettingsWindow() {
             ))}
           </nav>
 
-          <div className="settings__project">
-            <span className="settings__project-kicker">Open-source brand by SW labs</span>
-            <img className="settings__project-mark" src={swBenchWordmark} alt="SW Bench" />
-            <small>WordScript is community-built open-source voice dictation, made as a real alternative to paid speech tools.</small>
+          <div className="settings__sidebar-bottom">
+            <ProfileDock config={form} onChange={patch} onOpenTextRules={() => setActive("Text Rules")} />
+
+            <div className="settings__project">
+              <span className="settings__project-kicker">Open-source brand by SW labs</span>
+              <img className="settings__project-mark" src={swBenchWordmark} alt="SW Bench" />
+              <small>Community-built open-source dictation.</small>
+            </div>
           </div>
         </aside>
 
@@ -304,7 +294,7 @@ export default function SettingsWindow() {
                 <AboutTab isActive={active === "About"} />
               </div>
               <div className={`tab${active === "Rebuild Lab" ? " tab--active" : ""}`}>
-                <RebuildLabTab isActive={active === "Rebuild Lab"} />
+                <RebuildLabTab isActive={active === "Rebuild Lab"} config={form} onChange={patch} />
               </div>
             </div>
             </section>

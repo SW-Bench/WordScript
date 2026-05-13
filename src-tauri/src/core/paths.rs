@@ -33,6 +33,10 @@ pub fn scratchpad_file_path() -> PathBuf {
     user_data_dir().join("scratchpad.json")
 }
 
+pub fn history_file_path() -> PathBuf {
+    user_data_dir().join("history.json")
+}
+
 fn home_dir() -> Option<PathBuf> {
     env::var_os("HOME")
         .map(PathBuf::from)

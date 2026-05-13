@@ -178,11 +178,7 @@ export function useRuntime() {
   }, []);
 
   const saveConfig = useCallback(async (config: AppConfig) => {
-    try {
-      await invoke<AppConfig>("save_config", { config });
-    } catch (error) {
-      console.error("saveConfig failed:", error);
-    }
+    return invoke<AppConfig>("save_config", { config });
   }, []);
 
   const openSettings = useCallback(async () => {

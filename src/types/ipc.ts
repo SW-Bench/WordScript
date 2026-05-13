@@ -1,4 +1,4 @@
-// ── Backend → Tauri events (received via listen("wordscript-event")) ─────────
+// ── Runtime → Tauri events (received via listen("wordscript-event")) ─────────
 
 export interface DictionaryEntry {
   id:                      string;
@@ -13,18 +13,27 @@ export interface SnippetEntry {
   expansion:               string;
 }
 
+export interface TextProfile {
+  id:                      string;
+  label:                   string;
+  prompt:                  string;
+  dictionary_entries:      DictionaryEntry[];
+  snippet_entries:         SnippetEntry[];
+}
+
 export interface AppConfig {
-  groq_api_key:            string;
   model:                   string;
   language:                string;
   prompt:                  string;
   dictionary_entries:      DictionaryEntry[];
   snippet_entries:         SnippetEntry[];
+  active_text_profile_id:  string;
+  text_profiles:           TextProfile[];
   post_process:            boolean;
   correction_model:        string;
   filter_fillers:          boolean;
   professionalize:         boolean;
-  backend:                 string;
+  provider:                string;
   local_model:             string;
   hotkey:                  string;
   pause_hotkey:            string;
@@ -40,6 +49,8 @@ export interface AppConfig {
   play_sounds:             boolean;
   log_level:               string;
   temp_audio_dir:          string;
+  history_limit:           number;
+  history_retention_days:  number;
 }
 
 export type BackendEvent =

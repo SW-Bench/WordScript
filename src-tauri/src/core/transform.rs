@@ -3,13 +3,12 @@ use std::time::Instant;
 use regex::{Captures, NoExpand, Regex, RegexBuilder};
 
 use super::config::{DictionaryEntry, SnippetEntry};
-use super::providers::groq::{
-    create_groq_chat_completion, GroqChatCompletionRequest, GroqChatMessage,
-};
+use super::providers::{create_chat_completion, ChatCompletionRequest, ChatMessage};
 use super::runtime_log;
 
 #[derive(Debug, Clone)]
 pub struct NativeTransformConfig {
+    pub provider: String,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
     pub post_process: bool,
@@ -29,6 +28,13 @@ pub struct NativeTransformResult {
 impl NativeTransformConfig {
     pub fn from_payload(value: &serde_json::Value) -> Self {
         Self {
+            provider: value
+                .get("provider")
+                .or_else(|| value.get("backend"))
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("groq")
+                .to_string(),
             dictionary_entries: value
                 .get("dictionary_entries")
                 .cloned()
@@ -110,10 +116,11 @@ pub async fn apply_native_transform(
             config.professionalize,
         ));
 
-        let request = GroqChatCompletionRequest {
+        let request = ChatCompletionRequest {
+            provider: config.provider.clone(),
             model,
             messages: vec![
-                GroqChatMessage {
+                ChatMessage {
                     role: "system".to_string(),
                     content: correction_system_prompt(
                         config.filter_fillers,
@@ -121,7 +128,7 @@ pub async fn apply_native_transform(
                     )
                     .to_string(),
                 },
-                GroqChatMessage {
+                ChatMessage {
                     role: "user".to_string(),
                     content: trimmed.to_string(),
                 },
@@ -132,7 +139,7 @@ pub async fn apply_native_transform(
             max_retries: Some(1),
         };
 
-        match create_groq_chat_completion(request).await {
+        match create_chat_completion(request).await {
             Ok(corrected) => {
                 runtime_log::record(format!(
                     "[WordScript] Native transform correction done elapsed_ms={} corrected_len={}",
@@ -560,6 +567,7 @@ mod tests {
         let result = apply_native_transform(
             "Thanks for watching",
             NativeTransformConfig {
+                provider: "groq".to_string(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
                 post_process: true,
@@ -578,6 +586,7 @@ mod tests {
         let result = apply_native_transform(
             "wir shippen das morgen",
             NativeTransformConfig {
+                provider: "groq".to_string(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
                 post_process: false,
@@ -597,6 +606,7 @@ mod tests {
         let result = apply_native_transform(
             "word script follow up note",
             NativeTransformConfig {
+                provider: "groq".to_string(),
                 dictionary_entries: vec![DictionaryEntry {
                     id: "brand".to_string(),
                     phrase: "word script".to_string(),

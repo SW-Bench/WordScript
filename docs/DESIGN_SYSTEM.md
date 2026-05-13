@@ -1,6 +1,6 @@
 # WordScript — Design System
 
-Stand: 2026-05-12
+Stand: 2026-05-13
 
 ## Zweck
 
@@ -43,6 +43,8 @@ Jeder Tab braucht einen klaren owning purpose. Globale Banner oder doppelte Erkl
 ### Diagnostics
 
 Diagnostics ist eine technische Flaeche innerhalb der Settings-Shell. Sie darf direkter und roher sein, muss aber dieselben Zustandsbegriffe verwenden wie der Rest der App.
+Durable History und fluechtige Runtime-Logs muessen dort sichtbar getrennt sein, auch wenn beide aus demselben nativen Pfad gelesen werden. History braucht dort echte Filter-, Export- und Policy-Oberflaechen statt statischer Log-Karten.
+Recovery-Scratchpad aus Input, diagnostische Preview-Transkripte und durable History duerfen sprachlich und visuell nicht mehr ineinanderlaufen.
 
 ## Layout-Regeln
 
@@ -92,23 +94,31 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 - Save-Bar bleibt ruhig und funktional
 - About-/Trust-Flaechen muessen Plattformvoraussetzungen und ehrliche Grenzen sichtbar getrennt zeigen, nicht in einen neutralen Absatz verstecken
 - Release-Aufbauflaechen im About-Tab sind erlaubt, wenn sie klar `in progress` markieren und keine live Downloads oder funktionierende In-App-Updates vortaeuschen
+- Provider & Models muss Groq-Authentifizierung sichtbar von Local-Preview-Helper-Voraussetzungen trennen; API-Key-UI darf fuer lokale Preview nicht erscheinen
 
 ## Text Rules UX
 
 Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 
-- `Transcription Context` ist STT-Hilfe und keine semantische Regelmaschine
+- lokale Textprofile kapseln `Transcription Context`, Dictionary und Snippets als konkreten Arbeitsmodus
+- `Transcription Context` bleibt innerhalb des aktiven Profils STT-Hilfe und keine semantische Regelmaschine
 - Dictionary und Snippets arbeiten literal und case-insensitive
 - Dictionary laeuft vor Snippets
 - Preview und Validation muessen gegen denselben nativen Analysepfad laufen
+- die Settings-Sidebar muss den aktiven Profilzustand global sichtbar machen; schneller Wechsel lebt dort, tiefes Profil-Editing bleibt in Text Rules
+- Text Rules soll als gefuehrter Ablauf organisiert sein: zuerst eine kompakte Setup-Zone fuer Profilbearbeitung und sekundare Starter-Hilfe; danach sitzt die Schritt-Navigation oben ueber der aktiven Arbeitsflaeche; darunter bleibt immer genau eine dominante Bearbeitungsstufe statt mehrerer gleichgewichtiger Hauptflaechen
+- kuratierte Starter-Templates duerfen nur lokale Create-/Merge-Baselines fuer konkrete ICP-Arbeitsmodi sein, keine versteckte Profil-Automation oder Assistant-Persona
+- Profilwechsel muss sichtbar denselben aktiven Regelbestand fuer Preview, Import/Export und Runtime umschalten
 - Diagnostics-Hinweise sollen auf konkrete Regelkarten zurueckfuehren
 
 ## Credential- und Privacy-UI
 
 - Groq bleibt BYOK
+- die aktive UI bleibt cloud-first, zeigt aber die `local_preview`-Lane als STT-only Preview mit externem Helper explizit daneben
 - UI-Copy sagt `Save locally` und `OS secret store`, nicht implizit Cloud-Speicherung
 - der volle API-Key wird nach dem Speichern nicht zurueck in den Renderer geholt
 - Key-Praesenz ist neutral; gruene Signale gibt es erst nach echter Validierung
+- lokale Preview zeigt Runner-/Model-Status statt Auth-Sprache und muss die noetigen Env-Variablen erklaeren
 
 ## Motion und Plattformgrenzen
 

@@ -1,6 +1,6 @@
 # WordScript — Architecture
 
-Stand: 2026-05-12
+Stand: 2026-05-13
 
 ## Zweck
 
@@ -37,14 +37,14 @@ Rust core
 Die aktive UI besteht derzeit aus zwei Fenstern in der Tauri-Konfiguration:
 
 - `overlay`: transparente Pill fuer Aufnahmezustand
-- `settings`: Shell mit den Tabs Provider & Models, Input, Text Rules, About und Diagnostics
+- `settings`: Shell mit den Tabs Provider & Models, Input, Text Rules, About und Diagnostics sowie einem persistenten Profil-Dock in der Sidebar
 
 Wichtige Frontend-Bausteine:
 
 - `src/windows/OverlayWindow.tsx`
 - `src/windows/SettingsWindow.tsx`
 - `src/hooks/useRuntime.ts`
-- `src/hooks/useGroqProvider.ts`
+- `src/hooks/useProvider.ts`
 - `src/hooks/useNativeInsertion.ts`
 - `src/hooks/useRuntimeLogs.ts`
 - `src/components/settings/*`
@@ -53,8 +53,10 @@ Die UI ist verantwortlich fuer:
 
 - Anzeige von Runtime-Status, Waveform und Fehlermeldungen
 - Pflege der Config-Werte
-- Preview, Validation und Import/Export der Text Rules
+- global sichtbare manuelle Profilumschaltung in der Sidebar plus lokale Starter-Templates, Preview, Validation und Import/Export in den Text Rules
+- Text Rules als Workspace mit linker Kontrollspur fuer Profilwahl, Schritt-Navigation und sekundare Starter-Hilfe; rechts steht immer nur eine dominante Bearbeitungsstufe fuer Context/Preview, Dictionary oder Snippets
 - Sichtbare Recovery-Aktionen und Diagnostics
+- getrennte Darstellung von transienten Runtime-Logs und dauerhaftem nativen Transkriptverlauf inklusive Filter, Export und sichtbarem History-Store-Pfad; Recovery-Scratchpad bleibt davon getrennt
 
 Die UI ist nicht verantwortlich fuer:
 
@@ -81,20 +83,23 @@ Der aktive Produktkern sitzt in `src-tauri/src/core/`.
 
 ### Konfiguration und Status
 
-- `config.rs`: Config-Lifecycle, Disk-I/O, Scrubbing sensibler Werte
+- `config.rs`: Config-Lifecycle, Disk-I/O, Scrubbing sensibler Werte und lokales Textprofil-Modell
 - `runtime_log.rs`: gepufferte strukturierte Runtime-Logs fuer die Diagnostics-UI
+- `history.rs`: persistenter nativer Verlauf mit raw vs transformed transcript, Insert-Outcome, serverseitigen Filtern, Export, Retention-Policy und Retry
 - `paths.rs`: Produktpfade wie Config und Scratchpad
 
 ### Aufnahme und Session
 
 - `trigger.rs`: globale Start/Stop-, Pause/Resume- und Abort-Hotkeys
 - `capture.rs`: Audioaufnahme, Level-/Waveform-Events, Silence-/Max-Duration-Autostop
-- `sessions.rs`: Laufzeitstatus und Session-Uebergaenge
+- `sessions.rs`: Laufzeitstatus und gemeinsame Session-Uebergaenge fuer Trigger, Commands und nativen Pipeline-Abschluss
 - `sound.rs`: Start-, Stop-, Abort-, Startup- und Error-Cues
 
 ### Provider und Textverarbeitung
 
-- `providers/groq.rs`: aktiver Cloud-Provider, BYOK, Secret Store, Fehlerklassen
+- `providers/mod.rs`: gemeinsamer Provider-Vertrag, Dispatch und generische Command-Oberflaechen
+- `providers/groq.rs`: erste produktive Cloud-Implementierung fuer BYOK, Secret Store und Groq-spezifische HTTP-Fehler
+- `providers/local_preview.rs`: externe `whisper-cli`-Preview-Lane fuer lokales STT ueber denselben Antwortvertrag
 - `transform.rs`: Halluzinationsfilter, optionale Nachkorrektur, Dictionary- und Snippet-Aufloesung
 - `text_rules.rs`: Analyse, Preview, Import/Export und Konfliktbehandlung der Text Rules
 
@@ -103,6 +108,7 @@ Der aktive Produktkern sitzt in `src-tauri/src/core/`.
 - `insertion.rs`: Paste-Strategien, Clipboard-Restore, Scratchpad und Plattformstatus
 
 `NativeInsertionPlatformStatus` ist der Support-Vertrag dieses Pfads. Er liefert Label, Support-Tier, Insert-Strategie, Freitext sowie konkrete Voraussetzungen und ehrliche Grenzen fuer die UI.
+Fuer Linux liefert derselbe Vertrag jetzt auch eine explizite Driver-Kette fuer Clipboard- und Paste-Helfer inklusive aktiver Lane und fehlender Helfer.
 
 ## Session-Fluss
 
@@ -112,10 +118,12 @@ Der aktive Fluss sieht so aus:
 2. `capture.rs` startet die Aufnahme und emittiert Level-/Waveform-Events.
 3. Aufnahme endet durch Stop-Hotkey, Silence-Timeout, Max-Duration oder Abort.
 4. Audio wird als 16 kHz Mono-WAV fuer den Provider vorbereitet.
-5. `providers/groq.rs` sendet die Datei an Groq.
-6. `transform.rs` prueft und bereinigt den Transkriptionsoutput.
+5. `providers/mod.rs` loest den aktiven Provider auf und delegiert heute an `providers/groq.rs` oder `providers/local_preview.rs`.
+6. `transform.rs` prueft und bereinigt den Transkriptionsoutput und nutzt denselben Provider-Vertrag fuer AI cleanup.
 7. `insertion.rs` waehlt den Insert-Modus und fuehrt ihn aus.
-8. UI bekommt Status, letztes Transkript und moegliche Recovery-Daten zurueck.
+8. `history.rs` schreibt raw vs transformed transcript, aktives Textprofil, Insert-Outcome und Fehler in den nativen Verlauf.
+9. `sessions.rs` finalisiert danach genau einmal `completed`, `aborted` oder `error`.
+10. UI bekommt Status, letztes Transkript, History und moegliche Recovery-Daten zurueck.
 
 ## Session-State-Machine
 
@@ -144,7 +152,8 @@ Wichtig:
 
 - `prompt` ist heute nur Transcription Context fuer die STT-Anfrage
 - Dictionary- und Snippet-Matches sind literal und case-insensitive
-- lokale Profile existieren im Produkt noch nicht
+- lokale Textprofile kapseln heute `prompt`, Dictionary und Snippets als aktive Runtime-Konfiguration
+- die aktuelle Local-Preview-Lane ist STT-only; wenn AI cleanup aktiv bleibt, faellt `transform.rs` auf das rohe lokale Transkript zurueck
 
 ## Insertion-Modi
 
@@ -167,6 +176,7 @@ Wichtige Architekturregeln dieses Pfads:
 - Scratchpad und Last-Transcript-Restore sind Teil des Produktpfads
 - Overlay, Input und About nutzen denselben nativen Plattformstatus als Quelle
 - About zeigt Voraussetzungen und Grenzen aus diesem nativen Vertrag, statt pro Plattform neue UI-Nebenwahrheiten zu erfinden
+- Linux/X11/Wayland werden als explizite Driver-Ketten modelliert; `wl-copy`, `xdotool`, `wtype`, `ydotool`, `enigo` und Scratchpad stehen im Status nicht mehr nur implizit im Code
 
 ## Plattformmodell
 
@@ -180,14 +190,24 @@ Das ist keine Marketing-Sprache, sondern Teil des Insert- und Support-Modells.
 
 ## Provider-Modell
 
-Im aktiven Produktpfad gibt es genau einen echten Provider: Groq.
+Im aktiven Produktpfad gibt es zwei klar getrennte Provider-Lanes:
+
+- `groq`: cloud-first Produktionspfad fuer BYOK, Secret Store und AI cleanup
+- `local_preview`: lokale STT-Preview-Lane ueber einen externen `whisper-cli`-Runner und lokale ggml-Modelle
 
 Architekturregeln dafuer:
 
 - Groq laeuft als BYOK-Modell
 - der API-Key liegt im OS secret store
 - die JSON-Config wird beim Speichern gescrubbt
+- `local_preview` nutzt keine API-Keys, sondern sichtbare Helper-/Model-Voraussetzungen in Settings und Diagnostics
+- `local_preview` ist bewusst kein zweiter Full-Feature-Produktpfad; Capture, Insertion und Recovery bleiben gleich, AI cleanup bleibt cloud-first
 - ein eigener WordScript-Proxy oder Hosted Mode existiert nicht
+
+Die aktuelle Local-Preview-Verdrahtung erwartet:
+
+- `whisper-cli` in `PATH` oder `WORDSCRIPT_LOCAL_WHISPER_CLI`
+- `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine einzelne ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin` und gaengige Varianten wie quantisierte oder `.en`-Dateien
 
 Wenn spaeter weitere Provider dazukommen, gehoeren sie unter `src-tauri/src/core/providers/` und muessen denselben Fehler- und Antwortvertrag bedienen.
 
@@ -195,10 +215,19 @@ Wenn spaeter weitere Provider dazukommen, gehoeren sie unter `src-tauri/src/core
 
 Diese Themen sind moegliche spaetere Produktstufen, aber heute nicht aktive Architektur:
 
-- lokaler/offline Standardpfad
-- lokales Profilsystem fuer mehrere Arbeitskontexte
+- eingebetteter lokaler/offline Standardpfad ohne externen Helper
+- app- oder hotkey-basierte automatische Profilaktivierung fuer mehrere Arbeitskontexte
 - Team- oder Sync-Modell
 - AI-Assistant- oder Screen-Context-Workflows
 - veroeffentlichter Installer-Kanal und fertiger In-Place-Updater
+
+Wenn spaeter ein Sync- oder Workspace-Pfad entsteht, ist die aktuelle Zielrichtung dafuer kein Peer-to-Peer-Primarmodell. Erwartet ist stattdessen eine WordScript-eigene Sync-Schicht auf einem lokalen Datenmodell mit optionalem Account- und Cloud-Workspace-Layer.
+
+Daraus folgen fuer die spaetere Architektur diese Leitplanken:
+
+- der lokale Dictation-Pfad bleibt ohne Account benutzbar
+- Profile, Verlauf und spaetere Voice-Workspaces bleiben WordScript-owned
+- ein spaeterer Sync-Service ist keine allgemeine Fremd-Hub-Abhaengigkeit
+- Provider-Traffic bleibt nicht automatisch an einen WordScript-Proxy gebunden; Sync und STT-Transport sind getrennte Entscheidungen
 
 Wenn die Doku eines dieser Themen beschreibt, muss klar markiert sein, dass es geplant und nicht aktiv ist.

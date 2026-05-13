@@ -2,10 +2,16 @@ use std::{path::Path, sync::{Mutex, OnceLock}, time::{Duration, Instant}};
 
 use keyring::{Entry, Error as KeyringError};
 use reqwest::{header, multipart, StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tokio::time::sleep;
 
 use crate::core::runtime_log;
+
+use super::{
+    ChatCompletionRequest, ProviderCommandError, ProviderCredentialStatus,
+    ProviderErrorKind, ProviderProfile, ProviderStatus, TranscribeAudioFileRequest,
+    TranscriptionResponse, ValidateProviderApiKeyResponse,
+};
 
 const GROQ_API_BASE: &str = "https://api.groq.com/openai/v1";
 const WORDSCRIPT_APP_IDENTIFIER: &str = "io.github.swbench.wordscript";
@@ -17,29 +23,6 @@ const GROQ_FREE_TIER_MAX_AUDIO_BYTES: usize = 25 * 1024 * 1024;
 const GROQ_DEV_TIER_MAX_AUDIO_BYTES: usize = 100 * 1024 * 1024;
 
 static GROQ_API_KEY_CACHE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderErrorKind {
-    MissingApiKey,
-    SecretStoreUnavailable,
-    InvalidRequest,
-    Unauthorized,
-    RateLimited,
-    Timeout,
-    Network,
-    ProviderStatus,
-    Parse,
-    Io,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ProviderCommandError {
-    pub kind: ProviderErrorKind,
-    pub message: String,
-    pub status: Option<u16>,
-    pub retry_after_seconds: Option<u64>,
-}
 
 #[derive(Debug)]
 struct GroqProviderError {
@@ -60,86 +43,11 @@ impl From<GroqProviderError> for ProviderCommandError {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ProviderCredentialStatus {
-    pub provider: String,
-    pub configured: bool,
-    pub storage: String,
-    pub key_preview: Option<String>,
-}
+pub type GroqProviderStatus = ProviderStatus;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ProviderProfile {
-    pub id: String,
-    pub provider: String,
-    pub model: String,
-    pub label: String,
-    pub default: bool,
-    pub requires_api_key: bool,
-}
+pub type ValidateGroqApiKeyResponse = ValidateProviderApiKeyResponse;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct GroqProviderStatus {
-    pub provider: String,
-    pub default_profile: String,
-    pub credential: ProviderCredentialStatus,
-    pub profiles: Vec<ProviderProfile>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SaveGroqApiKeyRequest {
-    pub api_key: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ValidateGroqApiKeyRequest {
-    pub api_key: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ValidateGroqApiKeyResponse {
-    pub ok: bool,
-    pub provider: String,
-    pub checked_with: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct GroqTranscribeFileRequest {
-    pub audio_path: String,
-    pub model: Option<String>,
-    pub language: Option<String>,
-    pub prompt: Option<String>,
-    pub response_format: Option<String>,
-    pub timeout_ms: Option<u64>,
-    pub max_retries: Option<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GroqTranscriptionResponse {
-    pub text: String,
-    #[serde(default)]
-    pub language: Option<String>,
-    #[serde(default)]
-    pub duration: Option<f64>,
-    #[serde(default)]
-    pub segments: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GroqChatMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GroqChatCompletionRequest {
-    pub model: String,
-    pub messages: Vec<GroqChatMessage>,
-    pub temperature: f32,
-    pub max_tokens: u32,
-    pub timeout_ms: Option<u64>,
-    pub max_retries: Option<u8>,
-}
+pub type GroqTranscriptionResponse = TranscriptionResponse;
 
 #[derive(Debug, Deserialize)]
 struct GroqChatCompletionResponse {
@@ -163,8 +71,7 @@ struct GroqClient {
     max_retries: u8,
 }
 
-#[tauri::command]
-pub fn groq_provider_status() -> Result<GroqProviderStatus, ProviderCommandError> {
+pub fn provider_status() -> Result<GroqProviderStatus, ProviderCommandError> {
     Ok(GroqProviderStatus {
         provider: "groq".to_string(),
         default_profile: "cloud-fast".to_string(),
@@ -173,11 +80,8 @@ pub fn groq_provider_status() -> Result<GroqProviderStatus, ProviderCommandError
     })
 }
 
-#[tauri::command]
-pub fn save_groq_api_key(
-    request: SaveGroqApiKeyRequest,
-) -> Result<ProviderCredentialStatus, ProviderCommandError> {
-    let api_key = normalize_api_key(&request.api_key)?;
+pub fn save_api_key(api_key: &str) -> Result<ProviderCredentialStatus, ProviderCommandError> {
+    let api_key = normalize_api_key(api_key)?;
     groq_key_entry()
         .map_err(secret_store_error)?
         .set_password(&api_key)
@@ -186,8 +90,7 @@ pub fn save_groq_api_key(
     credential_status().map_err(ProviderCommandError::from)
 }
 
-#[tauri::command]
-pub fn clear_groq_api_key() -> Result<ProviderCredentialStatus, ProviderCommandError> {
+pub fn clear_api_key() -> Result<ProviderCredentialStatus, ProviderCommandError> {
     match groq_key_entry()
         .map_err(secret_store_error)?
         .delete_credential()
@@ -200,11 +103,10 @@ pub fn clear_groq_api_key() -> Result<ProviderCredentialStatus, ProviderCommandE
     }
 }
 
-#[tauri::command]
-pub async fn validate_groq_api_key(
-    request: ValidateGroqApiKeyRequest,
+pub async fn validate_api_key(
+    api_key: Option<String>,
 ) -> Result<ValidateGroqApiKeyResponse, ProviderCommandError> {
-    let (api_key, checked_with) = match request.api_key {
+    let (api_key, checked_with) = match api_key {
         Some(value) if !value.trim().is_empty() => {
             (normalize_api_key(&value)?, "provided_key".to_string())
         }
@@ -225,9 +127,8 @@ pub async fn validate_groq_api_key(
     })
 }
 
-#[tauri::command]
-pub async fn transcribe_groq_audio_file(
-    request: GroqTranscribeFileRequest,
+pub async fn transcribe_audio_file(
+    request: TranscribeAudioFileRequest,
 ) -> Result<GroqTranscriptionResponse, ProviderCommandError> {
     let api_key = load_groq_api_key()?;
     let client = GroqClient::new(
@@ -243,8 +144,8 @@ pub async fn transcribe_groq_audio_file(
         .map_err(ProviderCommandError::from)
 }
 
-pub async fn create_groq_chat_completion(
-    request: GroqChatCompletionRequest,
+pub async fn create_chat_completion(
+    request: ChatCompletionRequest,
 ) -> Result<String, ProviderCommandError> {
     let api_key = load_groq_api_key()?;
     let client = GroqClient::new(
@@ -297,7 +198,7 @@ impl GroqClient {
 
     async fn transcribe_file(
         &self,
-        request: GroqTranscribeFileRequest,
+        request: TranscribeAudioFileRequest,
     ) -> Result<GroqTranscriptionResponse, GroqProviderError> {
         let started_at = Instant::now();
         let audio_path = Path::new(&request.audio_path);
@@ -404,7 +305,7 @@ impl GroqClient {
 
     async fn chat_completion(
         &self,
-        request: GroqChatCompletionRequest,
+        request: ChatCompletionRequest,
     ) -> Result<String, GroqProviderError> {
         let started_at = Instant::now();
         let prompt_chars = request

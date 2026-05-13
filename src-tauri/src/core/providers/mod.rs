@@ -1,1 +1,275 @@
+use serde::{Deserialize, Serialize};
+
 pub mod groq;
+pub mod local_preview;
+
+pub const DEFAULT_PROVIDER_ID: &str = "groq";
+pub const LOCAL_PREVIEW_PROVIDER_ID: &str = "local_preview";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderErrorKind {
+	MissingApiKey,
+	SecretStoreUnavailable,
+	InvalidRequest,
+	Unauthorized,
+	RateLimited,
+	Timeout,
+	Network,
+	ProviderStatus,
+	Parse,
+	Io,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderCommandError {
+	pub kind: ProviderErrorKind,
+	pub message: String,
+	pub status: Option<u16>,
+	pub retry_after_seconds: Option<u64>,
+}
+
+impl ProviderCommandError {
+	pub fn invalid_request(message: impl Into<String>) -> Self {
+		Self {
+			kind: ProviderErrorKind::InvalidRequest,
+			message: message.into(),
+			status: None,
+			retry_after_seconds: None,
+		}
+	}
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderCredentialStatus {
+	pub provider: String,
+	pub configured: bool,
+	pub storage: String,
+	pub key_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderProfile {
+	pub id: String,
+	pub provider: String,
+	pub model: String,
+	pub label: String,
+	pub default: bool,
+	pub requires_api_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderStatus {
+	pub provider: String,
+	pub default_profile: String,
+	pub credential: ProviderCredentialStatus,
+	pub profiles: Vec<ProviderProfile>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProviderStatusRequest {
+	pub provider: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaveProviderApiKeyRequest {
+	pub provider: String,
+	pub api_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClearProviderApiKeyRequest {
+	pub provider: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ValidateProviderApiKeyRequest {
+	pub provider: String,
+	pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ValidateProviderApiKeyResponse {
+	pub ok: bool,
+	pub provider: String,
+	pub checked_with: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TranscribeAudioFileRequest {
+	pub provider: String,
+	pub audio_path: String,
+	pub model: Option<String>,
+	pub language: Option<String>,
+	pub prompt: Option<String>,
+	pub response_format: Option<String>,
+	pub timeout_ms: Option<u64>,
+	pub max_retries: Option<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranscriptionResponse {
+	pub text: String,
+	#[serde(default)]
+	pub language: Option<String>,
+	#[serde(default)]
+	pub duration: Option<f64>,
+	#[serde(default)]
+	pub segments: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+	pub role: String,
+	pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatCompletionRequest {
+	pub provider: String,
+	pub model: String,
+	pub messages: Vec<ChatMessage>,
+	pub temperature: f32,
+	pub max_tokens: u32,
+	pub timeout_ms: Option<u64>,
+	pub max_retries: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderId {
+	Groq,
+	LocalPreview,
+}
+
+impl ProviderId {
+	fn as_str(self) -> &'static str {
+		match self {
+			Self::Groq => DEFAULT_PROVIDER_ID,
+			Self::LocalPreview => LOCAL_PREVIEW_PROVIDER_ID,
+		}
+	}
+}
+
+fn resolve_provider_id(provider: &str) -> Result<ProviderId, ProviderCommandError> {
+	match provider.trim().to_ascii_lowercase().as_str() {
+		"" | DEFAULT_PROVIDER_ID => Ok(ProviderId::Groq),
+		"local" | LOCAL_PREVIEW_PROVIDER_ID => Ok(ProviderId::LocalPreview),
+		other => Err(ProviderCommandError::invalid_request(format!(
+			"Provider '{}' is not supported yet.",
+			other
+		))),
+	}
+}
+
+pub fn normalize_provider_value(provider: &str) -> String {
+	resolve_provider_id(provider)
+		.map(ProviderId::as_str)
+		.unwrap_or(DEFAULT_PROVIDER_ID)
+		.to_string()
+}
+
+pub fn default_provider_id() -> &'static str {
+	DEFAULT_PROVIDER_ID
+}
+
+pub fn provider_credentials_configured(
+	provider: &str,
+) -> Result<bool, ProviderCommandError> {
+	Ok(provider_status(ProviderStatusRequest {
+		provider: provider.to_string(),
+	})?
+	.credential
+	.configured)
+}
+
+pub fn migrate_legacy_provider_api_key(
+	provider: &str,
+	api_key: &str,
+) -> Result<ProviderCredentialStatus, ProviderCommandError> {
+	match resolve_provider_id(provider)? {
+		ProviderId::Groq => groq::save_api_key(api_key),
+		ProviderId::LocalPreview => local_preview::save_api_key(api_key),
+	}
+}
+
+#[tauri::command]
+pub fn provider_status(
+	request: ProviderStatusRequest,
+) -> Result<ProviderStatus, ProviderCommandError> {
+	match resolve_provider_id(&request.provider)? {
+		ProviderId::Groq => groq::provider_status(),
+		ProviderId::LocalPreview => local_preview::provider_status(),
+	}
+}
+
+#[tauri::command]
+pub fn save_provider_api_key(
+	request: SaveProviderApiKeyRequest,
+) -> Result<ProviderCredentialStatus, ProviderCommandError> {
+	match resolve_provider_id(&request.provider)? {
+		ProviderId::Groq => groq::save_api_key(&request.api_key),
+		ProviderId::LocalPreview => local_preview::save_api_key(&request.api_key),
+	}
+}
+
+#[tauri::command]
+pub fn clear_provider_api_key(
+	request: ClearProviderApiKeyRequest,
+) -> Result<ProviderCredentialStatus, ProviderCommandError> {
+	match resolve_provider_id(&request.provider)? {
+		ProviderId::Groq => groq::clear_api_key(),
+		ProviderId::LocalPreview => local_preview::clear_api_key(),
+	}
+}
+
+#[tauri::command]
+pub async fn validate_provider_api_key(
+	request: ValidateProviderApiKeyRequest,
+) -> Result<ValidateProviderApiKeyResponse, ProviderCommandError> {
+	match resolve_provider_id(&request.provider)? {
+		ProviderId::Groq => groq::validate_api_key(request.api_key).await,
+		ProviderId::LocalPreview => local_preview::validate_api_key(request.api_key).await,
+	}
+}
+
+#[tauri::command]
+pub async fn transcribe_audio_file(
+	request: TranscribeAudioFileRequest,
+) -> Result<TranscriptionResponse, ProviderCommandError> {
+	match resolve_provider_id(&request.provider)? {
+		ProviderId::Groq => groq::transcribe_audio_file(request).await,
+		ProviderId::LocalPreview => local_preview::transcribe_audio_file(request).await,
+	}
+}
+
+pub async fn create_chat_completion(
+	request: ChatCompletionRequest,
+) -> Result<String, ProviderCommandError> {
+	match resolve_provider_id(&request.provider)? {
+		ProviderId::Groq => groq::create_chat_completion(request).await,
+		ProviderId::LocalPreview => local_preview::create_chat_completion(request).await,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn normalizes_provider_values_to_supported_ids() {
+		assert_eq!(normalize_provider_value("groq"), "groq");
+		assert_eq!(normalize_provider_value(" GrOq "), "groq");
+		assert_eq!(normalize_provider_value("local_preview"), "local_preview");
+		assert_eq!(normalize_provider_value("local"), "local_preview");
+		assert_eq!(normalize_provider_value(""), "groq");
+		assert_eq!(normalize_provider_value("openai"), "groq");
+	}
+
+	#[test]
+	fn rejects_unknown_provider_dispatch() {
+		let error = resolve_provider_id("openai").unwrap_err();
+
+		assert!(matches!(error.kind, ProviderErrorKind::InvalidRequest));
+		assert!(error.message.contains("openai"));
+	}
+}

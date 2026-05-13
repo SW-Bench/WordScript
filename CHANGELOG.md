@@ -36,12 +36,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - native dictation runtime with trigger, capture, Groq transcription, transform, insertion and recovery in Rust
 - active settings surface for Provider & Models, Input, Text Rules, About and Diagnostics
 - manual cross-platform release build matrix and release runbook for the current commercial release build-up
+- benchmark matrix for donor repositories, feature fit and staged WordScript expansion
+- core execution plan that maps donor files to the next WordScript kernel slices
+- native transcription history with persistence, retention, delete/clear commands and retry-based re-processing from stored raw transcripts
+- local text profiles that bundle transcription context, dictionary and snippets into native runtime config and active Text Rules UI
+- curated local profile starters for core ICPs with Customer Success, Sales, Founder/Ops, Recruiting and Product/Engineering baselines
 
 ### Changed
 
 - the documentation set was consolidated into README, VISION, ARCHITECTURE, DEVELOPMENT, DESIGN_SYSTEM and REFERENCE
 - product scope and wording now consistently describe WordScript as a dictation-first desktop app on `0.2.2-alpha`
-- Text Rules documentation now reflects the real native order `transcription context -> dictionary -> snippets` without implying profiles that do not exist yet
+- future planning docs now describe sync as an optional WordScript-owned local-first layer instead of leaving peer-to-peer or external hub ownership ambiguous
+- native session transitions now run through shared session helpers, so trigger, commands and pipeline completion no longer finalize the same lifecycle edges independently
+- provider status, credential and transcription dispatch now run through shared provider commands and types, while Groq remains the only wired production provider
+- provider selection now exposes a second `local_preview` lane that uses an external `whisper-cli` runner and local ggml models without changing the capture, transform, insertion or recovery pipeline shape
+- `local_preview` now strips timestamped `whisper-cli` segment output more cleanly and resolves common model variants from model directories instead of only exact `ggml-<model>.bin` names
+- native history now supports server-side provider/status/profile filters, JSON export and persisted limit/retention policy instead of only a fixed in-memory diagnostics slice
+- active config and settings terminology now use `provider` consistently, while the old JSON `groq_api_key` survives only as an explicit legacy migration field
+- legacy Groq-secret migration now happens in the native config/provider path before save, so the frontend no longer owns or receives the legacy secret field
+- Linux insertion now uses an explicit native driver chain with visible helper diagnostics for `wl-copy`, `xdotool`, `wtype`, `ydotool`, `enigo` and scratchpad recovery instead of implicit paste fallbacks
+- Rebuild Lab now separates durable transcription history from transient runtime logs while reading both from the same native runtime truth
+- Text Rules now scopes transcription context, dictionary and snippets to the selected local text profile while keeping preview, import/export and diagnostics tied to that active profile
+- Settings now exposes the active text profile globally in the sidebar with a manual switcher, avatar badge and quick path into the Text Rules editor, while shared helper logic keeps shell and editor profile patches aligned
+- Text Rules now includes a local starter-template library with curated ICP profiles plus `create profile` and `merge into active` flows, where merge adds missing context, dictionary terms and snippets without overwriting existing authored rules
+- Text Rules now uses a sequenced workspace layout with a compact setup deck for profile editing and starter picks, top stage navigation and one dominant editing surface at a time instead of stacking profile, starter and rule-editing surfaces together
+- Input and Diagnostics now name scratchpad recovery, diagnostic preview transcript and persistent transcription history as separate native data surfaces, and Diagnostics exposes the native history store path directly in the UI
+- VISION, DEVELOPMENT and README now describe long-term assistant / computer-use expansion as a later platform stage without widening the active V1 scope
+- Text Rules documentation now reflects the real native order `active profile -> transcription context -> dictionary -> snippets`
 - pull request CI now runs frontend tests and Rust tests on macOS and Windows in addition to Ubuntu
 - the manual release build-up workflow now runs frontend tests and Rust tests before bundling
 - platform support copy now exposes native prerequisites and honest limits for insertion, including macOS development-mode privacy requirements
@@ -64,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Linux hotkeys, overlay behavior, timeout handling, clipboard restore and diagnostics reflect the current native runtime path
+- the native pipeline no longer completes the same session twice when insertion succeeds, and failed insertion now finishes the session on the pipeline owner instead of inside the insert adapter
+- provider config values now normalize to a supported runtime provider, and post-correction uses the same provider dispatch layer as transcription
+- history entries now keep the active text profile name through success, empty, retry and failure paths instead of dropping profile context in diagnostics
+- the settings UI now keeps cloud and local preview model slots separate, shows honest helper prerequisites for the local lane and hides API-key actions when the preview lane is selected
+- retry in diagnostics is now a real re-process path through transform and insertion, not only a clipboard restore shortcut
 - the client now exposes release build-up honestly without implying published installers or working in-place updates
 - README, DEVELOPMENT and REFERENCE now include explicit macOS and Windows bootstrap paths instead of a Linux-only quick start
 - Settings nutzen wieder transparente Fensterränder statt schwarzer Window-Fill-Flächen; die Shell bleibt dekorationslos im Fenster statt den gesamten Tauri-Canvas zu füllen
@@ -76,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Groq API keys stay in the OS secret store and are scrubbed from the JSON config on save
+- legacy Groq keys from old JSON configs are migrated natively into the OS secret store before the sanitized config is persisted again
 
 ## [0.2.0-alpha]
 

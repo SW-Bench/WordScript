@@ -36,6 +36,35 @@ const groqProviderState = {
   validateApiKey: vi.fn(),
 };
 
+const localPreviewProviderState = {
+  status: {
+    provider: "local_preview",
+    default_profile: "local-preview-base",
+    credential: {
+      provider: "local_preview",
+      configured: false,
+      storage: "external_cli",
+      key_preview: "install whisper-cli and set WORDSCRIPT_LOCAL_MODEL_PATH or WORDSCRIPT_LOCAL_MODEL_DIR",
+    },
+    profiles: [
+      {
+        id: "local-preview-base",
+        provider: "local_preview",
+        model: "base",
+        label: "Local preview base model (external whisper-cli)",
+        default: true,
+        requires_api_key: false,
+      },
+    ],
+  },
+  isLoading: false,
+  error: null,
+  lastValidation: null,
+  saveApiKey: vi.fn(),
+  clearApiKey: vi.fn(),
+  validateApiKey: vi.fn(),
+};
+
 afterEach(() => {
   cleanup();
 });
@@ -77,6 +106,32 @@ beforeEach(() => {
   groqProviderState.saveApiKey = vi.fn();
   groqProviderState.clearApiKey = vi.fn();
   groqProviderState.validateApiKey = vi.fn();
+  localPreviewProviderState.status = {
+    provider: "local_preview",
+    default_profile: "local-preview-base",
+    credential: {
+      provider: "local_preview",
+      configured: false,
+      storage: "external_cli",
+      key_preview: "install whisper-cli and set WORDSCRIPT_LOCAL_MODEL_PATH or WORDSCRIPT_LOCAL_MODEL_DIR",
+    },
+    profiles: [
+      {
+        id: "local-preview-base",
+        provider: "local_preview",
+        model: "base",
+        label: "Local preview base model (external whisper-cli)",
+        default: true,
+        requires_api_key: false,
+      },
+    ],
+  };
+  localPreviewProviderState.isLoading = false;
+  localPreviewProviderState.error = null;
+  localPreviewProviderState.lastValidation = null;
+  localPreviewProviderState.saveApiKey = vi.fn();
+  localPreviewProviderState.clearApiKey = vi.fn();
+  localPreviewProviderState.validateApiKey = vi.fn();
 });
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -88,8 +143,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
-vi.mock("../../hooks/useGroqProvider", () => ({
-  useGroqProvider: () => groqProviderState,
+vi.mock("../../hooks/useProvider", () => ({
+  useProvider: (providerId: string) => providerId === "local_preview" ? localPreviewProviderState : groqProviderState,
 }));
 
 describe("ApiModelsTab", () => {
@@ -134,5 +189,23 @@ describe("ApiModelsTab", () => {
     expect(screen.queryByRole("checkbox", { name: /remove fillers/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: /rewrite phrasing/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Model")).not.toBeInTheDocument();
+  });
+
+  it("shows local preview as an STT-only lane without key actions", () => {
+    render(
+      <ApiModelsTab
+        config={createAppConfig({ provider: "local_preview", local_model: "base" })}
+        onChange={vi.fn()}
+        onOpenDiagnostics={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/local preview helper missing/i)).toBeInTheDocument();
+    expect(screen.getByText(/external helper setup/i)).toBeInTheDocument();
+    expect(screen.getByText(/wordscript_local_whisper_cli/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /provider/i })).toHaveValue("local_preview");
+    expect(screen.queryByRole("button", { name: /open groq keys/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /save locally/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /^ai cleanup$/i })).toBeDisabled();
   });
 });

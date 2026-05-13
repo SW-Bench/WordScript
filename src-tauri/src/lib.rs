@@ -10,7 +10,7 @@ mod v1_slice;
 use crate::core::capture::{NativeCaptureConfig, NativeCaptureState};
 use crate::core::config::AppConfig;
 use crate::core::insertion::{NativeInsertionConfig, NativeInsertionState};
-use crate::core::providers::groq::GroqTranscribeFileRequest;
+use crate::core::providers::TranscribeAudioFileRequest;
 use crate::core::sessions::NativeSessionState;
 use crate::core::trigger::{NativeTriggerConfig, NativeTriggerState, TriggerEffect};
 use crate::v1_slice::V1SliceState;
@@ -237,19 +237,12 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
     let provider = value
         .get("provider")
         .and_then(|provider| provider.as_str())
-        .unwrap_or("groq");
-    if provider != "groq" {
-        let message = format!("Native provider '{provider}' is not supported yet.");
-        core::sound::play_if_enabled(core::sound::SoundCue::Error);
-        core::sessions::fail_from_native_error(&app, &message);
-        let _ = app.emit(
-            "wordscript-event",
-            serde_json::json!({ "event": "error", "message": message }),
-        );
-        return;
-    }
+        .unwrap_or(core::providers::default_provider_id())
+        .trim()
+        .to_string();
 
-    let request = GroqTranscribeFileRequest {
+    let request = TranscribeAudioFileRequest {
+        provider: provider.clone(),
         audio_path: audio_path.clone(),
         model: optional_string(&value, "model"),
         language: optional_string(&value, "language"),
@@ -263,6 +256,8 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
         max_retries: Some(0),
     };
     let transcription_timeout_ms = request.timeout_ms.unwrap_or(MIN_TRANSCRIPTION_TIMEOUT_MS);
+    let requested_model = request.model.clone();
+    let requested_language = request.language.clone();
     let transform_config = core::transform::NativeTransformConfig::from_payload(&value);
     let audio_duration_seconds = value
         .get("audio_duration_seconds")
@@ -278,7 +273,8 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
 
     tauri::async_runtime::spawn(async move {
         let cleanup_path = audio_path.clone();
-        let transcription = core::providers::groq::transcribe_groq_audio_file(request).await;
+        let pipeline_app_config = core::config::AppConfig::load_from_disk();
+        let transcription = core::providers::transcribe_audio_file(request).await;
 
         match transcription {
             Ok(response) => {
@@ -290,6 +286,7 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                 ));
                 let transformed =
                     core::transform::apply_native_transform(&response.text, transform_config).await;
+                let app_config = pipeline_app_config.clone();
                 if let Some(warning) = &transformed.warning {
                     core::runtime_log::record(format!(
                         "[WordScript] Native transform warning: {warning}"
@@ -306,6 +303,11 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
 
                 let text = transformed.text.trim().to_string();
                 if text.is_empty() {
+                    let _ = core::history::record_empty_result(
+                        &app_config,
+                        response.text.clone(),
+                        transformed,
+                    );
                     core::runtime_log::record(format!(
                         "[WordScript] Native pipeline empty result elapsed_ms={}",
                         pipeline_started_at.elapsed().as_millis(),
@@ -318,7 +320,14 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                         &text,
                         transformed.corrected,
                     ) {
-                        Ok(result) => {
+                        Ok(result) if result.ok => {
+                            let _ = core::history::history_entry_from_insert_result(
+                                &app_config,
+                                None,
+                                Some(response.text.clone()),
+                                transformed.clone(),
+                                &result,
+                            );
                             core::sessions::complete_from_transcription(
                                 &app,
                                 &text,
@@ -337,7 +346,42 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                                     "event": "transcription",
                                     "text": text,
                                     "corrected": transformed.corrected,
-                                    "provider": "groq",
+                                    "provider": provider,
+                                    "transform": {
+                                        "applied_rules": transformed.applied_rules,
+                                        "warning": transformed.warning,
+                                    },
+                                    "insertion": result
+                                }),
+                            );
+                        }
+                        Ok(result) => {
+                            let _ = core::history::history_entry_from_insert_result(
+                                &app_config,
+                                None,
+                                Some(response.text.clone()),
+                                transformed.clone(),
+                                &result,
+                            );
+                            let error = result
+                                .error
+                                .clone()
+                                .unwrap_or_else(|| "Native insertion failed.".to_string());
+                            core::runtime_log::record(format!(
+                                "[WordScript] Native pipeline insertion reported failure elapsed_ms={} insert_mode={:?} pasted={} fallback_available={} error={}",
+                                pipeline_started_at.elapsed().as_millis(),
+                                result.insert_mode,
+                                result.pasted,
+                                result.fallback_available,
+                                error,
+                            ));
+                            core::sessions::fail_from_native_error(&app, &error);
+                            let _ = app.emit(
+                                "wordscript-event",
+                                serde_json::json!({
+                                    "event": "error",
+                                    "message": format!("Native insertion failed: {error}"),
+                                    "provider": provider,
                                     "transform": {
                                         "applied_rules": transformed.applied_rules,
                                         "warning": transformed.warning,
@@ -347,6 +391,36 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                             );
                         }
                         Err(error) => {
+                            let _ = core::history::record_entry(
+                                core::history::RecordHistoryEntryRequest {
+                                    status: core::history::TranscriptionHistoryStatus::Failed,
+                                    source: core::history::TranscriptionHistorySource::NativePipeline,
+                                    retry_of: None,
+                                    provider: app_config.provider.clone(),
+                                    model: Some(if app_config.provider == core::providers::LOCAL_PREVIEW_PROVIDER_ID {
+                                        app_config.local_model.clone()
+                                    } else {
+                                        app_config.model.clone()
+                                    }),
+                                    language: if app_config.language.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(app_config.language.clone())
+                                    },
+                                    active_profile: app_config.active_text_profile_label(),
+                                    raw_transcript: Some(response.text.clone()),
+                                    transformed_transcript: Some(text.clone()),
+                                    corrected: transformed.corrected,
+                                    applied_rules: transformed.applied_rules.clone(),
+                                    transform_warning: transformed.warning.clone(),
+                                    insert_mode: None,
+                                    active_driver: None,
+                                    pasted: None,
+                                    fallback_available: None,
+                                    fallback_reason: None,
+                                    error: Some(error.clone()),
+                                },
+                            );
                             core::runtime_log::record(format!(
                                 "[WordScript] Native pipeline insertion failed elapsed_ms={} error={}",
                                 pipeline_started_at.elapsed().as_millis(),
@@ -365,6 +439,13 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                 }
             }
             Err(error) => {
+                let _ = core::history::record_transcription_failure(
+                    &pipeline_app_config,
+                    &provider,
+                    requested_model.clone(),
+                    requested_language.clone(),
+                    error.message.clone(),
+                );
                 core::runtime_log::record(format!(
                     "[WordScript] Native pipeline transcription failed elapsed_ms={} kind={:?} message={}",
                     pipeline_started_at.elapsed().as_millis(),
@@ -543,11 +624,11 @@ pub fn run() {
             open_settings_window,
             open_rebuild_lab_window,
             app_config_file_path,
-            core::providers::groq::groq_provider_status,
-            core::providers::groq::save_groq_api_key,
-            core::providers::groq::clear_groq_api_key,
-            core::providers::groq::validate_groq_api_key,
-            core::providers::groq::transcribe_groq_audio_file,
+            core::providers::provider_status,
+            core::providers::save_provider_api_key,
+            core::providers::clear_provider_api_key,
+            core::providers::validate_provider_api_key,
+            core::providers::transcribe_audio_file,
             core::text_rules::analyze_text_rules,
             core::text_rules::export_text_rules,
             core::text_rules::import_text_rules,
@@ -570,6 +651,12 @@ pub fn run() {
             core::insertion::insert_text_native,
             core::insertion::restore_last_transcript,
             core::insertion::clear_native_scratchpad,
+            core::history::transcription_history_entries,
+            core::history::transcription_history_storage_status,
+            core::history::export_transcription_history,
+            core::history::clear_transcription_history_entries,
+            core::history::delete_transcription_history_entry,
+            core::history::retry_transcription_history_entry,
             core::updates::check_app_update,
             core::runtime_log::runtime_log_entries,
             core::runtime_log::clear_runtime_log_entries,

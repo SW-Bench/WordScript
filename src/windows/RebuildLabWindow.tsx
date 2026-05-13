@@ -1,8 +1,19 @@
 import { RebuildLabTab } from "../components/settings/RebuildLabTab";
+import { useRuntime } from "../hooks/useRuntime";
 import { WindowChrome } from "../components/settings/WindowChrome";
 import "../styles/settings.css";
 
 export default function RebuildLabWindow() {
+  const { state } = useRuntime();
+
+  if (!state.config) {
+    return (
+      <div className="settings settings--loading">
+        Connecting to runtime…
+      </div>
+    );
+  }
+
   return (
     <div className="settings settings--tool-window">
       <div className="settings__shell settings__shell--single">
@@ -13,7 +24,7 @@ export default function RebuildLabWindow() {
             <section className="settings__panel">
               <div className="settings__content">
                 <div className="tab tab--active">
-                  <RebuildLabTab isActive />
+                  <RebuildLabTab isActive config={state.config} onChange={() => {}} />
                 </div>
               </div>
             </section>

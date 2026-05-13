@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  GroqProviderStatus,
   ProviderCommandError,
   ProviderCredentialStatus,
-  ValidateGroqApiKeyResponse,
+  ProviderId,
+  ProviderStatus,
+  ValidateProviderApiKeyResponse,
 } from "../types/providers";
 
 function providerErrorMessage(error: unknown) {
@@ -14,16 +15,18 @@ function providerErrorMessage(error: unknown) {
   return String(error);
 }
 
-export function useGroqProvider() {
-  const [status, setStatus] = useState<GroqProviderStatus | null>(null);
+export function useProvider(providerId: ProviderId = "groq") {
+  const [status, setStatus] = useState<ProviderStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastValidation, setLastValidation] = useState<ValidateGroqApiKeyResponse | null>(null);
+  const [lastValidation, setLastValidation] = useState<ValidateProviderApiKeyResponse | null>(null);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
-      const next = await invoke<GroqProviderStatus>("groq_provider_status");
+      const next = await invoke<ProviderStatus>("provider_status", {
+        request: { provider: providerId },
+      });
       setStatus(next);
       setError(null);
       return next;
@@ -33,13 +36,13 @@ export function useGroqProvider() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [providerId]);
 
   const saveApiKey = useCallback(async (apiKey: string) => {
     setIsLoading(true);
     try {
-      const credential = await invoke<ProviderCredentialStatus>("save_groq_api_key", {
-        request: { api_key: apiKey },
+      const credential = await invoke<ProviderCredentialStatus>("save_provider_api_key", {
+        request: { provider: providerId, api_key: apiKey },
       });
       await refresh();
       setLastValidation(null);
@@ -51,12 +54,14 @@ export function useGroqProvider() {
     } finally {
       setIsLoading(false);
     }
-  }, [refresh]);
+  }, [providerId, refresh]);
 
   const clearApiKey = useCallback(async () => {
     setIsLoading(true);
     try {
-      const credential = await invoke<ProviderCredentialStatus>("clear_groq_api_key");
+      const credential = await invoke<ProviderCredentialStatus>("clear_provider_api_key", {
+        request: { provider: providerId },
+      });
       await refresh();
       setLastValidation(null);
       setError(null);
@@ -67,13 +72,13 @@ export function useGroqProvider() {
     } finally {
       setIsLoading(false);
     }
-  }, [refresh]);
+  }, [providerId, refresh]);
 
   const validateApiKey = useCallback(async (apiKey?: string) => {
     setIsLoading(true);
     try {
-      const validation = await invoke<ValidateGroqApiKeyResponse>("validate_groq_api_key", {
-        request: { api_key: apiKey?.trim() ? apiKey : null },
+      const validation = await invoke<ValidateProviderApiKeyResponse>("validate_provider_api_key", {
+        request: { provider: providerId, api_key: apiKey?.trim() ? apiKey : null },
       });
       setLastValidation(validation);
       setError(null);
@@ -85,7 +90,7 @@ export function useGroqProvider() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [providerId]);
 
   useEffect(() => {
     void refresh();

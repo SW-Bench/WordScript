@@ -1,11 +1,23 @@
 export type NativeInsertMode = "direct_paste" | "clipboard_only" | "clipboard_fallback" | "scratchpad_fallback";
+export type NativeInsertDriver = "wl_copy" | "arboard" | "xdotool" | "wtype" | "ydotool" | "enigo" | "scratchpad";
 export type NativeSupportTier = "tier1" | "preview" | "experimental";
+
+export interface NativeInsertDriverStatus {
+  driver: NativeInsertDriver;
+  label: string;
+  role: string;
+  available: boolean;
+  active: boolean;
+  detail: string;
+}
 
 export interface NativeInsertionPlatformStatus {
   platform_label: string;
   support_tier: NativeSupportTier;
   insert_strategy: NativeInsertMode;
+  active_driver: NativeInsertDriver;
   support_message: string;
+  driver_chain: NativeInsertDriverStatus[];
   prerequisites: string[];
   caveats: string[];
 }
@@ -17,9 +29,11 @@ export interface ScratchpadEntry {
   created_at_ms: number;
   corrected: boolean;
   insert_mode: NativeInsertMode;
+  active_driver: NativeInsertDriver;
   clipboard_written: boolean;
   paste_attempted: boolean;
   pasted: boolean;
+  fallback_reason: string | null;
   error: string | null;
 }
 
@@ -40,10 +54,12 @@ export interface NativeInsertResult {
   ok: boolean;
   text: string;
   insert_mode: NativeInsertMode;
+  active_driver: NativeInsertDriver;
   clipboard_written: boolean;
   paste_attempted: boolean;
   pasted: boolean;
   scratchpad_entry: ScratchpadEntry;
   fallback_available: boolean;
+  fallback_reason: string | null;
   error: string | null;
 }

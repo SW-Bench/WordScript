@@ -403,6 +403,7 @@ fn merge_snippet_entries(
 
 fn preview_transform(document: &TextRulesDocument, sample_text: &str) -> (String, Vec<String>) {
     let config = NativeTransformConfig {
+        provider: "groq".to_string(),
         dictionary_entries: document.dictionary_entries.clone(),
         snippet_entries: document.snippet_entries.clone(),
         post_process: false,

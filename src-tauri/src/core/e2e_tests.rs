@@ -1,7 +1,7 @@
 use super::{
     insertion::{
-        execute_insert_request_with_io, InsertIo, NativeInsertMode, NativeInsertRequest,
-        NativeInsertionConfig,
+        execute_insert_request_with_io, InsertIo, NativeInsertDriver, NativeInsertMode,
+        NativeInsertPlatformContext, NativeInsertRequest, NativeInsertionConfig,
     },
     sessions::{NativeSessionStage, NativeSessionState},
     transform::{apply_native_transform, NativeTransformConfig},
@@ -39,7 +39,11 @@ impl FakeInsertIo {
 }
 
 impl InsertIo for FakeInsertIo {
-    fn write_clipboard(&mut self, text: &str) -> Result<(), String> {
+    fn write_clipboard_with_driver(
+        &mut self,
+        _driver: NativeInsertDriver,
+        text: &str,
+    ) -> Result<(), String> {
         self.writes.push(text.to_string());
         if self.clipboard_ok {
             Ok(())
@@ -52,7 +56,7 @@ impl InsertIo for FakeInsertIo {
         self.clipboard_text.clone()
     }
 
-    fn paste_from_clipboard(&mut self) -> Result<(), String> {
+    fn paste_with_driver(&mut self, _driver: NativeInsertDriver) -> Result<(), String> {
         if self.paste_ok {
             Ok(())
         } else {
@@ -79,6 +83,7 @@ async fn resolves_native_session_transform_insert_chain_with_direct_paste() {
     let transformed = apply_native_transform(
         "word script follow up note",
         NativeTransformConfig {
+            provider: "groq".to_string(),
             dictionary_entries: vec![DictionaryEntry {
                 id: "dict-brand".to_string(),
                 phrase: "word script".to_string(),
@@ -112,7 +117,15 @@ async fn resolves_native_session_transform_insert_chain_with_direct_paste() {
             paste_delay_ms: 0,
         },
         1,
-        false,
+        NativeInsertPlatformContext {
+            auto_paste: true,
+            is_wayland: false,
+            has_x11_display: false,
+            has_wl_copy: false,
+            has_xdotool: false,
+            has_wtype: false,
+            has_ydotool: false,
+        },
         &mut io,
     );
 
@@ -144,6 +157,7 @@ async fn surfaces_direct_paste_failure_with_recovery_copy() {
     let transformed = apply_native_transform(
         "word script",
         NativeTransformConfig {
+            provider: "groq".to_string(),
             dictionary_entries: vec![DictionaryEntry {
                 id: "dict-brand".to_string(),
                 phrase: "word script".to_string(),
@@ -171,14 +185,22 @@ async fn surfaces_direct_paste_failure_with_recovery_copy() {
             paste_delay_ms: 0,
         },
         1,
-        false,
+        NativeInsertPlatformContext {
+            auto_paste: true,
+            is_wayland: false,
+            has_x11_display: false,
+            has_wl_copy: false,
+            has_xdotool: false,
+            has_wtype: false,
+            has_ydotool: false,
+        },
         &mut io,
     );
 
     assert!(!result.ok);
     assert_eq!(result.insert_mode, NativeInsertMode::ClipboardFallback);
     assert!(result.fallback_available);
-    assert_eq!(result.error.as_deref(), Some("Target app blocked paste"));
+    assert_eq!(result.error.as_deref(), Some("enigo: Target app blocked paste"));
 
     let completed = session.complete_transcription(result.text);
     assert_eq!(completed.stage, NativeSessionStage::Completed);

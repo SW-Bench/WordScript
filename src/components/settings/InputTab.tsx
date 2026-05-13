@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useNativeInsertion } from "../../hooks/useNativeInsertion";
 import { HOTKEY_SEPARATOR_HINT, getHotkeyValidationMessage, normalizeManualHotkey } from "../../lib/hotkeys";
 import type { AppConfig } from "../../types/ipc";
+import type { NativeInsertDriver } from "../../types/nativeInsertion";
 import { HotkeyRecorder } from "./HotkeyRecorder";
 
 type ShortcutField = "hotkey" | "pause_hotkey" | "abort_hotkey";
@@ -73,8 +74,30 @@ function formatDurationCompact(seconds: number) {
   return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
 }
 
+function insertDriverLabel(value: NativeInsertDriver | undefined) {
+  switch (value) {
+    case "wl_copy":
+      return "wl-copy";
+    case "arboard":
+      return "arboard clipboard";
+    case "xdotool":
+      return "xdotool";
+    case "wtype":
+      return "wtype";
+    case "ydotool":
+      return "ydotool";
+    case "enigo":
+      return "enigo";
+    case "scratchpad":
+      return "scratchpad recovery";
+    default:
+      return "Detecting current driver";
+  }
+}
+
 export function InputTab({ config, onChange }: Props) {
   const insertion = useNativeInsertion();
+  const platformStatus = insertion.status?.platform ?? null;
   const [audioDevices, setAudioDevices] = useState<NativeInputDevice[]>([]);
   const [captureStatus, setCaptureStatus] = useState<NativeCaptureStatus | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
@@ -144,6 +167,11 @@ export function InputTab({ config, onChange }: Props) {
     : "Manual stop";
   const scratchpadCount = insertion.status?.scratchpad_entries.length ?? 0;
   const scratchpadLabel = scratchpadCount === 1 ? "1 fallback entry" : `${scratchpadCount} fallback entries`;
+  const driverChain = platformStatus?.driver_chain ?? [];
+  const driverChainSummary = driverChain.length > 0
+    ? driverChain.map((item) => item.label).join(" -> ")
+    : "Detecting current insert chain.";
+  const activeDriverLabel = insertDriverLabel(platformStatus?.active_driver);
   const audioStatusMessage = audioError
     ? audioError
     : captureStatus?.is_recording && captureStatus.device_name
@@ -157,6 +185,12 @@ export function InputTab({ config, onChange }: Props) {
   const soundSummary = config.play_sounds
     ? "Native sound cues are on for start, stop, abort and runtime errors."
     : "Native sound cues are off.";
+  const deliveryDriverSummary = platformStatus
+    ? `Current driver: ${activeDriverLabel}. ${platformStatus.platform_label} reports ${driverChainSummary}.`
+    : "WordScript is checking the current native insert chain.";
+  const latestFallbackReason = insertion.lastRestore?.fallback_reason
+    ?? insertion.status?.last_transcript?.fallback_reason
+    ?? null;
 
   return (
     <>
@@ -315,6 +349,17 @@ export function InputTab({ config, onChange }: Props) {
         </select>
       </div>
       <p className="form-dim">{deliverySummary}</p>
+      <div className="form-row">
+        <label>Native insert chain</label>
+        <div className="provider-status provider-status--stacked">
+          <span className={`provider-status__dot${platformStatus ? " provider-status__dot--ok" : ""}`} />
+          <div>
+            <strong>{activeDriverLabel}</strong>
+            <span>{driverChainSummary}</span>
+          </div>
+        </div>
+      </div>
+      <p className="form-dim">{deliveryDriverSummary}</p>
       <label className="form-check">
         <input
           type="checkbox"
@@ -327,18 +372,20 @@ export function InputTab({ config, onChange }: Props) {
 
       <div className="form-section">Recovery</div>
       <p className="form-dim">
-        Use recovery when auto-paste failed, the target app ignored the paste, or you want to bring back the latest transcript. The fallback store keeps older transcripts on disk so you can restore them instead of dictating again.
+        Use recovery when auto-paste failed, the target app ignored the paste, or you want to bring back the latest transcript. Scratchpad recovery is separate from the Diagnostics preview transcript and separate from native transcription history.
       </p>
       <div className="form-row">
-        <label>Last Transcript</label>
+        <label>Last recoverable transcript</label>
         <div className="provider-status">
           <span className={`provider-status__dot${insertion.status?.last_transcript ? " provider-status__dot--ok" : ""}`} />
           <span>{insertion.status?.last_transcript ? "Available" : "No transcript stored yet"}</span>
-          {insertion.status?.last_transcript && <code>{insertion.status.last_transcript.insert_mode}</code>}
+          {insertion.status?.last_transcript && (
+            <code>{`${insertion.status.last_transcript.insert_mode} · ${insertDriverLabel(insertion.status.last_transcript.active_driver)}`}</code>
+          )}
         </div>
       </div>
       <div className="form-row">
-        <label>Fallback Store</label>
+        <label>Recovery scratchpad</label>
         <div className="provider-status provider-status--stacked">
           <span className={`provider-status__dot${scratchpadCount > 0 ? " provider-status__dot--ok" : ""}`} />
           <div>
@@ -354,7 +401,7 @@ export function InputTab({ config, onChange }: Props) {
           disabled={insertion.isLoading || !insertion.status?.last_transcript}
           onClick={() => void insertion.restoreLastTranscript()}
         >
-          Restore last transcript
+          Restore recoverable transcript
         </button>
         <button
           className="btn btn--cancel"
@@ -362,12 +409,13 @@ export function InputTab({ config, onChange }: Props) {
           disabled={insertion.isLoading || !insertion.status?.scratchpad_entries.length}
           onClick={() => void insertion.clearScratchpad()}
         >
-          Clear fallback store
+          Clear recovery scratchpad
         </button>
       </div>
       <p className={`form-dim${insertion.error ? " form-dim--error" : insertion.lastRestore ? " form-dim--ok" : ""}`}>
         {insertion.error
-          ?? (insertion.lastRestore ? "Last transcript restored through native insertion." : `${scratchpadLabel} ready for recovery if direct insert fails.`)}
+          ?? latestFallbackReason
+          ?? (insertion.lastRestore ? "Recoverable transcript restored through native insertion." : `${scratchpadLabel} ready for recovery if direct insert fails.`)}
       </p>
     </>
   );

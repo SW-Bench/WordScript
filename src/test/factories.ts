@@ -2,18 +2,27 @@ import type { AppConfig } from "../types/ipc";
 
 export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    groq_api_key: "",
     model: "whisper-large-v3-turbo",
     language: "",
     prompt: "",
     dictionary_entries: [],
     snippet_entries: [],
+    active_text_profile_id: "general",
+    text_profiles: [
+      {
+        id: "general",
+        label: "General writing",
+        prompt: "",
+        dictionary_entries: [],
+        snippet_entries: [],
+      },
+    ],
     post_process: true,
     correction_model: "llama-3.1-8b-instant",
     filter_fillers: true,
     professionalize: false,
-    backend: "groq",
-    local_model: "",
+    provider: "groq",
+    local_model: "base",
     hotkey: "ctrl_l+f9",
     pause_hotkey: "ctrl_l+f10",
     abort_hotkey: "ctrl_l+alt_l+escape",
@@ -28,6 +37,8 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     play_sounds: true,
     log_level: "info",
     temp_audio_dir: "",
+    history_limit: 200,
+    history_retention_days: 90,
     ...overrides,
   };
 }

@@ -13,7 +13,7 @@ use tauri_plugin_global_shortcut::{
 use super::capture::NativeCaptureState;
 use super::config::AppConfig;
 use super::sessions::{
-    emit_session_event, NativeSessionStage, NativeSessionState, NativeSessionStatus,
+    NativeSessionStage, NativeSessionState,
 };
 
 const DEFAULT_DEBOUNCE_MS: u64 = 300;
@@ -536,16 +536,10 @@ pub fn resolve_deferred_hold_stop<R: Runtime>(
 }
 
 fn start_session<R: Runtime>(app: &AppHandle<R>, trigger: &str) -> Option<TriggerEffect> {
-    let session_state = app.try_state::<Mutex<NativeSessionState>>()?;
-    let mut session_state = session_state.lock().ok()?;
-    match session_state.start_capture(trigger) {
-        Ok(status) => {
-            emit_session_event(app, "recording_started", &status);
-            Some(TriggerEffect::StartCapture)
-        }
+    match super::sessions::start_from_native(app, trigger) {
+        Ok(_) => Some(TriggerEffect::StartCapture),
         Err(error) => {
-            let status = session_state.fail(error);
-            emit_session_event(app, "error", &status);
+            super::sessions::fail_from_native_error(app, &error);
             None
         }
     }
@@ -555,36 +549,27 @@ fn stop_session<R: Runtime>(
     app: &AppHandle<R>,
     capture_is_recording: bool,
 ) -> Option<TriggerEffect> {
-    let session_state = app.try_state::<Mutex<NativeSessionState>>()?;
-    let mut session_state = session_state.lock().ok()?;
-    match session_state.stop_for_processing() {
-        Ok(status) => {
-            emit_session_event(app, "recording_stopped", &status);
-            emit_session_event(app, "processing", &status);
-            Some(TriggerEffect::StopCapture)
-        }
-        Err(_) if capture_is_recording => {
-            let status =
-                session_state.force_processing_for_active_capture("native_capture_recovery");
-            emit_session_event(app, "recording_stopped", &status);
-            emit_session_event(app, "processing", &status);
-            Some(TriggerEffect::StopCapture)
-        }
+    match super::sessions::processing_or_recover_from_native(
+        app,
+        capture_is_recording,
+        "native_capture_recovery",
+    ) {
+        Ok(_) => Some(TriggerEffect::StopCapture),
         Err(error) => {
-            let status = session_state.fail(error);
-            emit_session_event(app, "error", &status);
+            super::sessions::fail_from_native_error(app, &error);
             None
         }
     }
 }
 
 fn abort_session<R: Runtime>(app: &AppHandle<R>, reason: &str) -> Option<TriggerEffect> {
-    let session_state = app.try_state::<Mutex<NativeSessionState>>()?;
-    let mut session_state = session_state.lock().ok()?;
-    let status: NativeSessionStatus = session_state.abort(reason);
-    emit_session_event(app, "aborted", &status);
-    emit_session_event(app, "empty", &status);
-    Some(TriggerEffect::AbortCapture)
+    match super::sessions::abort_from_native(app, reason) {
+        Ok(_) => Some(TriggerEffect::AbortCapture),
+        Err(error) => {
+            super::sessions::fail_from_native_error(app, &error);
+            None
+        }
+    }
 }
 
 fn collect_unique_shortcuts(

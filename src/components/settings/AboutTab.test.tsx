@@ -16,9 +16,11 @@ const insertionState = {
       created_at_ms: 1,
       corrected: false,
       insert_mode: "clipboard_fallback" as const,
+      active_driver: "arboard" as const,
       clipboard_written: true,
       paste_attempted: false,
       pasted: false,
+      fallback_reason: "wtype missing in PATH",
       error: null,
     }],
     scratchpad_path: "/tmp/wordscript-scratchpad.json",
@@ -26,7 +28,26 @@ const insertionState = {
       platform_label: "Linux Wayland",
       support_tier: "experimental" as const,
       insert_strategy: "clipboard_fallback" as const,
+      active_driver: "wl_copy" as const,
       support_message: "Experimental path: WordScript tries direct paste through available Wayland/X11 helpers, then keeps clipboard and scratchpad recovery if the desktop blocks insertion.",
+      driver_chain: [
+        {
+          driver: "wl_copy" as const,
+          label: "wl-copy",
+          role: "clipboard",
+          available: true,
+          active: true,
+          detail: "Preferred Wayland clipboard writer when wl-copy is installed.",
+        },
+        {
+          driver: "wtype" as const,
+          label: "wtype",
+          role: "paste",
+          available: false,
+          active: false,
+          detail: "wtype is not available in PATH.",
+        },
+      ],
       prerequisites: [
         "Wayland helper tools and compositor policy decide whether synthetic paste can work at all.",
       ],
@@ -106,6 +127,9 @@ describe("AboutTab", () => {
     expect(screen.getByText("Linux Wayland")).toBeInTheDocument();
     expect(screen.getByText("Experimental")).toBeInTheDocument();
     expect(screen.getByText(/clipboard fallback/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/active driver/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/wl-copy/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/wtype is not available in path/i)).toBeInTheDocument();
     expect(screen.getByText(/before relying on this path/i)).toBeInTheDocument();
     expect(screen.getByText(/honest limit/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /download installer/i })).not.toBeInTheDocument();
