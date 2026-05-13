@@ -292,6 +292,226 @@ Profile sind die erste echte Verdichtung des Kerns, weil sie den selben Dictatio
 - Transform-Pipeline liest aktives Profil statt globaler Einzellisten
 - UI kann Profile anlegen, duplizieren, waehlen und testen
 
+## Naechste Produktphase nach dem Kern
+
+Die Kern-Slices 1 bis 6 haben WordScript zu einem echten Diktierkern gemacht.
+
+Die naechste Produktphase ist deshalb nicht zuerst Notes, MCP oder Assistant-Scope, sondern Premium-Produktisierung auf demselben Kern:
+
+- Profile muessen persoenlicher und arbeitsmodusfaehig werden
+- zwischen Sprechen und Insert braucht es mehr Vertrauen und Sichtbarkeit
+- der Provider-Stack muss von einem Adapter zu einem echten Modellsystem wachsen
+- `local_preview` muss von einer Preview-Lane zu einem first-class lokalen Pfad werden
+- Setup, Permissions und Packaging muessen als Produktpfad sichtbar fuehren
+
+### Produktleitplanken fuer Slice 7 bis 11
+
+Diese Produktphase ist nicht nur eine Funktionsliste. Sie ist vor allem ein UI- und Usability-Pass auf demselben nativen Kern.
+
+- Settings und Overlay sind in dieser Phase ein owning product surface und kein spaeterer Polish-Nachtrag
+- das Zielbild bleibt eine kleine, ruhige macOS-Utility-App mit klarer Sidebar/Main-Struktur, stabiler Chromatik und wenigen visuellen Ebenen
+- jede neue Sichtbarkeit im Overlay oder in Settings muss echte Runtime-Wahrheit zeigen; keine Platzhalter, keine Demo-States, keine vorweggenommenen V2-Andeutungen
+- Benutzbarkeit zaehlt als Exit-Kriterium: schneller verstehbare Hierarchie, klarere Recovery-Fuehrung, weniger Dev-Tool-Gefuehl und weniger Setup-Raten gehoeren direkt zu diesen Slices
+- Plattformgrenzen, Permissions und lokale Helfer muessen so gefuehrt werden, dass ein Nutzer ohne Repo-Wissen vom Problem zur naechsten sinnvollen Aktion kommt
+
+Die Design-System-Referenz dafuer ist nicht dekorativ, sondern operativ:
+
+- `docs/DESIGN_SYSTEM.md` definiert die aktive UI-Sprache und das macOS-Zielbild fuer diese Produktphase
+- `docs/VISION.md` setzt UI-Fuehrung und wahrgenommene Ruhe als aktuelle Produktluecke gegenueber bezahlten Alternativen
+- jeder Slice 7 bis 11 gilt erst dann als produktfaehig, wenn Runtime-Gewinn und wahrgenommene Benutzbarkeit gemeinsam steigen
+
+### Slice 7 - Profile zu Arbeitsmodi verdichten
+
+### Ziel
+
+Profile von `context + dictionary + snippets` zu echten Arbeitsmodi weiterziehen.
+
+### Donor-Muster
+
+- `VoiceInk/VoiceInk/Services/DictionaryService.swift`
+- `VoiceInk/VoiceInk/PowerMode/PowerModeSessionManager.swift`
+- `FluidVoice/Sources/Fluid/Services/CommandModeService.swift`
+
+### Was dort gut ist
+
+- Dictionary- und Replacement-Logik leben als eigene Produktservices
+- app- oder mode-bezogene Sessions koennen explizit angewendet und sauber wiederhergestellt werden
+- `write` vs `command` trennt Nutzungsabsicht von Provider- oder UI-Details
+
+### WordScript-Zieloberflaechen
+
+- `src-tauri/src/core/config.rs`
+- `src-tauri/src/core/text_rules.rs`
+- `src-tauri/src/core/transform.rs`
+- `src-tauri/src/core/insertion.rs`
+- `src/components/settings/PromptsTab.tsx`
+- `src/components/settings/InputTab.tsx`
+
+### Gewuenschte Zielstruktur in WordScript
+
+- ein Arbeitsmodus kapselt `context`, `dictionary`, `snippets`, `rewrite style`, `insert behavior` und `recovery behavior`
+- Arbeitsmodi sind zuerst manuell sichtbar und explizit waehlbar
+- spaetere app- oder kontextbasierte Aktivierung bleibt permission-basiert und opt-in
+
+### Exit-Kriterien
+
+- der aktive Modus aendert mehr als nur Text Rules
+- Runtime, Overlay und History tragen denselben aktiven Arbeitsmodus sichtbar mit
+- keine verdeckte Auto-Aktivierung ohne explizite Erlaubnis und sichtbare Kontrolle
+
+### Slice 8 - Live-Preview und kontrollierten Commit einziehen
+
+### Ziel
+
+Zwischen Sprechen und Insert einen sichtbaren Preview-/Commit-Pfad aufspannen, der Vertrauen schafft statt nur nachtraegliche Recovery anzubieten.
+
+### Donor-Muster
+
+- `FluidVoice` fuer Live Preview und Mode-Denken
+- `Whisper-Input-Next` fuer floating preview und two-pass recognition
+- `OpenSuperWhisper` fuer leichte hold-to-record- und quick-commit-Muster
+
+### Was dort gut ist
+
+- Nutzer sehen Text, bevor oder waehrend er committed wird
+- Preview und Commit sind Produktaktionen statt versteckte Debug-Zustaende
+- leichte Record-/Commit-Interaktion fuehlt sich schneller und nativer an
+
+### WordScript-Zieloberflaechen
+
+- `src/windows/OverlayWindow.tsx`
+- `src/hooks/useRuntime.ts`
+- `src-tauri/src/core/sessions.rs`
+- `src-tauri/src/core/transform.rs`
+- `src-tauri/src/core/insertion.rs`
+
+### Gewuenschte Zielstruktur in WordScript
+
+- Overlay kann `raw transcript`, bereinigten Text und aktiven Arbeitsmodus sichtbar machen
+- Quick Actions fuer `insert`, `retry`, `scratchpad` und `restore` leben nah an der Preview
+- kontrollierter Commit ist ein expliziter Produktmodus und keine nachtraegliche Log-Ansicht
+
+### Exit-Kriterien
+
+- Nutzer koennen Text im Preview-Pfad sehen, bevor er final committed wird
+- schnelle Recovery-Aktionen sind aus dem Overlay heraus erreichbar
+- Auto-Insert und kontrollierter Commit bleiben auf derselben nativen Recovery-Wahrheit
+- der Overlay-Pfad wirkt als ruhiges Statusinstrument statt als Debug- oder Log-Flaeche
+
+### Slice 9 - Provider-Stack produktfaehig machen
+
+### Ziel
+
+Den Provider-Stack von einem ersten Adapter zu einem echten Produktmodell mit weiteren Produktionsprovidern und klaren Inference-Modes ausbauen.
+
+### Donor-Muster
+
+- `openwhispr/src/stores/settingsStore.ts`
+- `openwhispr/src/helpers/enterpriseAiProviders.js`
+- `hyprwhspr` fuer pragmatische Hybrid-Steuerung
+
+### Was dort gut ist
+
+- Provider-, Local-, Self-Hosted- und Enterprise-Pfade werden als Modi statt als Sonderfaelle modelliert
+- schwere Providerpfade koennen spaet und getrennt aktiviert werden
+- Hybrid-Steuerung ist produktive Logik und kein CLI-Nebenpfad
+
+### WordScript-Zieloberflaechen
+
+- `src-tauri/src/core/providers/`
+- `src-tauri/src/core/config.rs`
+- `src/types/providers.ts`
+- `src/hooks/useProvider.ts`
+- `src/components/settings/ApiModelsTab.tsx`
+
+### Gewuenschte Zielstruktur in WordScript
+
+- mindestens ein zweiter echter Produktionsprovider neben Groq
+- ein Modellsystem mit klaren Modi wie `fast`, `quality`, `local` und `self_hosted`
+- sichtbare Health-, Fallback- und Konfigurationszustande statt provider-spezifischer Einzelfall-UI
+
+### Exit-Kriterien
+
+- der zweite Produktionsprovider laeuft ueber denselben Vertrag wie Groq
+- Moduswahl blockiert spaetere Provider oder lokale Engines nicht mehr
+- UI, Config und Rust sprechen dieselben Provider- und Mode-Begriffe
+
+### Slice 10 - `local_preview` zur echten Local Lane ausbauen
+
+### Ziel
+
+Den lokalen Pfad von einer externen Preview-Lane zu einer first-class Option fuer privacy, resilience und echte lokale Arbeit weiterziehen.
+
+### Donor-Muster
+
+- `Handy` fuer lokale Modell- und Runtime-Pfade
+- `voxtype` fuer Engine-Abstraktion
+- `openwhispr/src/helpers/audioManager.js` fuer Audio- und Prompt-Bias-Denken
+
+### Was dort gut ist
+
+- lokale Modelle werden als Produktpfad statt nur als Hilfsbinary gedacht
+- mehrere Engines koennen hinter derselben Produktoberflaeche haengen
+- Dictionary- oder Bias-Prompting bleibt Teil des Transkriptionspfads
+
+### WordScript-Zieloberflaechen
+
+- `src-tauri/src/core/providers/local_preview.rs`
+- `src-tauri/src/core/config.rs`
+- `src-tauri/src/core/transform.rs`
+- `src/components/settings/ApiModelsTab.tsx`
+- `src/components/settings/RebuildLabTab.tsx`
+
+### Gewuenschte Zielstruktur in WordScript
+
+- Modellmanagement, klare Health-Diagnostics und sichtbare Runtime-Voraussetzungen fuer die lokale Lane
+- Dictionary oder Transcription Context koennen optional als Bias-Prompt in den lokalen Pfad einfliessen
+- Quality-vs-Latency-Presets machen den lokalen Pfad als Produktwahl verstehbar
+
+### Exit-Kriterien
+
+- lokale Lane ist sichtbar konfigurierbar, testbar und diagnostizierbar
+- Nutzer koennen zwischen mehreren sinnvollen lokalen Presets waehlen
+- lokaler Pfad fuehlt sich wie eine echte Produktoption an und nicht wie ein externer Debug-Helper
+
+### Slice 11 - Setup, Permissions und Packaging fuehren
+
+### Ziel
+
+Den Weg von Install zu erster brauchbarer Diktation als gefuehrten Produktpfad bauen statt als verstreute Diagnostics- und README-Kenntnis.
+
+### Donor-Muster
+
+- `vocalinux` fuer ehrliche Installer- und Support-Haltung
+- `hyprwhspr` fuer die Trennung von Setup- und Runtime-Lane
+- `VoiceInk` und `FluidVoice` fuer macOS-Polish und Permissions-Fuehrung
+
+### Was dort gut ist
+
+- Setup und Runtime werden nicht verwechselt
+- fehlende Helfer oder Permissions werden konkret benannt
+- Produktvertrauen entsteht schon vor der ersten Aufnahme
+
+### WordScript-Zieloberflaechen
+
+- `src/components/settings/AboutTab.tsx`
+- `src/components/settings/InputTab.tsx`
+- `docs/RELEASE_RUNBOOK.md`
+- `docs/REFERENCE.md`
+
+### Gewuenschte Zielstruktur in WordScript
+
+- gefuehrter Install-to-first-dictation-Pfad fuer Accessibility, Input Monitoring, UAC und Linux-Helfer
+- Packaging-, Permissions- und Runtime-Voraussetzungen sprechen dieselbe Sprache in UI und Doku
+- Setup-Checks helfen vor dem Fehler statt erst nach dem Scheitern
+
+### Exit-Kriterien
+
+- ein neuer Nutzer kommt ohne Repo-Wissen von Setup zu erster brauchbarer Diktation
+- fehlende Permissions oder Helfer fuehren zu konkreten, plattformnahen Fix-Hinweisen
+- Packaging und Runtime-Voraussetzungen divergieren nicht mehr zwischen Doku und Produkt
+- Setup-Hinweise folgen derselben kompakten Produktfuehrung wie Settings und About statt verstreuter Diagnostics-Sprache
+
 ## Was bewusst noch nicht gebaut wird
 
 Diese Themen bleiben nachgelagert, auch wenn sie langfristig Zielbild sind:
@@ -304,6 +524,12 @@ Diese Themen bleiben nachgelagert, auch wenn sie langfristig Zielbild sind:
 - Assistant / Browser-Use / Computer-Use
 
 Der Grund ist nicht, dass diese Themen unwichtig sind, sondern dass sie auf Slice 1 bis 6 aufbauen.
+
+Fuer die naechste Produktphase heisst das konkret:
+
+- `openwhispr`-Themen wie Notes, Search, Sync, MCP oder Assistant-Scope sind bewusst nicht die naechste Baustelle
+- erst muss WordScript als Diktierprodukt persoenlicher, vertrauenswuerdiger und produktiver wirken
+- Breite oberhalb des Kerns kommt erst nach Arbeitsmodi, Live Preview, produktfaehigem Provider-Stack, echter Local Lane und gefuehrtem Setup
 
 Wenn diese Stufe spaeter gebaut wird, ist die aktuelle Zielrichtung ein optionaler WordScript-eigener local-first Sync mit Account- und Cloud-Workspace-Layer. Kein Peer-to-Peer-Primarmodell und kein externer Produkt-Hub sollen dafuer die Grundannahme werden.
 
@@ -366,7 +592,7 @@ Ein facettenreicher Kern entsteht nicht dadurch, dass WordScript sofort Notes, M
 
 Er entsteht dadurch, dass derselbe Dictation-Kern spaeter all diese Dinge tragen kann, ohne neu gebaut werden zu muessen.
 
-Deshalb ist die richtige Reihenfolge:
+Deshalb war die richtige Kern-Reihenfolge:
 
 1. Koordinator
 2. Provider-Vertrag
@@ -375,4 +601,12 @@ Deshalb ist die richtige Reihenfolge:
 5. History
 6. Profile
 
-Danach erst die Plattform oberhalb des Kerns.
+Die naechste Produktphase oberhalb dieses Kerns ist:
+
+7. Arbeitsmodi
+8. Live Preview + kontrollierter Commit
+9. produktfaehiger Provider-Stack
+10. echte Local Lane
+11. Setup, Permissions und Packaging
+
+Danach erst die Plattform oberhalb des Diktierprodukts.

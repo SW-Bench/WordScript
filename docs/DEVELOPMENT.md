@@ -217,12 +217,20 @@ Die naechste Arbeit ist nicht weiterer Scope-Ausbau, sondern V1-Konsolidierung:
 
 1. Trigger-, Capture-, Insert- und Recovery-Pfad weiter stabilisieren
 2. History-, Retry- und Diagnostics-Pfad auf dem nativen Verlauf weiter ausbauen
-3. lokale Textprofile nach Sidebar-Dock und kuratierten Starter-Templates mit spaeterer Aktivierungslogik und ehrlicher Runtime-Kommunikation weiter verdichten
-4. die neue Local-Preview-Lane mit ehrlichen Diagnostics und sauberer Fallback-Kommunikation festigen
-5. Text Rules, Diagnostics und Support-Kommunikation im bestehenden Produktpfad weiter schaerfen
-6. den kommerziellen Release-Aufbau ohne falsche Verfuegbarkeitssignale sauber mitfuehren
+3. lokale Textprofile zu sichtbaren Arbeitsmodi fuer Context, Dictionary, Snippets, spaetere Rewrite-Defaults, Insert-Verhalten und Recovery-Verhalten weiterziehen
+4. Overlay und Settings auf einen Live-Preview- und kontrollierten Commit-Pfad vorbereiten, damit Nutzer `raw transcript`, bereinigten Text, aktiven Modus und schnelle Recovery-Aktionen sehen koennen
+5. den Provider-Stack von Groq als erstem Adapter zu einem produktfaehigen Modellsystem mit mindestens einem zweiten Produktionsprovider und klaren Modi wie `fast`, `quality`, `local` und `self_hosted` ausbauen
+6. `local_preview` zu einer first-class Local Lane mit Modellmanagement, ehrlichen Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets ausbauen
+7. Setup, Permissions und Packaging als gefuehrten Produktpfad ohne falsche Verfuegbarkeitssignale sauber mitfuehren
 
 Lokale Profile sind jetzt implementiert. Shell und Text-Rules-Editor teilen sich dafuer denselben Profil-Patch-Pfad, und die Text-Rules-Flaeche bringt eine lokale Starter-Library fuer zentrale ICPs mit. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung und spaetere Rewrite-Defaults ueber den aktiven Profilzustand hinaus.
+
+Fuer diesen UI-Pass gelten produktnahe macOS-Donoren wie `VoiceInk`, `FluidVoice` und `OpenSuperWhisper` als primaere Referenzen. Reine React-/TypeScript-Stilreferenzen fuer Window-Chrome, Sidebar-Rhythmus oder Control-Sprache sind sekundaer und duerfen keine fake-desktophafte Spielerei in den aktiven Produktpfad druecken.
+
+Was dabei bewusst nicht die naechste Baustelle ist:
+
+- `openwhispr`-Features wie Notes, Search, Sync, MCP oder Assistant-Scope
+- neue Plattformbreite, bevor der taegliche Dictation-Pfad persoenlicher, transparenter und vertrauenswuerdiger geworden ist
 
 Langfristige Themen wie Notes, Sync, MCP, API, Assistant oder Browser-/Computer-Use sind explizit nicht ausgeschlossen. Sie muessen aber ueber gestufte Ausbaupfade auf einem stabilen Kern entstehen, nicht als Parallelprodukt neben dem aktiven Dictation-Pfad.
 

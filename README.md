@@ -50,8 +50,12 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - Linux AppImage packaging that no longer stalls on the current linuxdeploy lane
 - live updater path after the first real release
 - stronger Linux Wayland reliability
-- embedded local/offline runtime path that no longer depends on an external helper binary and model files
-- more product polish around automatic profile activation, additional starter depth and broader text-rule workflows beyond the current sequenced editor overhaul
+- work-mode capable profiles beyond static context, dictionary and snippets, with explicit defaults for rewrite, insertion and recovery and later opt-in activation by app or context
+- a live-preview and controlled-commit overlay that shows raw text, cleaned text, the active work mode and quick recovery actions
+- at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
+- a first-class local lane with model management, health diagnostics, bias prompting and quality/latency presets instead of an external-helper-only preview path
+- a calmer and clearer Settings/Overlay shell that feels closer to a native macOS utility app instead of a web dashboard, while staying honest about Windows and Linux support realities
+- guided setup, permissions and packaging that get users from install to first useful dictation without having to reverse-engineer diagnostics output
 
 ## Planning references
 

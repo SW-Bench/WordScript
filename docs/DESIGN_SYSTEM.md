@@ -14,6 +14,20 @@ Das Design System beschreibt die aktive Produktsprache von WordScript. Es ist ke
 - Fehler und Recovery muessen fuehren, nicht nur anzeigen
 - Plattformgrenzen duerfen nicht von der UI versteckt werden
 
+## Aktuelles UI-Zielbild
+
+- Das aktuelle Problem ist nicht mehr fehlende Flaeche, sondern fehlende Ruhe, Hierarchie und Produktklarheit.
+- Das Zielbild fuer Settings und Overlay ist eine kleine, fokussierte Utility-App mit Apple-artiger Praezision: klare Fensterchromatik, stabile Sidebar/Main-Struktur, wenige visuelle Ebenen und knappe, weiche Motion.
+- macOS ist dafuer die Referenz fuer Produktpolish, nicht die Einladung, generische OS-Mockups oder verspielte Desktop-Parodien in WordScript zu ziehen.
+- Die bestehende Settings-Shell und das Overlay sind eine gute Basis, muessen aber vor weiterem Scope-Ausbau in Informationsarchitektur, Spacing, Zustandsklarheit und wahrgenommener Smoothness noch einmal bewusst ueberarbeitet werden.
+
+## UI-Donoren und Stilreferenzen
+
+- Primaere Produktdonoren fuer diesen UI-Pass bleiben `VoiceInk`, `FluidVoice` und `OpenSuperWhisper`.
+- Diese Repos liefern nicht nur Look, sondern produktrelevante Patterns fuer Overlay-Ruhe, Live-Preview, Mode-Denken, Dictionary-Naehe und macOS-native Utility-Fuehrung.
+- Sekundaere Stilreferenzen fuer React-/TypeScript-Shells sind [surajmandalcell/darwin-ui](https://github.com/surajmandalcell/darwin-ui), [andrejilderda/desktop-ui](https://github.com/andrejilderda/desktop-ui) und [kitlib/tauri-app-template](https://github.com/kitlib/tauri-app-template).
+- Diese Stilreferenzen duerfen Window-Chrome, Sidebar-Rhythmus, Control-Sprache und Tauri-App-Shell-Ideen liefern, aber nicht den aktiven Produktpfad in ein generisches Web-OS oder Demo-Desktop verwandeln.
+
 ## Aktive Oberflaechen
 
 ### Overlay
@@ -28,6 +42,8 @@ Das Overlay ist ein Statusinstrument. Es zeigt:
 
 Es darf keine eigenen Schaetzungen ueber Audio oder Sessionzustand erfinden. Waveform, Mute und Aufnahmezustand kommen aus nativen Events.
 
+Die naechste geplante Overlay-Ausbaustufe ist ein Live-Preview-/Controlled-Commit-Pfad mit `raw transcript`, bereinigtem Text, aktivem Arbeitsmodus und schnellen Aktionen fuer `insert`, `retry`, `scratchpad` und `restore`. Solange dieser Pfad nicht real gebaut ist, darf die UI ihn nicht andeuten oder simulieren.
+
 ### Settings
 
 Die Settings sind die eigentliche Produktoberflaeche. Sie fuehren durch:
@@ -39,6 +55,8 @@ Die Settings sind die eigentliche Produktoberflaeche. Sie fuehren durch:
 - Diagnostics
 
 Jeder Tab braucht einen klaren owning purpose. Globale Banner oder doppelte Erklaerflaechen ueber mehrere Tabs hinweg sind zu vermeiden.
+
+Die naechste geplante Vertiefung dieser Shell ist, Profile als sichtbare Arbeitsmodi mit spaeteren Defaults fuer Rewrite, Insert und Recovery zu fuehren. Solange das nicht aktiv ist, bleibt die echte Profilrealitaet bei lokalem Context, Dictionary und Snippets.
 
 ### Diagnostics
 

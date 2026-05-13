@@ -164,10 +164,15 @@ Zusatzregeln des aktiven Pfads:
 - kein signierter In-Place-Auto-Updater
 - Release- und Signing-Validation mit echten Secrets ist noch kein regelmaessiger Routinepfad
 - Linux Wayland bleibt experimentell
-- ein eingebetteter lokaler Offline-Standardpfad ist noch nicht implementiert; `local_preview` bleibt ein externer Helper-Pfad
-- mehrere vollwertige Produktionsprovider ueber Groq hinaus sind noch nicht implementiert
-- automatische Profilaktivierung ueber Apps, Hotkeys oder spaetere Session-Modes ist noch nicht implementiert
+- ein gefuehrter Setup-, Permissions- und Packaging-Pfad von Install bis erster brauchbarer Diktation ist noch nicht implementiert
+- `local_preview` ist noch keine first-class Local Lane; Modellmanagement, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets fehlen noch
+- mehrere vollwertige Produktionsprovider ueber Groq hinaus sind noch nicht implementiert; ebenso fehlt noch ein explizites Mode-Modell wie `fast`, `quality`, `local` oder `self_hosted`
+- Settings- und Overlay-UI brauchen noch eine klarere Informationshierarchie und mehr native macOS-Produktpolish; die aktuelle Shell ist brauchbar, aber noch nicht der Zielzustand
+- Profile sind noch nicht zu echten Arbeitsmodi mit Defaults fuer Rewrite, Insert und Recovery verdichtet; spaetere app- oder mode-basierte Aktivierung bleibt ebenfalls offen
+- Overlay ist noch kein Live-Preview- und Controlled-Commit-Pfad mit `raw transcript`, bereinigtem Text, aktivem Profil und schnellen Recovery-Aktionen
 - spaetere Notes- und weitergehende Workflow-Aufbauten auf Basis des neuen History-Kerns sind noch nicht implementiert
+
+Explizit nicht naechste Baustelle dieser Produktphase sind `openwhispr`-Themen wie Notes, Search, Sync, MCP oder Assistant-Scope. Diese bleiben nachgelagert, bis WordScript als taegliches Diktierprodukt persoenlicher und vertrauenswuerdiger geworden ist.
 
 ## Release build-up status
 

@@ -215,8 +215,11 @@ Wenn spaeter weitere Provider dazukommen, gehoeren sie unter `src-tauri/src/core
 
 Diese Themen sind moegliche spaetere Produktstufen, aber heute nicht aktive Architektur:
 
-- eingebetteter lokaler/offline Standardpfad ohne externen Helper
-- app- oder hotkey-basierte automatische Profilaktivierung fuer mehrere Arbeitskontexte
+- first-class lokale Lane mit Modellmanagement, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets
+- arbeitsmodusfaehige Profile mit Defaults fuer Rewrite, Insert und Recovery sowie spaeterer permission-basierter App-/Mode-Aktivierung
+- Live-Preview-/Controlled-Commit-Overlay mit `raw transcript`, bereinigtem Text, aktivem Arbeitsmodus und schnellen Recovery-Aktionen
+- weiteres Produktionsprovider-System mit expliziten Modi wie `fast`, `quality`, `local` und `self_hosted`
+- gefuehrter Setup- und Permissions-Pfad von Install bis erster brauchbarer Diktation
 - Team- oder Sync-Modell
 - AI-Assistant- oder Screen-Context-Workflows
 - veroeffentlichter Installer-Kanal und fertiger In-Place-Updater

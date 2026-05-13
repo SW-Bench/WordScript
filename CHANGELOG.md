@@ -63,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Input and Diagnostics now name scratchpad recovery, diagnostic preview transcript and persistent transcription history as separate native data surfaces, and Diagnostics exposes the native history store path directly in the UI
 - VISION, DEVELOPMENT and README now describe long-term assistant / computer-use expansion as a later platform stage without widening the active V1 scope
 - Text Rules documentation now reflects the real native order `active profile -> transcription context -> dictionary -> snippets`
+- planning and design docs now name Settings/Overlay UI polish as the current product bottleneck, with a native-feeling macOS utility-app target plus concrete donor and style-reference repos for the next UI pass
+- planning docs now also describe the next post-core product phase explicitly: work-mode profiles, live preview plus controlled commit, a product-ready provider stack, a first-class local lane and guided setup/permissions/packaging, while deferring broader openwhispr platform scope like notes, search, sync, MCP and assistant features
+- the core execution plan now treats the macOS-utility UI target and user-facing usability as hard product gates for slices 7 to 11 instead of leaving them implicit in the design docs
 - pull request CI now runs frontend tests and Rust tests on macOS and Windows in addition to Ubuntu
 - the manual release build-up workflow now runs frontend tests and Rust tests before bundling
 - platform support copy now exposes native prerequisites and honest limits for insertion, including macOS development-mode privacy requirements

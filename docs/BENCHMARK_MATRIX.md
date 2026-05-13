@@ -120,6 +120,22 @@ Warum:
 - `FluidVoice` ist stark bei overlay, live preview, low-latency engines und mode thinking.
 - `OpenSuperWhisper` liefert kleinere native patterns fuer hold-to-record und menu bar dictation.
 
+Fuer WordScript ist das nicht nur ein spaeteres Nice-to-have. Nach den bisherigen Kern-Slices ist die aktuelle Produktluecke gegenueber bezahlten Alternativen vor allem die UI-Qualitaet von Settings und Overlay: weniger webige Konfigurationsflaeche, mehr ruhige native Utility-App.
+
+### 4b. React-/TypeScript-Stilreferenzen fuer macOS-nahe Shells
+
+Primaere Produktdonoren bleiben weiter die obigen Dictation-Apps. Fuer die UI-Sprache von WordScript lohnt sich daneben ein schmaler Blick auf einige Shell- und Komponenten-Referenzen:
+
+- [surajmandalcell/darwin-ui](https://github.com/surajmandalcell/darwin-ui)
+- [andrejilderda/desktop-ui](https://github.com/andrejilderda/desktop-ui)
+- [kitlib/tauri-app-template](https://github.com/kitlib/tauri-app-template)
+
+Warum:
+
+- Diese Repos sind keine eigentlichen Diktier- oder Runtime-Donoren.
+- Sie koennen aber fuer Sidebar-Hierarchie, Titlebar-/Window-Chrome, Control-Sprache und Tauri-/React-Shell-Patterns nuetzlich sein.
+- Sie sind als Stilreferenz zu behandeln, nicht als Produktarchitektur oder Feature-Backlog.
+
 ### 5. BYOK und Multi-Provider
 
 - Primaer: `openwhispr`
@@ -170,6 +186,8 @@ Warum:
 Die wichtigste Konsequenz aus der Benchmark-Arbeit:
 
 WordScript darf langfristig deutlich groesser werden als der aktuelle V1-Umfang, aber der Ausbau muss in klaren Stufen passieren.
+
+Direkt nach den bisherigen Kern-Slices ist der naechste Engpass allerdings nicht zuerst weiterer Plattform-Scope, sondern Produktpolish: Settings und Overlay muessen sich nativer, ruhiger und selbstverstaendlicher anfuehlen, wenn WordScript im Alltag an bezahlte Alternativen heranruecken soll.
 
 ### Stufe 1 - Kern stabilisieren
 
@@ -319,14 +337,92 @@ Primaere Benchmarks:
 - `voxtype`
 - `Whisper-Input-Next`
 
+## Naechste Donor-Welle nach dem ersten Kern-Ausbau
+
+Nach den bisherigen Kern-Slices ist der naechste Sprung fuer WordScript nicht zuerst Notes, MCP oder Assistant-Scope, sondern Premium-Produktisierung im aktiven Diktierprodukt.
+
+### 1. Arbeitsmodi statt statischer Profile
+
+- Primaer: `VoiceInk`
+- Primaer: `FluidVoice`
+
+Warum:
+
+- `VoiceInk` ist der staerkste Donor fuer persoenliches Dictionary als echten Produktservice und fuer session-basierte App-/Mode-Logik.
+- `FluidVoice` zeigt mit `write` vs `command`, wie Profile ueber reine Rule-Sets hinaus zu Arbeitsmodi werden koennen.
+- Genau dort entsteht persoenliche Produktqualitaet, ohne schon in Assistant-Scope zu kippen.
+
+### 2. Live-Preview und kontrollierter Commit
+
+- Primaer: `FluidVoice`
+- Sekundaer: `Whisper-Input-Next`
+- Sekundaer: `OpenSuperWhisper`
+
+Warum:
+
+- `FluidVoice` ist der staerkste Donor fuer overlay-nahe Live Preview und Mode-Denken.
+- `Whisper-Input-Next` ist nuetzlich fuer floating preview und two-pass recognition als Vertrauensmuster.
+- `OpenSuperWhisper` liefert kleinere native Patterns fuer leichte Record-/Commit-Interaktion.
+
+### 3. Produktfaehiger Provider-Stack
+
+- Primaer: `openwhispr`
+- Primaer: `hyprwhspr`
+
+Warum:
+
+- `openwhispr` ist der staerkste Donor fuer Inference-Modes, Provider-Taxonomie und BYOK-vs-self-hosted-Struktur.
+- `hyprwhspr` zeigt pragmatische Hybrid-Steuerung und Linux-nahe Provider-Orchestrierung.
+- Bezahlte Alternativen wirken hier staerker, weil sie Modus-, Provider- und Fallback-Wahl elegant machen.
+
+### 4. `local_preview` zur echten Local Lane machen
+
+- Primaer: `Handy`
+- Primaer: `voxtype`
+- Sekundaer: `openwhispr`
+
+Warum:
+
+- `Handy` liefert Modell- und Runtime-Denken fuer lokale Pfade.
+- `voxtype` ist stark bei Engine-Abstraktion und Produktwahl zwischen mehreren lokalen Backends.
+- `openwhispr` ist nuetzlich fuer Audio- und Bias-Prompting-Denken.
+
+### 5. Setup, Permissions und Packaging als Produktpfad
+
+- Primaer: `vocalinux`
+- Primaer: `hyprwhspr`
+- Sekundaer: `VoiceInk`
+- Sekundaer: `FluidVoice`
+
+Warum:
+
+- `vocalinux` ist stark bei ehrlicher Installer- und Support-Haltung.
+- `hyprwhspr` trennt Setup- und Runtime-Lane sauber genug fuer Packaging und Linux-Helferrealitaet.
+- `VoiceInk` und `FluidVoice` sind die nuetzlichsten Referenzen fuer macOS-Polish und Permissions-Fuehrung.
+
+## Was wir aus `openwhispr` bewusst noch nicht ziehen
+
+- Notes
+- Search
+- Sync
+- MCP
+- Assistant-Scope
+
+Warum:
+
+- Diese Themen sind echte spaetere Plattformbausteine.
+- Sie wuerden heute Breite bauen, bevor WordScript im taeglichen Dictation-Moment persoenlicher und vertrauenswuerdiger geworden ist.
+- Erst Arbeitsmodi, Live Preview, produktfaehiger Provider-Stack, echte Local Lane und gefuehrtes Setup bringen WordScript als Diktierprodukt naeher an bezahlte Alternativen.
+
 ## Reihenfolge-Empfehlung
 
 Die beste Reihenfolge fuer WordScript ist nicht "alles aus allen Repos ziehen", sondern:
 
-1. `Handy` + `voxtype` lesen und den WordScript-Kern stabilisieren.
-2. `hyprwhspr` + `vocalinux` fuer Linux setup, support tiers und insertion edge cases auswerten.
-3. `VoiceInk` + `FluidVoice` fuer profile, dictionary, preview und modes auswerten.
-4. `openwhispr` gezielt fuer spaetere Platform-Slices lesen: notes, search, sync, meetings, API, MCP, assistant.
+1. `VoiceInk` + `FluidVoice` fuer Arbeitsmodi, Dictionary-Service, Live Preview und Mode-Denken auswerten.
+2. `openwhispr` + `hyprwhspr` fuer Provider-Taxonomie, Inference-Modes und Hybrid-Steuerung auswerten.
+3. `Handy` + `voxtype` + `openwhispr` fuer die echte Local Lane mit Modellmanagement, Bias-Prompting und Presets auswerten.
+4. `vocalinux` + `hyprwhspr` + `VoiceInk`/`FluidVoice` fuer Setup, Permissions und Packaging-Fuehrung auswerten.
+5. `openwhispr` fuer Notes, Search, Sync, MCP und Assistant erst danach lesen.
 
 ## Schlussregel
 

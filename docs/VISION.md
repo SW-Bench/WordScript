@@ -147,8 +147,24 @@ Die aktuelle Arbeit darf nicht wieder in diese Richtung driften:
 Die unmittelbaren Produktprioritaeten sind:
 
 1. Den kommerziellen Release-Aufbau ehrlich zeigen, ohne publizierte Releases oder funktionierende Updates vorzutaeuschen.
-2. Im bestehenden V1-Pfad Text Rules, Recovery und Supportfuehrung weiter schaerfen, inklusive lokaler kuratierter Starter-Profile fuer zentrale ICPs.
-3. Plattformgrenzen und Diagnostics im aktiven Produktpfad weiter schaerfen.
+2. Settings und Overlay als ruhigere, klarere und nativer wirkende Produktoberflaeche weiterdenken, im Ziel eher wie eine kleine macOS Utility-App als wie eine Web-Konfigurationsflaeche.
+3. Im bestehenden V1-Pfad Text Rules, Recovery und Supportfuehrung weiter schaerfen, inklusive lokaler kuratierter Starter-Profile fuer zentrale ICPs.
+4. Plattformgrenzen und Diagnostics im aktiven Produktpfad weiter schaerfen.
+
+Die aktuelle Produktluecke gegenueber bezahlten Alternativen ist damit nicht primaer ein weiterer Plattform-Scope, sondern die UI-Fuehrung: Die bestehende Settings-Shell und das Overlay sind eine brauchbare Basis, muessen aber in Informationsarchitektur, Motion, Hierarchie und wahrgenommener Ruhe noch einmal bewusst ueberarbeitet werden.
+
+Die naechste Produktphase nach dem bisherigen Kern ist daher:
+
+1. Profile von statischen Rule-Sets zu sichtbaren Arbeitsmodi fuer Context, Dictionary, Snippets, spaetere Rewrite-Defaults, Insert-Verhalten und Recovery-Verhalten verdichten.
+2. Live-Preview und kontrollierten Commit zwischen Sprechen und finalem Insert einziehen, damit WordScript mehr Vertrauen und weniger Dev-Tool-Gefuehl erzeugt.
+3. den Provider-Stack von einem ersten Adapter zu einem echten Modellsystem mit mindestens einem zweiten Produktionsprovider und klaren Modi wie `fast`, `quality`, `local` und `self_hosted` ausbauen.
+4. `local_preview` von einer externen Preview-Lane zu einer first-class lokalen Produktoption mit Modellmanagement, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets weiterziehen.
+5. Setup, Permissions und Packaging als gefuehrten Produktpfad behandeln, damit Nutzer von Install bis erster brauchbarer Diktation nicht durch verstreute Diagnostics stolpern.
+
+Was wir dafuer bewusst noch nicht in die naechste Baustelle ziehen:
+
+- `openwhispr`-Scope wie Notes, Search, Sync, MCP oder Assistant-Scope
+- weitere Plattformbreite, bevor die taegliche Dictation-Nutzung persoenlicher und vertrauenswuerdiger geworden ist
 
 Wenn Profile vorgezogen werden, dann nur als lokaler, diktiernaher Ausbau fuer Context, Dictionary, Snippets, kuratierte Starter-Baselines und spaetere Rewrite-Defaults, nicht als verkappter Assistant-Scope.
 

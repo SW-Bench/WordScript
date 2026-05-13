@@ -21,38 +21,38 @@ import "../styles/settings.css";
 
 const TABS = [
   {
-    label: "General",
+    label: "Provider",
     id: "Provider & Models",
     icon: "gear",
-    eyebrow: "Language & Region",
+    eyebrow: "Provider & Models",
     blurb: "Cloud BYOK, local preview lane, language, model choice and post-correction.",
   },
   {
-    label: "Hotkeys",
+    label: "Input",
     id: "Input",
     icon: "key",
-    eyebrow: "Application Behavior",
+    eyebrow: "Capture & Delivery",
     blurb: "Shortcut, microphone, delivery and capture recovery.",
   },
   {
-    label: "Editor",
+    label: "Text Rules",
     id: "Text Rules",
     icon: "panel",
-    eyebrow: "Text Rules",
+    eyebrow: "Profiles",
     blurb: "Personal dictionary, snippets and transform preview.",
   },
   {
     label: "About",
     id: "About",
     icon: "info",
-    eyebrow: "Updates",
+    eyebrow: "Support",
     blurb: "Version, installer flow, platform support and project links.",
   },
   {
     label: "Diagnostics",
     id: "Rebuild Lab",
     icon: "diagnostics",
-    eyebrow: "Diagnostics",
+    eyebrow: "Runtime",
     blurb: "Native capture, transform, recovery and insert diagnostics.",
   },
 ] as const;
@@ -255,7 +255,7 @@ export default function SettingsWindow() {
         <main className="settings__main">
           <WindowChrome
             title="Settings"
-            subtitle={activeTab.eyebrow}
+            subtitle={activeTab.label}
             status={(
               <span className={`settings__runtime-pill${readiness.ok ? " settings__runtime-pill--ok" : ""}`} title={readiness.title}>
                 {readiness.label}
