@@ -216,6 +216,37 @@ export function InputTab({ config, onChange }: Props) {
         </div>
       </div>
 
+      <div className="settings__provider-card settings__input-path-card">
+        <div className="settings__provider-card-header">
+          <strong className="settings__about-title">Current native path</strong>
+          <p className="form-dim settings__provider-card-copy">
+            The next capture and insert cycle will follow this runtime path.
+          </p>
+        </div>
+        <div className="settings__provider-meta-grid">
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Current capture</span>
+            <span>{captureStatus?.is_recording ? "Recording now" : "Idle"}</span>
+            <code>{captureStatus?.device_name ?? selectedAudioDeviceLabel}</code>
+          </div>
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Insert driver</span>
+            <span>{activeDriverLabel}</span>
+            <code>{platformStatus?.insert_strategy ?? "detecting"}</code>
+          </div>
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Recovery path</span>
+            <span>{scratchpadLabel}</span>
+            <code>{insertion.status?.scratchpad_path ?? "Loading recovery store"}</code>
+          </div>
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Delivery mode</span>
+            <span>{deliveryLabel}</span>
+            <code>{config.play_sounds ? "sound cues on" : "sound cues off"}</code>
+          </div>
+        </div>
+      </div>
+
       <div className="form-section">Shortcuts</div>
       <p className="form-dim">
         Shortcuts are registered in the native trigger layer and stay active after this window closes. Use manual entry only when the desktop intercepts a key such as Win/Super on Linux.
@@ -372,7 +403,7 @@ export function InputTab({ config, onChange }: Props) {
 
       <div className="form-section">Recovery</div>
       <p className="form-dim">
-        Use recovery when auto-paste failed, the target app ignored the paste, or you want to bring back the latest transcript. Scratchpad recovery is separate from the Diagnostics preview transcript and separate from native transcription history.
+        Use recovery when direct insert failed, the target app ignored paste, or you want the latest transcript back without reopening diagnostics.
       </p>
       <div className="form-row">
         <label>Last recoverable transcript</label>

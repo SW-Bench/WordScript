@@ -50,6 +50,14 @@ Die erste Welle fuer aktives Reverse Engineering ist dennoch bewusst kleiner:
 6. `VoiceInk`
 7. `FluidVoice`
 
+## Erweiterte UI-/UX-Shortlist fuer den aktuellen macOS-Polish-Pass
+
+Diese Repos sind keine Kern-STT-Benchmark-Basis, aber fuer den aktuellen UI-Pass von Settings, Overlay und spaeteren Quick-Action- oder menu bar-Surfaces lokal nuetzlich:
+
+- `Ice`, `MonitorControl`, `Clipy` fuer menu bar, Popover, History-Naehe und ruhige Utility-Preferences
+- `raycast/extensions`, `massCode`, `Zed`, `AeroSpace` fuer command palette, Action-Naming, Tastaturgewichtung und Advanced-User-UX
+- `Spacedrive`, `Mullvad VPN`, `Beekeeper Studio`, `Standard Notes`, `UTM` fuer Sidebar/Main-Struktur, Trust-/Status-Copy, Preview-Flaechen und belastbare Settings-Architektur
+
 ## Feature-Matrix
 
 Legende:
@@ -129,12 +137,48 @@ Primaere Produktdonoren bleiben weiter die obigen Dictation-Apps. Fuer die UI-Sp
 - [surajmandalcell/darwin-ui](https://github.com/surajmandalcell/darwin-ui)
 - [andrejilderda/desktop-ui](https://github.com/andrejilderda/desktop-ui)
 - [kitlib/tauri-app-template](https://github.com/kitlib/tauri-app-template)
+- [raycast/extensions](https://github.com/raycast/extensions)
+- [massCodeIO/massCode](https://github.com/massCodeIO/massCode)
+- [spacedriveapp/spacedrive](https://github.com/spacedriveapp/spacedrive)
 
 Warum:
 
 - Diese Repos sind keine eigentlichen Diktier- oder Runtime-Donoren.
-- Sie koennen aber fuer Sidebar-Hierarchie, Titlebar-/Window-Chrome, Control-Sprache und Tauri-/React-Shell-Patterns nuetzlich sein.
-- Sie sind als Stilreferenz zu behandeln, nicht als Produktarchitektur oder Feature-Backlog.
+- Sie koennen aber fuer Sidebar-Hierarchie, Titlebar-/Window-Chrome, Control-Sprache, Command-Palette-Rhythmus und Tauri-/React-Shell-Patterns nuetzlich sein.
+- Sie sind als Stilreferenz zu behandeln, nicht als Produktarchitektur, File-Manager-Metapher oder Feature-Backlog.
+
+### 4c. Sekundaere Utility- und Keyboard-First-Donoren fuer den UI-Pass
+
+- Primaer: `Ice`
+- Primaer: `MonitorControl`
+- Primaer: `raycast/extensions`
+- Sekundaer: `Clipy`
+- Sekundaer: `massCode`
+- Sekundaer: `AeroSpace`
+- Sekundaer: `Zed`
+
+Warum:
+
+- `Ice` ist stark fuer menubar-nahe Sekundaerflaechen, Suche und mikrointeraktive Desktop-Kontrolle.
+- `MonitorControl` ist stark fuer stille Preferences, Permission-Handoffs und dichte Utility-Settings.
+- `raycast/extensions` ist stark fuer Action-Listen, Result-Ranking und spaetere commandartige Flows.
+- `Clipy` ist nuetzlich fuer History-, Snippet- und Scratchpad-Naehe.
+- `massCode`, `AeroSpace` und `Zed` sind nuetzlich fuer keyboard-first Dichte, Hotkey-Semantik und fokussierte Aktionssprache.
+
+### 4d. Desktop-Produktivitaetsshells fuer Sidebar-, Settings- und Trust-Polish
+
+- Primaer: `Spacedrive`
+- Primaer: `Mullvad VPN`
+- Sekundaer: `Beekeeper Studio`
+- Sekundaer: `Standard Notes`
+- Sekundaer: `UTM`
+
+Warum:
+
+- `Spacedrive` liegt WordScript als Tauri-/Rust-/React-Shell am naechsten und ist stark bei Sidebar/Main-Hierarchie sowie Preview-Aktionen.
+- `Mullvad VPN` ist stark bei statusklarer, ehrlicher Produktkommunikation in einem Desktop-Frontend mit nativer Runtime dahinter.
+- `Beekeeper Studio` zeigt, wie dichte Produktivitaets-Oberflaechen ruhig bleiben koennen.
+- `Standard Notes` und `UTM` sind nuetzlich fuer skalierende Preferences, Trust-Copy und strukturierte Konfigurationsfluesse.
 
 ### 5. BYOK und Multi-Provider
 

@@ -429,6 +429,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const selectedTemplateContextLines = selectedTemplate?.prompt.split(/\r?\n/).filter(Boolean) ?? [];
   const selectedTemplateDictionaryPreview = selectedTemplate?.dictionary_entries.slice(0, 4) ?? [];
   const selectedTemplateSnippetPreview = selectedTemplate?.snippet_entries.slice(0, 4) ?? [];
+  const totalRuleCount = dictionaryEntries.length + snippetEntries.length;
   const activeWorkspaceCopy = activeWorkspacePanel === "context"
     ? {
       step: "Step 1 of 3",
@@ -532,6 +533,24 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
           </div>
         </div>
       )}
+
+      <div className="settings__summary-grid settings__summary-grid--three settings__editor-process-summary" aria-label="Text rules process summary">
+        <article className="settings__summary-item">
+          <span>Active profile</span>
+          <strong>{activeTextProfile.label}</strong>
+          <small>{activePromptLineCount} context lines and {totalRuleCount} authored rules in this local mode.</small>
+        </article>
+        <article className="settings__summary-item">
+          <span>Rule order</span>
+          <strong>Dictionary -&gt; Snippets</strong>
+          <small>Literal, case-insensitive matches in authored order. Preview and runtime follow the same pass.</small>
+        </article>
+        <article className="settings__summary-item">
+          <span>Current step</span>
+          <strong>{activeWorkspaceCopy.title}</strong>
+          <small>{activeWorkspaceCopy.note}</small>
+        </article>
+      </div>
 
       <div className="settings__editor-shell">
         <div className="settings__editor-setup-grid">

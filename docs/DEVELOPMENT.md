@@ -133,7 +133,7 @@ Wenn es um die konkrete Reihenfolge der naechsten Kern-Slices geht, ist [CORE_EX
 
 ### UI-only Aenderungen
 
-1. engsten betroffenen Vitest laufen lassen
+1. engsten betroffenen Vitest laufen lassen, fuer Text Rules z. B. `npx vitest run src/components/settings/PromptsTab.test.tsx`
 2. `npm run build`
 
 ### Rust- oder Runtime-Aenderungen
@@ -178,7 +178,7 @@ Wichtig fuer den aktuellen Stand:
 
 - `src/App.tsx`: Routing fuer Overlay und Settings
 - `src/windows/`: Fenster-Komposition
-- `src/components/settings/`: aktive Settings-Tabs inklusive Profil-Dock, gefuehrtem Text-Rules-Workspace mit kompakter Setup-Zone fuer Profile/Starter, oberer Stage-Navigation und getrennter Hauptarbeitsflaeche fuer Recovery-/Diagnostics-nahe Editoren
+- `src/components/settings/`: aktive Settings-Tabs inklusive Profil-Dock, gefuehrtem Text-Rules-Workspace mit Prozesszusammenfassung, kompakter Setup-Zone fuer Profile/Starter, oberer Stage-Navigation und getrennter Hauptarbeitsflaeche fuer Recovery-/Diagnostics-nahe Editoren
 - `src/hooks/`: Runtime-, Provider-, Insert-, Log- und Diagnostics-Hooks inklusive nativer History-Store-Status-Bridge
 - `src/lib/textProfileTemplates.ts`: kuratierte lokale Starterprofile und Create/Merge-Helfer fuer Text Profiles
 - `src/types/`: getypte UI-Vertraege fuer Runtime, Text Rules, Insertion und Release-Status

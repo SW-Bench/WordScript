@@ -20,13 +20,15 @@ Das Design System beschreibt die aktive Produktsprache von WordScript. Es ist ke
 - Das Zielbild fuer Settings und Overlay ist eine kleine, fokussierte Utility-App mit Apple-artiger Praezision: klare Fensterchromatik, stabile Sidebar/Main-Struktur, wenige visuelle Ebenen und knappe, weiche Motion.
 - macOS ist dafuer die Referenz fuer Produktpolish, nicht die Einladung, generische OS-Mockups oder verspielte Desktop-Parodien in WordScript zu ziehen.
 - Die bestehende Settings-Shell und das Overlay sind eine gute Basis, muessen aber vor weiterem Scope-Ausbau in Informationsarchitektur, Spacing, Zustandsklarheit und wahrgenommener Smoothness noch einmal bewusst ueberarbeitet werden.
+- Der aktive UI-Pass hat diese Richtung bereits begonnen: sichtbare Panel-Header, klarere Sidebar-/Main-Trennung, verdichtete Summary-Flaechen fuer kritische Tabs und ein Overlay mit expliziterer Zustandslesbarkeit statt rein dekorativer Reduktion.
 
 ## UI-Donoren und Stilreferenzen
 
 - Primaere Produktdonoren fuer diesen UI-Pass bleiben `VoiceInk`, `FluidVoice` und `OpenSuperWhisper`.
 - Diese Repos liefern nicht nur Look, sondern produktrelevante Patterns fuer Overlay-Ruhe, Live-Preview, Mode-Denken, Dictionary-Naehe und macOS-native Utility-Fuehrung.
-- Sekundaere Stilreferenzen fuer React-/TypeScript-Shells sind [surajmandalcell/darwin-ui](https://github.com/surajmandalcell/darwin-ui), [andrejilderda/desktop-ui](https://github.com/andrejilderda/desktop-ui) und [kitlib/tauri-app-template](https://github.com/kitlib/tauri-app-template).
-- Diese Stilreferenzen duerfen Window-Chrome, Sidebar-Rhythmus, Control-Sprache und Tauri-App-Shell-Ideen liefern, aber nicht den aktiven Produktpfad in ein generisches Web-OS oder Demo-Desktop verwandeln.
+- Sekundaere Stil- und UX-Referenzen werden jetzt in drei Lanes gelesen: `menu bar utilities` mit `Ice`, `MonitorControl` und `Clipy`; `keyboard-first command surfaces` mit `raycast/extensions`, `massCode`, `Zed` und `AeroSpace`; sowie `desktop productivity shells` mit `Spacedrive`, `Mullvad VPN`, `Beekeeper Studio`, `Standard Notes` und `UTM`.
+- Zusaetzliche React-/TypeScript-Stilreferenzen fuer Shell und Komponenten bleiben [surajmandalcell/darwin-ui](https://github.com/surajmandalcell/darwin-ui), [andrejilderda/desktop-ui](https://github.com/andrejilderda/desktop-ui) und [kitlib/tauri-app-template](https://github.com/kitlib/tauri-app-template).
+- Diese Stilreferenzen duerfen Window-Chrome, Sidebar-Rhythmus, Control-Sprache, Secondary-Surfaces, Action-Naming und Tauri-App-Shell-Ideen liefern, aber nicht den aktiven Produktpfad in ein generisches Web-OS, eine IDE, einen File Manager oder eine VPN-App verwandeln.
 
 ## Aktive Oberflaechen
 
@@ -125,6 +127,8 @@ Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 - Preview und Validation muessen gegen denselben nativen Analysepfad laufen
 - die Settings-Sidebar muss den aktiven Profilzustand global sichtbar machen; schneller Wechsel lebt dort, tiefes Profil-Editing bleibt in Text Rules
 - Text Rules soll als gefuehrter Ablauf organisiert sein: zuerst eine kompakte Setup-Zone fuer Profilbearbeitung und sekundare Starter-Hilfe; danach sitzt die Schritt-Navigation oben ueber der aktiven Arbeitsflaeche; darunter bleibt immer genau eine dominante Bearbeitungsstufe statt mehrerer gleichgewichtiger Hauptflaechen
+- oberhalb der Setup-Zone darf nur eine knappe Prozesszusammenfassung stehen; Import/Export und Diagnose-Hilfen bleiben Utility-Ebene und duerfen die aktive Bearbeitungsstufe nicht optisch ueberholen
+- die Schritt-Navigation darf im Scroll-Kontext praesent bleiben, solange sie nicht mobilen oder kleinen Settings-Fenstern den Arbeitsraum nimmt
 - kuratierte Starter-Templates duerfen nur lokale Create-/Merge-Baselines fuer konkrete ICP-Arbeitsmodi sein, keine versteckte Profil-Automation oder Assistant-Persona
 - Profilwechsel muss sichtbar denselben aktiven Regelbestand fuer Preview, Import/Export und Runtime umschalten
 - Diagnostics-Hinweise sollen auf konkrete Regelkarten zurueckfuehren

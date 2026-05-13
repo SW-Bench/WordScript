@@ -223,6 +223,13 @@ export default function OverlayWindow() {
     : isProcessing
       ? "Processing"
       : "Open Settings";
+  const sideCaption = isRecording
+    ? (paused ? "Paused" : "Live")
+    : isProcessing
+      ? "Working"
+      : showError
+        ? "Review"
+        : "Settings";
 
   const handleSideAction = () => {
     if (isRecording) {
@@ -277,7 +284,10 @@ export default function OverlayWindow() {
         title={sideTitle}
         aria-pressed={paused}
       >
-        <span className="pill__timer">{formatElapsed(elapsed)}</span>
+        <span className="pill__side-copy">
+          <span className="pill__timer">{formatElapsed(elapsed)}</span>
+          <span className="pill__side-label">{sideCaption}</span>
+        </span>
       </button>
     </div>
   );

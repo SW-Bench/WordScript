@@ -223,7 +223,25 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
     <>
       <div className="tab__title">Provider &amp; Models</div>
 
-      <div className="form-section">{providerRequiresKey ? "Authentication" : "Preview Lane"}</div>
+      <div className="settings__summary-grid settings__summary-grid--three" aria-label="Provider overview">
+        <article className="settings__summary-item">
+          <span>Lane</span>
+          <strong>{providerLabel}</strong>
+          <small>{providerRequiresKey ? "Cloud transcription with local BYOK." : "External helper lane for local speech-to-text preview."}</small>
+        </article>
+        <article className="settings__summary-item">
+          <span>Active model</span>
+          <strong>{activeModel}</strong>
+          <small>{previewLaneSelected ? "Preview helper model" : "Primary transcription model"}</small>
+        </article>
+        <article className="settings__summary-item">
+          <span>Status</span>
+          <strong>{statusTitle}</strong>
+          <small>{validationSource}</small>
+        </article>
+      </div>
+
+      <div className="form-section">{providerRequiresKey ? "Credential status" : "Preview status"}</div>
       <div className="settings__provider-card settings__provider-card--highlight">
         <div className="provider-status provider-status--stacked">
           <span className={`provider-status__dot${
@@ -361,7 +379,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           : "Profile controls speed vs. accuracy. Language can usually stay on Auto."}
       </p>
 
-      <div className="form-section">AI Cleanup</div>
+      <div className="form-section">AI cleanup</div>
       <label className="form-check" style={{ marginBottom: 10 }}>
         <input type="checkbox" checked={cleanupEnabled}
           disabled={previewLaneSelected}

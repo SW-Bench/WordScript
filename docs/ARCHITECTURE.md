@@ -54,7 +54,7 @@ Die UI ist verantwortlich fuer:
 - Anzeige von Runtime-Status, Waveform und Fehlermeldungen
 - Pflege der Config-Werte
 - global sichtbare manuelle Profilumschaltung in der Sidebar plus lokale Starter-Templates, Preview, Validation und Import/Export in den Text Rules
-- Text Rules als Workspace mit linker Kontrollspur fuer Profilwahl, Schritt-Navigation und sekundare Starter-Hilfe; rechts steht immer nur eine dominante Bearbeitungsstufe fuer Context/Preview, Dictionary oder Snippets
+- Text Rules als Workspace mit knapper Prozesszusammenfassung, kompakter Setup-/Starter-Zone und praesent bleibender Schritt-Navigation; darunter steht immer nur eine dominante Bearbeitungsstufe fuer Context/Preview, Dictionary oder Snippets
 - Sichtbare Recovery-Aktionen und Diagnostics
 - getrennte Darstellung von transienten Runtime-Logs und dauerhaftem nativen Transkriptverlauf inklusive Filter, Export und sichtbarem History-Store-Pfad; Recovery-Scratchpad bleibt davon getrennt
 

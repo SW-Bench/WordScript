@@ -66,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - planning and design docs now name Settings/Overlay UI polish as the current product bottleneck, with a native-feeling macOS utility-app target plus concrete donor and style-reference repos for the next UI pass
 - planning docs now also describe the next post-core product phase explicitly: work-mode profiles, live preview plus controlled commit, a product-ready provider stack, a first-class local lane and guided setup/permissions/packaging, while deferring broader openwhispr platform scope like notes, search, sync, MCP and assistant features
 - the core execution plan now treats the macOS-utility UI target and user-facing usability as hard product gates for slices 7 to 11 instead of leaving them implicit in the design docs
+- donor catalogs and benchmark docs now track menu bar utilities, keyboard-first tools and desktop productivity shells as secondary UI/UX references for the macOS-native polish pass
+- Settings now uses a calmer utility-style shell with visible section headers, denser summary surfaces for Provider/Input and a more native-feeling panel hierarchy instead of a flatter web-form layout
+- the overlay now reads states more clearly through calmer material treatment and a dedicated side-state label for live, paused and processing moments
+- Text Rules now opens with a compact process summary, calmer utility controls and a pinned stage rail so profile setup and starter selection stay secondary to the active editing workspace
 - pull request CI now runs frontend tests and Rust tests on macOS and Windows in addition to Ubuntu
 - the manual release build-up workflow now runs frontend tests and Rust tests before bundling
 - platform support copy now exposes native prerequisites and honest limits for insertion, including macOS development-mode privacy requirements

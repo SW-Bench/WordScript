@@ -40,7 +40,8 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - native insertion with direct paste, clipboard fallback, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
 - native transcription history with retention policy, server-side filters, JSON export, retry and a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
 - platform diagnostics and runtime logs
-- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a persistent sidebar profile dock for manual profile switching and a sequenced Text Rules workspace with a compact setup deck, top stage navigation and one dominant working canvas at a time
+- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a persistent sidebar profile dock for manual profile switching and a sequenced Text Rules workspace with a compact process summary, starter/setup deck, pinned stage navigation and one dominant working canvas at a time
+- a calmer utility-style Settings shell with visible section hierarchy, denser Provider/Input summaries and a more legible overlay state treatment
 - manual release build-up lanes for Linux, macOS and Windows
 
 ## What still needs work
@@ -54,12 +55,12 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - a live-preview and controlled-commit overlay that shows raw text, cleaned text, the active work mode and quick recovery actions
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
 - a first-class local lane with model management, health diagnostics, bias prompting and quality/latency presets instead of an external-helper-only preview path
-- a calmer and clearer Settings/Overlay shell that feels closer to a native macOS utility app instead of a web dashboard, while staying honest about Windows and Linux support realities
+- final cross-window polish and runtime-state verification so the calmer macOS-utility direction stays consistent across every settings and overlay state on Windows and Linux too
 - guided setup, permissions and packaging that get users from install to first useful dictation without having to reverse-engineer diagnostics output
 
 ## Planning references
 
-- benchmark and donor matrix: [docs/BENCHMARK_MATRIX.md](docs/BENCHMARK_MATRIX.md)
+- benchmark and donor matrix: [docs/BENCHMARK_MATRIX.md](docs/BENCHMARK_MATRIX.md) for dictation donors plus the expanded macOS-native UI/UX donor lanes
 - product direction and staging: [docs/VISION.md](docs/VISION.md)
 - active system ownership: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 

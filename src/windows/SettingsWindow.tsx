@@ -223,9 +223,15 @@ export default function SettingsWindow() {
       <div className="settings__shell">
         <aside className="settings__sidebar">
           <div className="settings__brand">
+            <span className="settings__brand-kicker">WordScript utility</span>
             <img className="settings__brand-mark" src={wordmark} alt="WordScript" />
+            <p className="settings__brand-copy">
+              Local-first dictation settings for provider, capture, profiles and recovery.
+            </p>
             <span>v{APP_VERSION}</span>
           </div>
+
+          <span className="settings__sidebar-label">Workspace</span>
 
           <nav className="settings__nav" aria-label="Settings sections">
             {TABS.map((tab) => (
@@ -275,8 +281,20 @@ export default function SettingsWindow() {
           <div className="settings__body">
             <section className="settings__panel">
             <header className="settings__panel-header">
-              <span className="settings__panel-eyebrow">{activeTab.eyebrow}</span>
-              <h2 className="settings__panel-title">{activeTab.label}</h2>
+              <div className="settings__panel-heading">
+                <span className="settings__panel-eyebrow">{activeTab.eyebrow}</span>
+                <div className="settings__panel-title-row">
+                  <h2 className="settings__panel-title">{activeTab.label}</h2>
+                  <div className="settings__panel-meta" aria-label="Section meta">
+                    <span className={`settings__panel-chip${readiness.ok ? " settings__panel-chip--ok" : ""}`}>
+                      {readiness.label}
+                    </span>
+                    <span className="settings__panel-chip settings__panel-chip--muted">
+                      Local save window
+                    </span>
+                  </div>
+                </div>
+              </div>
               <p className="settings__panel-blurb">{activeTab.blurb}</p>
             </header>
 
