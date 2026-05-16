@@ -92,6 +92,7 @@ Die native Plattformdiagnostik kommt aus `core::insertion` und wird sichtbar in 
 - Capture-Dateien werden fuer Groq auf 16 kHz Mono-WAV normalisiert
 - der Runtime-Pfad nutzt ein kurzes interaktives Timeout von `18_000` bis `35_000` Millisekunden
 - die aktive Transkriptionsanfrage laeuft ohne Retry-Kette (`max_retries = 0`)
+- async Provider-, Transform- und Insert-Ergebnisse werden an die aktive `processing`-Session-ID gebunden; stale Ergebnisse nach Abort, neuer Aufnahme oder bereits finalisierter Session werden verworfen und nur im Runtime-Log notiert
 
 Relevante externe Groq-Grenze fuer den Produktpfad:
 

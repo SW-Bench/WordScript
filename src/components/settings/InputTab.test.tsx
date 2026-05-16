@@ -120,11 +120,11 @@ describe("InputTab", () => {
     expect(screen.getByText(/next capture will use built-in microphone/i)).toBeInTheDocument();
     expect(screen.getByText(/current driver: wl-copy/i)).toBeInTheDocument();
     expect(screen.getAllByText(/wl-copy -> wtype/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/scratchpad recovery is separate from the diagnostics preview transcript/i)).toBeInTheDocument();
+    expect(screen.getByText(/use recovery when direct insert failed/i)).toBeInTheDocument();
     expect(screen.getByText(/last recoverable transcript/i)).toBeInTheDocument();
     expect(screen.getByText(/^recovery scratchpad$/i)).toBeInTheDocument();
     expect(screen.getByText(/wtype missing in path/i)).toBeInTheDocument();
-    expect(screen.getByText(/wordscript-scratchpad\.json/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/wordscript-scratchpad\.json/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /restore recoverable transcript/i })).toBeEnabled();
     expect(screen.queryByText("Linux Wayland")).not.toBeInTheDocument();
   });

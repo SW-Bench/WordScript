@@ -12,9 +12,7 @@ use tauri_plugin_global_shortcut::{
 
 use super::capture::NativeCaptureState;
 use super::config::AppConfig;
-use super::sessions::{
-    NativeSessionStage, NativeSessionState,
-};
+use super::sessions::{NativeSessionStage, NativeSessionState};
 
 const DEFAULT_DEBOUNCE_MS: u64 = 300;
 const DEFAULT_HOLD_MIN_MS: u64 = 300;
@@ -108,7 +106,7 @@ struct RegisteredShortcutBinding {
 #[derive(Debug, Clone)]
 pub enum TriggerEffect {
     StartCapture,
-    StopCapture,
+    StopCapture { session_id: String },
     TogglePause,
     AbortCapture,
     DeferredStop { hold_session: u64, delay_ms: u64 },
@@ -554,7 +552,9 @@ fn stop_session<R: Runtime>(
         capture_is_recording,
         "native_capture_recovery",
     ) {
-        Ok(_) => Some(TriggerEffect::StopCapture),
+        Ok(status) => status
+            .active_session_id
+            .map(|session_id| TriggerEffect::StopCapture { session_id }),
         Err(error) => {
             super::sessions::fail_from_native_error(app, &error);
             None

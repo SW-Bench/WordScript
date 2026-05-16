@@ -90,6 +90,25 @@ impl NativeSessionState {
         }
     }
 
+    pub fn processing_session_id(&self) -> Option<String> {
+        if !matches!(self.stage, NativeSessionStage::Processing) {
+            return None;
+        }
+
+        self.active_session
+            .as_ref()
+            .map(|session| session.id.clone())
+    }
+
+    pub fn is_processing_session_current(&self, session_id: &str) -> bool {
+        matches!(self.stage, NativeSessionStage::Processing)
+            && self
+                .active_session
+                .as_ref()
+                .map(|session| session.id == session_id)
+                .unwrap_or(false)
+    }
+
     pub fn start_capture(
         &mut self,
         trigger: impl Into<String>,
@@ -170,6 +189,30 @@ impl NativeSessionState {
         self.status()
     }
 
+    pub fn complete_current_transcription(
+        &mut self,
+        text: impl Into<String>,
+    ) -> Result<NativeSessionStatus, String> {
+        let Some(session_id) = self.processing_session_id() else {
+            return Err("No native session is waiting for transcription completion.".to_string());
+        };
+
+        self.complete_processing_session(&session_id, text)
+            .ok_or_else(|| "No native session is waiting for transcription completion.".to_string())
+    }
+
+    pub fn complete_processing_session(
+        &mut self,
+        session_id: &str,
+        text: impl Into<String>,
+    ) -> Option<NativeSessionStatus> {
+        if !self.is_processing_session_current(session_id) {
+            return None;
+        }
+
+        Some(self.complete_transcription(text))
+    }
+
     pub fn abort(&mut self, reason: impl Into<String>) -> NativeSessionStatus {
         self.stage = NativeSessionStage::Aborted;
         self.active_session = None;
@@ -178,12 +221,36 @@ impl NativeSessionState {
         self.status()
     }
 
+    pub fn empty_processing_session(
+        &mut self,
+        session_id: &str,
+        reason: impl Into<String>,
+    ) -> Option<NativeSessionStatus> {
+        if !self.is_processing_session_current(session_id) {
+            return None;
+        }
+
+        Some(self.abort(reason))
+    }
+
     pub fn fail(&mut self, message: impl Into<String>) -> NativeSessionStatus {
         self.stage = NativeSessionStage::Error;
         self.active_session = None;
         self.completed_at_ms = Some(now_ms());
         self.last_error = Some(message.into());
         self.status()
+    }
+
+    pub fn fail_processing_session(
+        &mut self,
+        session_id: &str,
+        message: impl Into<String>,
+    ) -> Option<NativeSessionStatus> {
+        if !self.is_processing_session_current(session_id) {
+            return None;
+        }
+
+        Some(self.fail(message))
     }
 }
 
@@ -227,7 +294,7 @@ pub fn complete_native_session(
     state: State<'_, Mutex<NativeSessionState>>,
 ) -> Result<NativeSessionStatus, String> {
     let mut state = state.lock().map_err(|error| error.to_string())?;
-    let status = state.complete_transcription(request.text);
+    let status = state.complete_current_transcription(request.text)?;
     emit_session_event(
         &app,
         if request.corrected.unwrap_or(false) {
@@ -240,21 +307,30 @@ pub fn complete_native_session(
     Ok(status)
 }
 
-pub fn complete_from_transcription<R: Runtime>(app: &AppHandle<R>, text: &str, corrected: bool) {
-    if let Some(state) = app.try_state::<Mutex<NativeSessionState>>() {
-        if let Ok(mut state) = state.lock() {
-            let status = state.complete_transcription(text.to_string());
-            emit_session_event(
-                app,
-                if corrected {
-                    "transcription_corrected"
-                } else {
-                    "transcription"
-                },
-                &status,
-            );
-        }
-    }
+pub fn complete_processing_session_from_transcription<R: Runtime>(
+    app: &AppHandle<R>,
+    session_id: &str,
+    text: &str,
+    corrected: bool,
+) -> Result<bool, String> {
+    let state = app
+        .try_state::<Mutex<NativeSessionState>>()
+        .ok_or_else(|| "Native session state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    let Some(status) = state.complete_processing_session(session_id, text.to_string()) else {
+        return Ok(false);
+    };
+
+    emit_session_event(
+        app,
+        if corrected {
+            "transcription_corrected"
+        } else {
+            "transcription"
+        },
+        &status,
+    );
+    Ok(true)
 }
 
 pub fn start_from_native<R: Runtime>(
@@ -277,6 +353,22 @@ pub fn fail_from_native_error<R: Runtime>(app: &AppHandle<R>, message: &str) {
             emit_session_event(app, "error", &status);
         }
     }
+}
+
+pub fn fail_processing_session_from_native_error<R: Runtime>(
+    app: &AppHandle<R>,
+    session_id: &str,
+    message: &str,
+) -> Result<bool, String> {
+    let state = app
+        .try_state::<Mutex<NativeSessionState>>()
+        .ok_or_else(|| "Native session state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    let Some(status) = state.fail_processing_session(session_id, message.to_string()) else {
+        return Ok(false);
+    };
+    emit_session_event(app, "error", &status);
+    Ok(true)
 }
 
 pub fn processing_from_native<R: Runtime>(
@@ -314,13 +406,36 @@ pub fn abort_from_native<R: Runtime>(
     Ok(status)
 }
 
-pub fn empty_from_native<R: Runtime>(app: &AppHandle<R>, message: &str) {
-    if let Some(state) = app.try_state::<Mutex<NativeSessionState>>() {
-        if let Ok(mut state) = state.lock() {
-            let status = state.abort(message.to_string());
-            emit_session_event(app, "empty", &status);
-        }
-    }
+pub fn empty_processing_session_from_native<R: Runtime>(
+    app: &AppHandle<R>,
+    session_id: &str,
+    message: &str,
+) -> Result<bool, String> {
+    let state = app
+        .try_state::<Mutex<NativeSessionState>>()
+        .ok_or_else(|| "Native session state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    let Some(status) = state.empty_processing_session(session_id, message.to_string()) else {
+        return Ok(false);
+    };
+    emit_session_event(app, "empty", &status);
+    Ok(true)
+}
+
+pub fn current_processing_session_id<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    let state = app.try_state::<Mutex<NativeSessionState>>()?;
+    let state = state.lock().ok()?;
+    state.processing_session_id()
+}
+
+pub fn is_processing_session_current<R: Runtime>(app: &AppHandle<R>, session_id: &str) -> bool {
+    let Some(state) = app.try_state::<Mutex<NativeSessionState>>() else {
+        return false;
+    };
+    state
+        .lock()
+        .map(|state| state.is_processing_session_current(session_id))
+        .unwrap_or(false)
 }
 
 pub fn emit_session_event<R: Runtime>(
@@ -361,6 +476,73 @@ mod tests {
         assert_eq!(completed.stage, NativeSessionStage::Completed);
         assert_eq!(completed.last_transcript.as_deref(), Some("Hello world."));
         assert!(completed.active_session_id.is_none());
+    }
+
+    #[test]
+    fn guarded_completion_requires_matching_processing_session() {
+        let mut state = NativeSessionState::default();
+        let started = state.start_capture("hotkey").unwrap();
+        let session_id = started.active_session_id.unwrap();
+
+        assert!(state
+            .complete_processing_session(&session_id, "too early")
+            .is_none());
+
+        state.stop_for_processing().unwrap();
+        let completed = state
+            .complete_processing_session(&session_id, "Hello world.")
+            .unwrap();
+
+        assert_eq!(completed.stage, NativeSessionStage::Completed);
+        assert_eq!(completed.last_transcript.as_deref(), Some("Hello world."));
+        assert!(state
+            .complete_processing_session(&session_id, "second result")
+            .is_none());
+    }
+
+    #[test]
+    fn stale_processing_completion_does_not_overwrite_new_session() {
+        let mut state = NativeSessionState::default();
+        let first = state.start_capture("first_hotkey").unwrap();
+        let first_session_id = first.active_session_id.unwrap();
+        state.stop_for_processing().unwrap();
+        state.abort("user cancelled");
+
+        let second = state.start_capture("second_hotkey").unwrap();
+        let second_session_id = second.active_session_id.clone().unwrap();
+
+        assert!(state
+            .complete_processing_session(&first_session_id, "old transcript")
+            .is_none());
+
+        let status = state.status();
+        assert_eq!(status.stage, NativeSessionStage::Capturing);
+        assert_eq!(
+            status.active_session_id.as_deref(),
+            Some(second_session_id.as_str())
+        );
+        assert_eq!(status.active_trigger.as_deref(), Some("second_hotkey"));
+        assert!(status.last_transcript.is_none());
+    }
+
+    #[test]
+    fn stale_processing_failure_does_not_overwrite_completed_session() {
+        let mut state = NativeSessionState::default();
+        let started = state.start_capture("hotkey").unwrap();
+        let session_id = started.active_session_id.unwrap();
+        state.stop_for_processing().unwrap();
+        state
+            .complete_processing_session(&session_id, "fresh transcript")
+            .unwrap();
+
+        assert!(state
+            .fail_processing_session(&session_id, "late provider error")
+            .is_none());
+
+        let status = state.status();
+        assert_eq!(status.stage, NativeSessionStage::Completed);
+        assert_eq!(status.last_transcript.as_deref(), Some("fresh transcript"));
+        assert!(status.last_error.is_none());
     }
 
     #[test]

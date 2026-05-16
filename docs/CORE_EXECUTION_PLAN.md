@@ -102,6 +102,8 @@ Den aktiven Trigger-/Capture-/Processing-Pfad in WordScript expliziter serialisi
 - Stop waehrend `processing` fuehrt nicht zu driftendem State
 - Abort setzt Stage, Overlay und Recovery konsistent zurueck
 
+Status: erster Haertungspass umgesetzt. StopCapture traegt jetzt die aktive Session-ID in die async Pipeline, und Completion, Empty, Provider-Fehler sowie Insert-Fehler werden nur angewendet, wenn diese ID noch zur aktiven `processing`-Session passt. Szenario-Tests decken zu fruehe Completion, stale Completion nach Abort/neuer Session und stale Failure nach Completion ab.
+
 ## Slice 2 - Provider-Vertrag verallgemeinern
 
 ### Ziel

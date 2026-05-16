@@ -43,6 +43,7 @@ Das Overlay ist ein Statusinstrument. Es zeigt:
 - Fehler oder Recovery-Bedarf
 
 Es darf keine eigenen Schaetzungen ueber Audio oder Sessionzustand erfinden. Waveform, Mute und Aufnahmezustand kommen aus nativen Events.
+Spaete Runtime-Ergebnisse, die nicht mehr zur aktiven `processing`-Session gehoeren, duerfen im Overlay keinen neuen Erfolgs- oder Fehlerzustand erzeugen; die UI folgt nur dem guardierten nativen Sessionstatus.
 
 Die naechste geplante Overlay-Ausbaustufe ist ein Live-Preview-/Controlled-Commit-Pfad mit `raw transcript`, bereinigtem Text, aktivem Arbeitsmodus und schnellen Aktionen fuer `insert`, `retry`, `scratchpad` und `restore`. Solange dieser Pfad nicht real gebaut ist, darf die UI ihn nicht andeuten oder simulieren.
 

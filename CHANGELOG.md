@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - product scope and wording now consistently describe WordScript as a dictation-first desktop app on `0.2.2-alpha`
 - future planning docs now describe sync as an optional WordScript-owned local-first layer instead of leaving peer-to-peer or external hub ownership ambiguous
 - native session transitions now run through shared session helpers, so trigger, commands and pipeline completion no longer finalize the same lifecycle edges independently
+- native pipeline completion, empty results and provider/insert failures are now guarded by the active processing session id, so stale async results after aborts or newer captures are ignored instead of overwriting runtime state
 - provider status, credential and transcription dispatch now run through shared provider commands and types, while Groq remains the only wired production provider
 - provider selection now exposes a second `local_preview` lane that uses an external `whisper-cli` runner and local ggml models without changing the capture, transform, insertion or recovery pipeline shape
 - `local_preview` now strips timestamped `whisper-cli` segment output more cleanly and resolves common model variants from model directories instead of only exact `ggml-<model>.bin` names

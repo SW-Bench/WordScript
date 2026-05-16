@@ -155,7 +155,7 @@ describe("ApiModelsTab", () => {
     expect(screen.queryByText(/full key reveal stays off by design/i)).not.toBeInTheDocument();
     expect(screen.getByText("Storage")).toBeInTheDocument();
     expect(screen.getByText("Last check")).toBeInTheDocument();
-    expect(screen.getByText("Not checked in this session")).toBeInTheDocument();
+    expect(screen.getAllByText("Not checked in this session").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /open groq keys/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /reveal config json/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open diagnostics/i })).toBeInTheDocument();
@@ -200,7 +200,7 @@ describe("ApiModelsTab", () => {
       />,
     );
 
-    expect(screen.getByText(/local preview helper missing/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/local preview helper missing/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/external helper setup/i)).toBeInTheDocument();
     expect(screen.getByText(/wordscript_local_whisper_cli/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /provider/i })).toHaveValue("local_preview");

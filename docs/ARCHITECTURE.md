@@ -122,7 +122,7 @@ Der aktive Fluss sieht so aus:
 6. `transform.rs` prueft und bereinigt den Transkriptionsoutput und nutzt denselben Provider-Vertrag fuer AI cleanup.
 7. `insertion.rs` waehlt den Insert-Modus und fuehrt ihn aus.
 8. `history.rs` schreibt raw vs transformed transcript, aktives Textprofil, Insert-Outcome und Fehler in den nativen Verlauf.
-9. `sessions.rs` finalisiert danach genau einmal `completed`, `aborted` oder `error`.
+9. `sessions.rs` finalisiert danach genau einmal `completed`, `aborted` oder `error` und akzeptiert async Pipeline-Ergebnisse nur fuer die aktive `processing`-Session-ID.
 10. UI bekommt Status, letztes Transkript, History und moegliche Recovery-Daten zurueck.
 
 ## Session-State-Machine
@@ -138,6 +138,8 @@ idle -> capturing -> processing -> completed
 ```
 
 `paused` ist kein eigener Stage-Name, sondern ein Capture-Zustand innerhalb von `capturing`.
+
+Provider-, Transform- und Insert-Ergebnisse laufen nach dem Capture-Ende asynchron weiter, duerfen aber den Runtime-Zustand nur veraendern, solange ihre Session-ID noch zur aktiven `processing`-Session passt. Spaete Ergebnisse nach Abort, neuer Aufnahme oder bereits finalisierter Session werden im Runtime-Log als stale markiert und nicht mehr an Overlay oder Settings ausgespielt.
 
 ## Transform-Reihenfolge
 

@@ -34,6 +34,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 
 - native start/stop, pause/resume and abort hotkeys
 - native microphone capture with waveform, silence timeout and max-duration stop
+- guarded native session finalization, so late provider, transform or insertion results cannot overwrite the current runtime state after aborts or newer captures
 - Groq BYOK transcription with OS secret-store storage
 - first generic provider contract in Rust and Tauri, with Groq as the cloud-first production lane and `local_preview` as an external-helper STT preview lane
 - transform pipeline with hallucination guardrails, optional AI cleanup, local text profiles, curated starter templates, dictionary and snippets

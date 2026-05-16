@@ -98,6 +98,8 @@ Die folgenden Themen gehoeren in Rust, nicht in React:
 
 React darf diese Dinge anzeigen, konfigurieren und diagnostisch erklaeren, aber nicht semantisch neu erfinden.
 
+Async Runtime-Ergebnisse aus Provider, Transform und Insert muessen ueber die aktive `processing`-Session-ID guardiert werden. Ein spaeter Provider- oder Insert-Fehler darf nach Abort, neuer Aufnahme oder bereits finalisierter Session keinen UI-State mehr ueberschreiben.
+
 ### 3. Kleine, pruefbare Slices bauen
 
 Jede groessere Aenderung sollte mindestens eines davon sichtbar schliessen:

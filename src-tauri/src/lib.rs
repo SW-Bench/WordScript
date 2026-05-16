@@ -104,7 +104,7 @@ fn apply_trigger_effect<R: Runtime>(app: &AppHandle<R>, effect: TriggerEffect) {
                 );
             }
         },
-        TriggerEffect::StopCapture => finalize_native_capture_stop(app),
+        TriggerEffect::StopCapture { session_id } => finalize_native_capture_stop(app, session_id),
         TriggerEffect::TogglePause => {
             if let Err(error) = core::capture::toggle_native_capture_pause_for_app(app) {
                 if error != "No native capture is active." {
@@ -150,24 +150,60 @@ fn apply_trigger_effect<R: Runtime>(app: &AppHandle<R>, effect: TriggerEffect) {
     }
 }
 
-fn finalize_native_capture_stop<R: Runtime + 'static>(app: &AppHandle<R>) {
+fn finalize_native_capture_stop<R: Runtime + 'static>(app: &AppHandle<R>, session_id: String) {
     core::sound::play_if_enabled(core::sound::SoundCue::Stop);
     match core::capture::stop_native_capture(app) {
-        Ok(Some(value)) => handle_audio_ready(app.clone(), value),
+        Ok(Some(value)) => handle_audio_ready(app.clone(), value, session_id),
         Ok(None) => {
-            core::sessions::empty_from_native(app, "No speech detected in recording.");
-            let _ = app.emit("wordscript-event", serde_json::json!({ "event": "empty" }));
+            match core::sessions::empty_processing_session_from_native(
+                app,
+                &session_id,
+                "No speech detected in recording.",
+            ) {
+                Ok(true) => {
+                    let _ = app.emit("wordscript-event", serde_json::json!({ "event": "empty" }));
+                }
+                Ok(false) => log_stale_pipeline_result(app, &session_id, "empty_capture"),
+                Err(error) => {
+                    core::sessions::fail_from_native_error(app, &error);
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "error",
+                            "message": error
+                        }),
+                    );
+                }
+            }
         }
         Err(error) => {
             core::sound::play_if_enabled(core::sound::SoundCue::Error);
-            core::sessions::fail_from_native_error(app, &error);
-            let _ = app.emit(
-                "wordscript-event",
-                serde_json::json!({
-                    "event": "error",
-                    "message": error
-                }),
-            );
+            match core::sessions::fail_processing_session_from_native_error(
+                app,
+                &session_id,
+                &error,
+            ) {
+                Ok(true) => {
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "error",
+                            "message": error
+                        }),
+                    );
+                }
+                Ok(false) => log_stale_pipeline_result(app, &session_id, "capture_stop_error"),
+                Err(gate_error) => {
+                    core::sessions::fail_from_native_error(app, &gate_error);
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "error",
+                            "message": gate_error
+                        }),
+                    );
+                }
+            }
         }
     }
 }
@@ -181,12 +217,22 @@ fn spawn_native_capture_monitor<R: Runtime + 'static>(app: AppHandle<R>, capture
                 Ok(core::capture::NativeCaptureMonitorState::Continue) => continue,
                 Ok(core::capture::NativeCaptureMonitorState::Finished) => return,
                 Ok(core::capture::NativeCaptureMonitorState::Stop(reason)) => {
-                    if let Err(error) = core::sessions::processing_from_native(&app) {
-                        core::runtime_log::record(format!(
-                            "[WordScript] Could not move native capture to processing during autostop: {error}"
-                        ));
+                    let status = match core::sessions::processing_from_native(&app) {
+                        Ok(status) => status,
+                        Err(error) => {
+                            core::runtime_log::record(format!(
+                                "[WordScript] Could not move native capture to processing during autostop: {error}"
+                            ));
+                            return;
+                        }
+                    };
+                    let Some(session_id) = status.active_session_id else {
+                        core::runtime_log::record(
+                            "[WordScript] Autostop entered processing without an active session id"
+                                .to_string(),
+                        );
                         return;
-                    }
+                    };
                     let _ = app.emit(
                         "wordscript-event",
                         serde_json::json!({
@@ -194,7 +240,7 @@ fn spawn_native_capture_monitor<R: Runtime + 'static>(app: AppHandle<R>, capture
                             "reason": reason.message(),
                         }),
                     );
-                    finalize_native_capture_stop(&app);
+                    finalize_native_capture_stop(&app, session_id);
                     return;
                 }
                 Err(error) => {
@@ -214,22 +260,42 @@ fn spawn_native_capture_monitor<R: Runtime + 'static>(app: AppHandle<R>, capture
     });
 }
 
-fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json::Value) {
+fn handle_audio_ready<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    value: serde_json::Value,
+    session_id: String,
+) {
     let pipeline_started_at = std::time::Instant::now();
     let audio_path = match value.get("audio_path").and_then(|path| path.as_str()) {
         Some(path) if !path.trim().is_empty() => path.trim().to_string(),
         _ => {
-            core::sessions::fail_from_native_error(
+            let message = "Capture pipeline did not provide an audio path.";
+            match core::sessions::fail_processing_session_from_native_error(
                 &app,
-                "Capture pipeline did not provide an audio path.",
-            );
-            let _ = app.emit(
-                "wordscript-event",
-                serde_json::json!({
-                    "event": "error",
-                    "message": "Capture pipeline did not provide an audio path."
-                }),
-            );
+                &session_id,
+                message,
+            ) {
+                Ok(true) => {
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "error",
+                            "message": message
+                        }),
+                    );
+                }
+                Ok(false) => log_stale_pipeline_result(&app, &session_id, "missing_audio_path"),
+                Err(error) => {
+                    core::sessions::fail_from_native_error(&app, &error);
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "error",
+                            "message": error
+                        }),
+                    );
+                }
+            }
             return;
         }
     };
@@ -264,7 +330,8 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
         .and_then(|duration| duration.as_f64());
 
     core::runtime_log::record(format!(
-        "[WordScript] Native pipeline start audio_path={} audio_duration_seconds={:?} transcription_timeout_ms={} post_process={}",
+        "[WordScript] Native pipeline start session_id={} audio_path={} audio_duration_seconds={:?} transcription_timeout_ms={} post_process={}",
+        session_id,
         audio_path,
         audio_duration_seconds,
         transcription_timeout_ms,
@@ -273,11 +340,21 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
 
     tauri::async_runtime::spawn(async move {
         let cleanup_path = audio_path.clone();
+        if !processing_session_still_current(&app, &session_id, "pipeline_start") {
+            let _ = tokio::fs::remove_file(cleanup_path).await;
+            return;
+        }
+
         let pipeline_app_config = core::config::AppConfig::load_from_disk();
         let transcription = core::providers::transcribe_audio_file(request).await;
 
         match transcription {
             Ok(response) => {
+                if !processing_session_still_current(&app, &session_id, "transcription_ready") {
+                    let _ = tokio::fs::remove_file(cleanup_path).await;
+                    return;
+                }
+
                 core::runtime_log::record(format!(
                     "[WordScript] Native pipeline transcription ready elapsed_ms={} text_len={} provider_duration={:?}",
                     pipeline_started_at.elapsed().as_millis(),
@@ -301,6 +378,11 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                     transformed.applied_rules.join(","),
                 ));
 
+                if !processing_session_still_current(&app, &session_id, "transform_done") {
+                    let _ = tokio::fs::remove_file(cleanup_path).await;
+                    return;
+                }
+
                 let text = transformed.text.trim().to_string();
                 if text.is_empty() {
                     let _ = core::history::record_empty_result(
@@ -312,15 +394,47 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                         "[WordScript] Native pipeline empty result elapsed_ms={}",
                         pipeline_started_at.elapsed().as_millis(),
                     ));
-                    core::sessions::empty_from_native(&app, "No speech detected in recording.");
-                    let _ = app.emit("wordscript-event", serde_json::json!({ "event": "empty" }));
+                    match core::sessions::empty_processing_session_from_native(
+                        &app,
+                        &session_id,
+                        "No speech detected in recording.",
+                    ) {
+                        Ok(true) => {
+                            let _ = app
+                                .emit("wordscript-event", serde_json::json!({ "event": "empty" }));
+                        }
+                        Ok(false) => {
+                            log_stale_pipeline_result(&app, &session_id, "empty_transform")
+                        }
+                        Err(error) => {
+                            core::sessions::fail_from_native_error(&app, &error);
+                            let _ = app.emit(
+                                "wordscript-event",
+                                serde_json::json!({
+                                    "event": "error",
+                                    "message": error
+                                }),
+                            );
+                        }
+                    }
                 } else {
+                    if !processing_session_still_current(&app, &session_id, "before_insertion") {
+                        let _ = tokio::fs::remove_file(cleanup_path).await;
+                        return;
+                    }
+
                     match core::insertion::insert_transcription_from_legacy(
                         &app,
                         &text,
                         transformed.corrected,
                     ) {
                         Ok(result) if result.ok => {
+                            if !processing_session_still_current(&app, &session_id, "insertion_ok")
+                            {
+                                let _ = tokio::fs::remove_file(cleanup_path).await;
+                                return;
+                            }
+
                             let _ = core::history::history_entry_from_insert_result(
                                 &app_config,
                                 None,
@@ -328,34 +442,63 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                                 transformed.clone(),
                                 &result,
                             );
-                            core::sessions::complete_from_transcription(
-                                &app,
-                                &text,
-                                transformed.corrected,
-                            );
-                            core::runtime_log::record(format!(
-                                "[WordScript] Native pipeline insertion done elapsed_ms={} insert_mode={:?} pasted={} fallback_available={}",
-                                pipeline_started_at.elapsed().as_millis(),
-                                result.insert_mode,
-                                result.pasted,
-                                result.fallback_available,
-                            ));
-                            let _ = app.emit(
-                                "wordscript-event",
-                                serde_json::json!({
-                                    "event": "transcription",
-                                    "text": text,
-                                    "corrected": transformed.corrected,
-                                    "provider": provider,
-                                    "transform": {
-                                        "applied_rules": transformed.applied_rules,
-                                        "warning": transformed.warning,
-                                    },
-                                    "insertion": result
-                                }),
-                            );
+                            let completion_applied =
+                                core::sessions::complete_processing_session_from_transcription(
+                                    &app,
+                                    &session_id,
+                                    &text,
+                                    transformed.corrected,
+                                );
+                            match completion_applied {
+                                Ok(true) => {
+                                    core::runtime_log::record(format!(
+                                        "[WordScript] Native pipeline insertion done session_id={} elapsed_ms={} insert_mode={:?} pasted={} fallback_available={}",
+                                        session_id,
+                                        pipeline_started_at.elapsed().as_millis(),
+                                        result.insert_mode,
+                                        result.pasted,
+                                        result.fallback_available,
+                                    ));
+                                    let _ = app.emit(
+                                        "wordscript-event",
+                                        serde_json::json!({
+                                            "event": "transcription",
+                                            "text": text,
+                                            "corrected": transformed.corrected,
+                                            "provider": provider,
+                                            "transform": {
+                                                "applied_rules": transformed.applied_rules,
+                                                "warning": transformed.warning,
+                                            },
+                                            "insertion": result
+                                        }),
+                                    );
+                                }
+                                Ok(false) => {
+                                    log_stale_pipeline_result(&app, &session_id, "completion")
+                                }
+                                Err(error) => {
+                                    core::sessions::fail_from_native_error(&app, &error);
+                                    let _ = app.emit(
+                                        "wordscript-event",
+                                        serde_json::json!({
+                                            "event": "error",
+                                            "message": error
+                                        }),
+                                    );
+                                }
+                            }
                         }
                         Ok(result) => {
+                            if !processing_session_still_current(
+                                &app,
+                                &session_id,
+                                "insertion_failed",
+                            ) {
+                                let _ = tokio::fs::remove_file(cleanup_path).await;
+                                return;
+                            }
+
                             let _ = core::history::history_entry_from_insert_result(
                                 &app_config,
                                 None,
@@ -368,40 +511,77 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                                 .clone()
                                 .unwrap_or_else(|| "Native insertion failed.".to_string());
                             core::runtime_log::record(format!(
-                                "[WordScript] Native pipeline insertion reported failure elapsed_ms={} insert_mode={:?} pasted={} fallback_available={} error={}",
+                                "[WordScript] Native pipeline insertion reported failure session_id={} elapsed_ms={} insert_mode={:?} pasted={} fallback_available={} error={}",
+                                session_id,
                                 pipeline_started_at.elapsed().as_millis(),
                                 result.insert_mode,
                                 result.pasted,
                                 result.fallback_available,
                                 error,
                             ));
-                            core::sessions::fail_from_native_error(&app, &error);
-                            let _ = app.emit(
-                                "wordscript-event",
-                                serde_json::json!({
-                                    "event": "error",
-                                    "message": format!("Native insertion failed: {error}"),
-                                    "provider": provider,
-                                    "transform": {
-                                        "applied_rules": transformed.applied_rules,
-                                        "warning": transformed.warning,
-                                    },
-                                    "insertion": result
-                                }),
-                            );
+                            match core::sessions::fail_processing_session_from_native_error(
+                                &app,
+                                &session_id,
+                                &error,
+                            ) {
+                                Ok(true) => {
+                                    let _ = app.emit(
+                                        "wordscript-event",
+                                        serde_json::json!({
+                                            "event": "error",
+                                            "message": format!("Native insertion failed: {error}"),
+                                            "provider": provider,
+                                            "transform": {
+                                                "applied_rules": transformed.applied_rules,
+                                                "warning": transformed.warning,
+                                            },
+                                            "insertion": result
+                                        }),
+                                    );
+                                }
+                                Ok(false) => log_stale_pipeline_result(
+                                    &app,
+                                    &session_id,
+                                    "insertion_failure",
+                                ),
+                                Err(gate_error) => {
+                                    core::sessions::fail_from_native_error(&app, &gate_error);
+                                    let _ = app.emit(
+                                        "wordscript-event",
+                                        serde_json::json!({
+                                            "event": "error",
+                                            "message": gate_error
+                                        }),
+                                    );
+                                }
+                            }
                         }
                         Err(error) => {
+                            if !processing_session_still_current(
+                                &app,
+                                &session_id,
+                                "insertion_error",
+                            ) {
+                                let _ = tokio::fs::remove_file(cleanup_path).await;
+                                return;
+                            }
+
                             let _ = core::history::record_entry(
                                 core::history::RecordHistoryEntryRequest {
                                     status: core::history::TranscriptionHistoryStatus::Failed,
-                                    source: core::history::TranscriptionHistorySource::NativePipeline,
+                                    source:
+                                        core::history::TranscriptionHistorySource::NativePipeline,
                                     retry_of: None,
                                     provider: app_config.provider.clone(),
-                                    model: Some(if app_config.provider == core::providers::LOCAL_PREVIEW_PROVIDER_ID {
-                                        app_config.local_model.clone()
-                                    } else {
-                                        app_config.model.clone()
-                                    }),
+                                    model: Some(
+                                        if app_config.provider
+                                            == core::providers::LOCAL_PREVIEW_PROVIDER_ID
+                                        {
+                                            app_config.local_model.clone()
+                                        } else {
+                                            app_config.model.clone()
+                                        },
+                                    ),
                                     language: if app_config.language.trim().is_empty() {
                                         None
                                     } else {
@@ -422,23 +602,49 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                                 },
                             );
                             core::runtime_log::record(format!(
-                                "[WordScript] Native pipeline insertion failed elapsed_ms={} error={}",
+                                "[WordScript] Native pipeline insertion failed session_id={} elapsed_ms={} error={}",
+                                session_id,
                                 pipeline_started_at.elapsed().as_millis(),
                                 error,
                             ));
-                            core::sessions::fail_from_native_error(&app, &error);
-                            let _ = app.emit(
-                                "wordscript-event",
-                                serde_json::json!({
-                                    "event": "error",
-                                    "message": format!("Native insertion failed: {error}")
-                                }),
-                            );
+                            match core::sessions::fail_processing_session_from_native_error(
+                                &app,
+                                &session_id,
+                                &error,
+                            ) {
+                                Ok(true) => {
+                                    let _ = app.emit(
+                                        "wordscript-event",
+                                        serde_json::json!({
+                                            "event": "error",
+                                            "message": format!("Native insertion failed: {error}")
+                                        }),
+                                    );
+                                }
+                                Ok(false) => {
+                                    log_stale_pipeline_result(&app, &session_id, "insert_error")
+                                }
+                                Err(gate_error) => {
+                                    core::sessions::fail_from_native_error(&app, &gate_error);
+                                    let _ = app.emit(
+                                        "wordscript-event",
+                                        serde_json::json!({
+                                            "event": "error",
+                                            "message": gate_error
+                                        }),
+                                    );
+                                }
+                            }
                         }
                     }
                 }
             }
             Err(error) => {
+                if !processing_session_still_current(&app, &session_id, "transcription_error") {
+                    let _ = tokio::fs::remove_file(cleanup_path).await;
+                    return;
+                }
+
                 let _ = core::history::record_transcription_failure(
                     &pipeline_app_config,
                     &provider,
@@ -447,28 +653,71 @@ fn handle_audio_ready<R: Runtime + 'static>(app: AppHandle<R>, value: serde_json
                     error.message.clone(),
                 );
                 core::runtime_log::record(format!(
-                    "[WordScript] Native pipeline transcription failed elapsed_ms={} kind={:?} message={}",
+                    "[WordScript] Native pipeline transcription failed session_id={} elapsed_ms={} kind={:?} message={}",
+                    session_id,
                     pipeline_started_at.elapsed().as_millis(),
                     error.kind,
                     error.message,
                 ));
                 core::sound::play_if_enabled(core::sound::SoundCue::Error);
-                core::sessions::fail_from_native_error(&app, &error.message);
-                let _ = app.emit(
-                    "wordscript-event",
-                    serde_json::json!({
-                        "event": "error",
-                        "message": error.message,
-                        "kind": error.kind,
-                        "status": error.status,
-                        "retry_after_seconds": error.retry_after_seconds
-                    }),
-                );
+                match core::sessions::fail_processing_session_from_native_error(
+                    &app,
+                    &session_id,
+                    &error.message,
+                ) {
+                    Ok(true) => {
+                        let _ = app.emit(
+                            "wordscript-event",
+                            serde_json::json!({
+                                "event": "error",
+                                "message": error.message,
+                                "kind": error.kind,
+                                "status": error.status,
+                                "retry_after_seconds": error.retry_after_seconds
+                            }),
+                        );
+                    }
+                    Ok(false) => {
+                        log_stale_pipeline_result(&app, &session_id, "transcription_failure")
+                    }
+                    Err(gate_error) => {
+                        core::sessions::fail_from_native_error(&app, &gate_error);
+                        let _ = app.emit(
+                            "wordscript-event",
+                            serde_json::json!({
+                                "event": "error",
+                                "message": gate_error
+                            }),
+                        );
+                    }
+                }
             }
         }
 
         let _ = tokio::fs::remove_file(cleanup_path).await;
     });
+}
+
+fn processing_session_still_current<R: Runtime>(
+    app: &AppHandle<R>,
+    session_id: &str,
+    checkpoint: &str,
+) -> bool {
+    if core::sessions::is_processing_session_current(app, session_id) {
+        return true;
+    }
+
+    log_stale_pipeline_result(app, session_id, checkpoint);
+    false
+}
+
+fn log_stale_pipeline_result<R: Runtime>(app: &AppHandle<R>, session_id: &str, checkpoint: &str) {
+    let current_session =
+        core::sessions::current_processing_session_id(app).unwrap_or_else(|| "none".to_string());
+    core::runtime_log::record(format!(
+        "[WordScript] Ignored stale native pipeline result session_id={} current_processing_session={} checkpoint={}",
+        session_id, current_session, checkpoint,
+    ));
 }
 
 fn optional_string(value: &serde_json::Value, key: &str) -> Option<String> {
@@ -490,7 +739,9 @@ fn runtime_transcription_timeout_ms(audio_duration_seconds: Option<f64>) -> u64 
         .unwrap_or_default();
 
     MIN_TRANSCRIPTION_TIMEOUT_MS
-        .saturating_add(audio_duration_ms.saturating_mul(TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS) / 1000)
+        .saturating_add(
+            audio_duration_ms.saturating_mul(TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS) / 1000,
+        )
         .clamp(MIN_TRANSCRIPTION_TIMEOUT_MS, MAX_TRANSCRIPTION_TIMEOUT_MS)
 }
 
@@ -515,7 +766,9 @@ async fn open_rebuild_lab_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn app_config_file_path() -> Result<String, String> {
-    Ok(core::paths::config_file_path().to_string_lossy().to_string())
+    Ok(core::paths::config_file_path()
+        .to_string_lossy()
+        .to_string())
 }
 
 // ── App entry ─────────────────────────────────────────────────────────────────
@@ -559,10 +812,12 @@ pub fn run() {
             let title = MenuItem::with_id(app, "title", "WordScript", false, None::<&str>)?;
             let sep1 = PredefinedMenuItem::separator(app)?;
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
-            let diagnostics = MenuItem::with_id(app, "diagnostics", "Diagnostics", true, None::<&str>)?;
+            let diagnostics =
+                MenuItem::with_id(app, "diagnostics", "Diagnostics", true, None::<&str>)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&title, &sep1, &settings, &diagnostics, &sep2, &quit])?;
+            let menu =
+                Menu::with_items(app, &[&title, &sep1, &settings, &diagnostics, &sep2, &quit])?;
 
             let tray_icon = app.default_window_icon().cloned().expect(
                 "No default window icon configured — add an icon to tauri.conf.json bundle.icon",
@@ -675,9 +930,18 @@ mod tests {
 
     #[test]
     fn runtime_transcription_timeout_stays_interactive() {
-        assert_eq!(runtime_transcription_timeout_ms(None), MIN_TRANSCRIPTION_TIMEOUT_MS);
+        assert_eq!(
+            runtime_transcription_timeout_ms(None),
+            MIN_TRANSCRIPTION_TIMEOUT_MS
+        );
         assert_eq!(runtime_transcription_timeout_ms(Some(3.0)), 20_400);
-        assert_eq!(runtime_transcription_timeout_ms(Some(30.0)), MAX_TRANSCRIPTION_TIMEOUT_MS);
-        assert_eq!(runtime_transcription_timeout_ms(Some(90.0)), MAX_TRANSCRIPTION_TIMEOUT_MS);
+        assert_eq!(
+            runtime_transcription_timeout_ms(Some(30.0)),
+            MAX_TRANSCRIPTION_TIMEOUT_MS
+        );
+        assert_eq!(
+            runtime_transcription_timeout_ms(Some(90.0)),
+            MAX_TRANSCRIPTION_TIMEOUT_MS
+        );
     }
 }
