@@ -8,8 +8,8 @@ use tokio::time::timeout;
 use crate::core::runtime_log;
 
 use super::{
-    ChatCompletionRequest, ProviderCommandError, ProviderCredentialStatus,
-    ProviderErrorKind, ProviderProfile, ProviderStatus, TranscribeAudioFileRequest,
+    ChatCompletionRequest, ProviderCapabilities, ProviderCommandError, ProviderCredentialStatus,
+    ProviderErrorKind, ProviderMode, ProviderProfile, ProviderStatus, TranscribeAudioFileRequest,
     TranscriptionResponse, ValidateProviderApiKeyResponse, LOCAL_PREVIEW_PROVIDER_ID,
 };
 
@@ -54,6 +54,7 @@ pub fn provider_status() -> Result<ProviderStatus, ProviderCommandError> {
             key_preview: status_detail,
         },
         profiles: provider_profiles(),
+        capabilities: provider_capabilities(),
     })
 }
 
@@ -74,7 +75,7 @@ pub async fn validate_api_key(
 ) -> Result<ValidateProviderApiKeyResponse, ProviderCommandError> {
     let status = provider_status()?;
     if !status.credential.configured {
-        return Err(ProviderCommandError::invalid_request(
+        return Err(ProviderCommandError::local_setup(
             local_preview_setup_message("base"),
         ));
     }
@@ -91,7 +92,7 @@ pub async fn transcribe_audio_file(
 ) -> Result<TranscriptionResponse, ProviderCommandError> {
     let started_at = Instant::now();
     let binary = resolve_local_whisper_binary().ok_or_else(|| {
-        ProviderCommandError::invalid_request(local_preview_setup_message(
+        ProviderCommandError::local_setup(local_preview_setup_message(
             request.model.as_deref().unwrap_or("base"),
         ))
     })?;
@@ -136,27 +137,31 @@ pub async fn transcribe_audio_file(
 
     let output = timeout(Duration::from_millis(timeout_ms), command.output())
         .await
-        .map_err(|_| ProviderCommandError {
-            kind: ProviderErrorKind::Timeout,
-            message: format!(
+        .map_err(|_| {
+            ProviderCommandError::new(
+                ProviderErrorKind::Timeout,
+                format!(
                 "Local preview transcription timed out after {} ms while waiting for whisper-cli.",
                 timeout_ms,
             ),
-            status: None,
-            retry_after_seconds: None,
+                None,
+                None,
+            )
         })?
-        .map_err(|error| ProviderCommandError {
-            kind: ProviderErrorKind::Io,
-            message: format!("Could not start local preview transcription: {error}"),
-            status: None,
-            retry_after_seconds: None,
+        .map_err(|error| {
+            ProviderCommandError::new(
+                ProviderErrorKind::Io,
+                format!("Could not start local preview transcription: {error}"),
+                None,
+                None,
+            )
         })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(ProviderCommandError {
-            kind: ProviderErrorKind::ProviderStatus,
-            message: if stderr.is_empty() {
+        return Err(ProviderCommandError::new(
+            ProviderErrorKind::ProviderStatus,
+            if stderr.is_empty() {
                 format!(
                     "Local preview transcription failed with status {}.",
                     output.status,
@@ -164,17 +169,17 @@ pub async fn transcribe_audio_file(
             } else {
                 format!("Local preview transcription failed: {stderr}")
             },
-            status: output.status.code().map(|code| code as u16),
-            retry_after_seconds: None,
-        });
+            output.status.code().map(|code| code as u16),
+            None,
+        ));
     }
 
     let text = normalize_transcription_stdout(&output.stdout);
     if text.is_empty() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(ProviderCommandError {
-            kind: ProviderErrorKind::Parse,
-            message: if stderr.is_empty() {
+        return Err(ProviderCommandError::new(
+            ProviderErrorKind::Parse,
+            if stderr.is_empty() {
                 "Local preview returned no transcription text on stdout.".to_string()
             } else {
                 format!(
@@ -182,9 +187,9 @@ pub async fn transcribe_audio_file(
                     stderr,
                 )
             },
-            status: None,
-            retry_after_seconds: None,
-        });
+            None,
+            None,
+        ));
     }
 
     runtime_log::record(format!(
@@ -214,6 +219,7 @@ fn provider_profiles() -> Vec<ProviderProfile> {
         ProviderProfile {
             id: "local-preview-base".to_string(),
             provider: LOCAL_PREVIEW_PROVIDER_ID.to_string(),
+            mode: ProviderMode::Local,
             model: "base".to_string(),
             label: "Local preview base model (external whisper-cli)".to_string(),
             default: true,
@@ -222,6 +228,7 @@ fn provider_profiles() -> Vec<ProviderProfile> {
         ProviderProfile {
             id: "local-preview-small".to_string(),
             provider: LOCAL_PREVIEW_PROVIDER_ID.to_string(),
+            mode: ProviderMode::Local,
             model: "small".to_string(),
             label: "Local preview small model (external whisper-cli)".to_string(),
             default: false,
@@ -230,6 +237,7 @@ fn provider_profiles() -> Vec<ProviderProfile> {
         ProviderProfile {
             id: "local-preview-medium".to_string(),
             provider: LOCAL_PREVIEW_PROVIDER_ID.to_string(),
+            mode: ProviderMode::Local,
             model: "medium".to_string(),
             label: "Local preview medium model (external whisper-cli)".to_string(),
             default: false,
@@ -238,12 +246,26 @@ fn provider_profiles() -> Vec<ProviderProfile> {
         ProviderProfile {
             id: "local-preview-large-v3".to_string(),
             provider: LOCAL_PREVIEW_PROVIDER_ID.to_string(),
+            mode: ProviderMode::Local,
             model: "large-v3".to_string(),
             label: "Local preview large-v3 model (external whisper-cli)".to_string(),
             default: false,
             requires_api_key: false,
         },
     ]
+}
+
+fn provider_capabilities() -> ProviderCapabilities {
+    ProviderCapabilities {
+        transcription: true,
+        chat_completion: false,
+        local: true,
+        requires_api_key: false,
+        supports_prompt_bias: false,
+        supports_language: true,
+        supports_segments: false,
+        model_management: false,
+    }
 }
 
 fn local_preview_setup_message(model: &str) -> String {
@@ -334,7 +356,7 @@ fn resolve_local_model_path(model: &str) -> Result<PathBuf, ProviderCommandError
         }
     }
 
-    Err(ProviderCommandError::invalid_request(local_preview_setup_message(
+    Err(ProviderCommandError::local_setup(local_preview_setup_message(
         requested,
     )))
 }
@@ -358,7 +380,7 @@ fn find_local_model_path_in_dir(
 
     let mut matches = std::fs::read_dir(dir)
         .map_err(|error| {
-            ProviderCommandError::invalid_request(format!(
+            ProviderCommandError::local_setup(format!(
                 "Could not read local preview model directory {}: {error}",
                 dir.display(),
             ))
@@ -378,7 +400,7 @@ fn find_local_model_path_in_dir(
         return Ok(path);
     }
 
-    Err(ProviderCommandError::invalid_request(format!(
+    Err(ProviderCommandError::local_setup(format!(
         "Local preview model file was not found in {} for '{}'. Set {} to a valid ggml model file or {} to a directory containing the requested model.",
         dir.display(),
         normalized,
@@ -409,7 +431,7 @@ fn validate_local_model_path(path: PathBuf) -> Result<PathBuf, ProviderCommandEr
         return Ok(path);
     }
 
-    Err(ProviderCommandError::invalid_request(format!(
+    Err(ProviderCommandError::local_setup(format!(
         "Local preview model file was not found at {}. Set {} to a valid ggml model file or {} to a directory containing the requested model.",
         path.display(),
         LOCAL_MODEL_PATH_ENV,
@@ -504,5 +526,28 @@ whisper_print_timings: total time = 1337.00 ms
             .as_deref()
             .unwrap_or_default()
             .contains("whisper-cli"));
+    }
+
+    #[test]
+    fn local_preview_capabilities_match_external_stt_lane() {
+        let capabilities = provider_capabilities();
+
+        assert!(capabilities.transcription);
+        assert!(capabilities.local);
+        assert!(capabilities.supports_language);
+        assert!(!capabilities.chat_completion);
+        assert!(!capabilities.requires_api_key);
+        assert!(!capabilities.supports_prompt_bias);
+        assert!(!capabilities.supports_segments);
+        assert!(!capabilities.model_management);
+    }
+
+    #[test]
+    fn local_preview_profiles_declare_local_mode() {
+        let profiles = provider_profiles();
+
+        assert!(profiles
+            .iter()
+            .all(|profile| profile.mode == ProviderMode::Local));
     }
 }

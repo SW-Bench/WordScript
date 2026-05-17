@@ -50,8 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - native session transitions now run through shared session helpers, so trigger, commands and pipeline completion no longer finalize the same lifecycle edges independently
 - native pipeline completion, empty results and provider/insert failures are now guarded by the active processing session id, so stale async results after aborts or newer captures are ignored instead of overwriting runtime state
 - provider status, credential and transcription dispatch now run through shared provider commands and types, while Groq remains the only wired production provider
+- provider status now exposes typed capabilities and provider modes, while provider errors include retryability and a user recovery action instead of only free-text failure messages
 - provider selection now exposes a second `local_preview` lane that uses an external `whisper-cli` runner and local ggml models without changing the capture, transform, insertion or recovery pipeline shape
 - `local_preview` now strips timestamped `whisper-cli` segment output more cleanly and resolves common model variants from model directories instead of only exact `ggml-<model>.bin` names
+- native insertion results now expose a typed recovery action, user-facing recovery message and clipboard-restore status, so UI and diagnostics no longer infer recovery state from fallback text alone
 - native history now supports server-side provider/status/profile filters, JSON export and persisted limit/retention policy instead of only a fixed in-memory diagnostics slice
 - active config and settings terminology now use `provider` consistently, while the old JSON `groq_api_key` survives only as an explicit legacy migration field
 - legacy Groq-secret migration now happens in the native config/provider path before save, so the frontend no longer owns or receives the legacy secret field

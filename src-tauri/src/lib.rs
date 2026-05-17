@@ -673,7 +673,9 @@ fn handle_audio_ready<R: Runtime + 'static>(
                                 "message": error.message,
                                 "kind": error.kind,
                                 "status": error.status,
-                                "retry_after_seconds": error.retry_after_seconds
+                                "retry_after_seconds": error.retry_after_seconds,
+                                "retryable": error.retryable,
+                                "user_action": error.user_action
                             }),
                         );
                     }

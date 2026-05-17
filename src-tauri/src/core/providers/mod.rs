@@ -19,6 +19,20 @@ pub enum ProviderErrorKind {
 	ProviderStatus,
 	Parse,
 	Io,
+	LocalSetup,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderErrorAction {
+	ConfigureCredential,
+	CheckSecretStore,
+	ChangeRequest,
+	WaitAndRetry,
+	Retry,
+	CheckNetwork,
+	CheckProviderStatus,
+	CheckLocalSetup,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,16 +41,64 @@ pub struct ProviderCommandError {
 	pub message: String,
 	pub status: Option<u16>,
 	pub retry_after_seconds: Option<u64>,
+	pub retryable: bool,
+	pub user_action: ProviderErrorAction,
 }
 
 impl ProviderCommandError {
-	pub fn invalid_request(message: impl Into<String>) -> Self {
+	pub fn new(
+		kind: ProviderErrorKind,
+		message: impl Into<String>,
+		status: Option<u16>,
+		retry_after_seconds: Option<u64>,
+	) -> Self {
+		let retryable = provider_error_is_retryable(&kind);
+		let user_action = provider_error_action(&kind);
+
 		Self {
-			kind: ProviderErrorKind::InvalidRequest,
+			kind,
 			message: message.into(),
-			status: None,
-			retry_after_seconds: None,
+			status,
+			retry_after_seconds,
+			retryable,
+			user_action,
 		}
+	}
+
+	pub fn invalid_request(message: impl Into<String>) -> Self {
+		Self::new(ProviderErrorKind::InvalidRequest, message, None, None)
+	}
+
+	pub fn local_setup(message: impl Into<String>) -> Self {
+		Self::new(ProviderErrorKind::LocalSetup, message, None, None)
+	}
+}
+
+fn provider_error_is_retryable(kind: &ProviderErrorKind) -> bool {
+	matches!(
+		kind,
+		ProviderErrorKind::RateLimited
+			| ProviderErrorKind::Timeout
+			| ProviderErrorKind::Network
+			| ProviderErrorKind::ProviderStatus
+			| ProviderErrorKind::Io
+	)
+}
+
+fn provider_error_action(kind: &ProviderErrorKind) -> ProviderErrorAction {
+	match kind {
+		ProviderErrorKind::MissingApiKey => ProviderErrorAction::ConfigureCredential,
+		ProviderErrorKind::SecretStoreUnavailable => ProviderErrorAction::CheckSecretStore,
+		ProviderErrorKind::InvalidRequest | ProviderErrorKind::Parse => {
+			ProviderErrorAction::ChangeRequest
+		}
+		ProviderErrorKind::Unauthorized => ProviderErrorAction::ConfigureCredential,
+		ProviderErrorKind::RateLimited => ProviderErrorAction::WaitAndRetry,
+		ProviderErrorKind::Timeout => ProviderErrorAction::Retry,
+		ProviderErrorKind::Network => ProviderErrorAction::CheckNetwork,
+		ProviderErrorKind::ProviderStatus => ProviderErrorAction::CheckProviderStatus,
+		ProviderErrorKind::Io => ProviderErrorAction::Retry,
+		ProviderErrorKind::LocalSetup => ProviderErrorAction::CheckLocalSetup,
 	}
 }
 
@@ -48,14 +110,36 @@ pub struct ProviderCredentialStatus {
 	pub key_preview: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderMode {
+	Fast,
+	Quality,
+	Local,
+	SelfHosted,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderProfile {
 	pub id: String,
 	pub provider: String,
+	pub mode: ProviderMode,
 	pub model: String,
 	pub label: String,
 	pub default: bool,
 	pub requires_api_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderCapabilities {
+	pub transcription: bool,
+	pub chat_completion: bool,
+	pub local: bool,
+	pub requires_api_key: bool,
+	pub supports_prompt_bias: bool,
+	pub supports_language: bool,
+	pub supports_segments: bool,
+	pub model_management: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,6 +148,7 @@ pub struct ProviderStatus {
 	pub default_profile: String,
 	pub credential: ProviderCredentialStatus,
 	pub profiles: Vec<ProviderProfile>,
+	pub capabilities: ProviderCapabilities,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -271,5 +356,31 @@ mod tests {
 
 		assert!(matches!(error.kind, ProviderErrorKind::InvalidRequest));
 		assert!(error.message.contains("openai"));
+	}
+
+	#[test]
+	fn provider_errors_have_stable_recovery_semantics() {
+		let missing_key = ProviderCommandError::new(
+			ProviderErrorKind::MissingApiKey,
+			"missing",
+			None,
+			None,
+		);
+		assert!(!missing_key.retryable);
+		assert_eq!(missing_key.user_action, ProviderErrorAction::ConfigureCredential);
+
+		let rate_limited = ProviderCommandError::new(
+			ProviderErrorKind::RateLimited,
+			"slow down",
+			Some(429),
+			Some(3),
+		);
+		assert!(rate_limited.retryable);
+		assert_eq!(rate_limited.user_action, ProviderErrorAction::WaitAndRetry);
+		assert_eq!(rate_limited.retry_after_seconds, Some(3));
+
+		let local_setup = ProviderCommandError::local_setup("missing whisper-cli");
+		assert!(!local_setup.retryable);
+		assert_eq!(local_setup.user_action, ProviderErrorAction::CheckLocalSetup);
 	}
 }

@@ -144,6 +144,12 @@ fn history_path_override() -> &'static Mutex<Option<PathBuf>> {
     OVERRIDE.get_or_init(|| Mutex::new(None))
 }
 
+#[cfg(test)]
+fn history_policy_override() -> &'static Mutex<Option<(usize, u32)>> {
+    static OVERRIDE: OnceLock<Mutex<Option<(usize, u32)>>> = OnceLock::new();
+    OVERRIDE.get_or_init(|| Mutex::new(None))
+}
+
 fn resolved_history_file_path() -> PathBuf {
     #[cfg(test)]
     if let Ok(guard) = history_path_override().lock() {
@@ -279,11 +285,11 @@ pub fn export_transcription_history(
         return Err("Choose a file path for the history export.".to_string());
     }
 
-    let app_config = AppConfig::load_from_disk();
+    let (history_limit, history_retention_days) = runtime_history_policy();
     let document = TranscriptionHistoryExportDocument {
         exported_at_ms: now_ms(),
-        history_limit: configured_history_limit(&app_config),
-        history_retention_days: configured_history_retention_days(&app_config),
+        history_limit,
+        history_retention_days,
         count: entries.len(),
         entries,
     };
@@ -525,6 +531,21 @@ fn optional_non_empty(value: &str) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
+fn runtime_history_policy() -> (usize, u32) {
+    #[cfg(test)]
+    if let Ok(guard) = history_policy_override().lock() {
+        if let Some((history_limit, history_retention_days)) = *guard {
+            return (history_limit.clamp(25, 1000), history_retention_days.min(3650));
+        }
+    }
+
+    let app_config = AppConfig::load_from_disk();
+    (
+        configured_history_limit(&app_config),
+        configured_history_retention_days(&app_config),
+    )
+}
+
 fn configured_history_limit(config: &AppConfig) -> usize {
     config.history_limit.clamp(25, 1000)
 }
@@ -534,11 +555,11 @@ fn configured_history_retention_days(config: &AppConfig) -> u32 {
 }
 
 fn prune_entries_for_runtime(entries: &mut VecDeque<TranscriptionHistoryEntry>) {
-    let app_config = AppConfig::load_from_disk();
+    let (history_limit, history_retention_days) = runtime_history_policy();
     prune_entries(
         entries,
-        configured_history_limit(&app_config),
-        configured_history_retention_days(&app_config),
+        history_limit,
+        history_retention_days,
         now_ms(),
     );
 }
@@ -638,6 +659,13 @@ fn set_history_path_override_for_tests(path: PathBuf) {
 }
 
 #[cfg(test)]
+fn set_history_policy_override_for_tests(history_limit: usize, history_retention_days: u32) {
+    if let Ok(mut guard) = history_policy_override().lock() {
+        *guard = Some((history_limit, history_retention_days));
+    }
+}
+
+#[cfg(test)]
 fn reset_store_for_tests() {
     if let Ok(mut store) = history_store().lock() {
         store.loaded = false;
@@ -664,6 +692,7 @@ mod tests {
         let path = test_history_path(test_name);
         let _ = std::fs::remove_file(&path);
         set_history_path_override_for_tests(path.clone());
+        set_history_policy_override_for_tests(DEFAULT_HISTORY_LIMIT, 90);
         reset_store_for_tests();
         path
     }

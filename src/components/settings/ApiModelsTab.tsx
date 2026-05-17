@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useProvider } from "../../hooks/useProvider";
+import { providerErrorActionLabel, useProvider } from "../../hooks/useProvider";
 import type { AppConfig } from "../../types/ipc";
-import type { ProviderId, ProviderProfile } from "../../types/providers";
+import type { ProviderCapabilities, ProviderId, ProviderProfile } from "../../types/providers";
 
 interface Props {
   config: AppConfig;
@@ -24,6 +24,26 @@ const CORRECTION_MODELS = [
   "gemma2-9b-it",
 ];
 const LANGUAGES = ["Auto", "en", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "ja", "ko", "zh"];
+const GROQ_CAPABILITIES: ProviderCapabilities = {
+  transcription: true,
+  chat_completion: true,
+  local: false,
+  requires_api_key: true,
+  supports_prompt_bias: true,
+  supports_language: true,
+  supports_segments: true,
+  model_management: false,
+};
+const LOCAL_PREVIEW_CAPABILITIES: ProviderCapabilities = {
+  transcription: true,
+  chat_completion: false,
+  local: true,
+  requires_api_key: false,
+  supports_prompt_bias: false,
+  supports_language: true,
+  supports_segments: false,
+  model_management: false,
+};
 
 function cleanupSummary(config: AppConfig) {
   if (!config.post_process) {
@@ -56,6 +76,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
     status,
     isLoading,
     error,
+    lastError,
     lastValidation,
     saveApiKey,
     clearApiKey,
@@ -66,6 +87,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
     ? LOCAL_PREVIEW_MODELS.map((model, index) => ({
         id: `local-preview-${model}`,
         provider: "local_preview",
+        mode: "local",
         model,
         label: `Local preview ${model} model (external whisper-cli)`,
         default: index === 0,
@@ -74,18 +96,21 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
     : WHISPER_MODELS.map((model, index) => ({
         id: `groq-${model}`,
         provider: "groq",
+        mode: index === 0 ? "fast" : "quality",
         model,
         label: model,
         default: index === 0,
         requires_api_key: true,
       }));
   const providerProfiles = status?.profiles.length ? status.profiles : fallbackProfiles;
-  const providerRequiresKey = providerProfiles.some((profile) => profile.requires_api_key);
+  const providerCapabilities = status?.capabilities ?? (previewLaneSelected ? LOCAL_PREVIEW_CAPABILITIES : GROQ_CAPABILITIES);
+  const providerRequiresKey = providerCapabilities.requires_api_key;
   const hasTypedKey = pendingKey.trim().length > 0;
   const storedKey = status?.credential.configured ?? false;
   const activeModel = previewLaneSelected
     ? config.local_model || providerProfiles.find((profile) => profile.default)?.model || "base"
     : config.model || providerProfiles.find((profile) => profile.default)?.model || "whisper-large-v3-turbo";
+  const activeMode = providerProfiles.find((profile) => profile.model === activeModel)?.mode ?? (previewLaneSelected ? "local" : "fast");
   const validationState = previewLaneSelected
     ? storedKey
       ? "ok"
@@ -227,12 +252,12 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
         <article className="settings__summary-item">
           <span>Lane</span>
           <strong>{providerLabel}</strong>
-          <small>{providerRequiresKey ? "Cloud transcription with local BYOK." : "External helper lane for local speech-to-text preview."}</small>
+          <small>{providerCapabilities.local ? "External helper lane for local speech-to-text preview." : "Cloud transcription with local BYOK."}</small>
         </article>
         <article className="settings__summary-item">
           <span>Active model</span>
           <strong>{activeModel}</strong>
-          <small>{previewLaneSelected ? "Preview helper model" : "Primary transcription model"}</small>
+          <small>{activeMode.replace("_", " ")} transcription mode</small>
         </article>
         <article className="settings__summary-item">
           <span>Status</span>
@@ -268,6 +293,18 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           <div className="settings__provider-meta-item">
             <span className="settings__provider-meta-label">{providerRequiresKey ? "Last check" : "Lane role"}</span>
             <span>{validationSource}</span>
+          </div>
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Cleanup</span>
+            <span>{providerCapabilities.chat_completion ? "Available" : "STT-only"}</span>
+          </div>
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Context bias</span>
+            <span>{providerCapabilities.supports_prompt_bias ? "Supported" : "Not supported"}</span>
+          </div>
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Segments</span>
+            <span>{providerCapabilities.supports_segments ? "Available" : "Unavailable"}</span>
           </div>
         </div>
         <div className="settings__provider-actions settings__provider-actions--compact">
@@ -345,6 +382,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
       {(statusMessage || lastValidation || error || localError) && (
         <p className={`form-dim${error || localError ? " form-dim--error" : " form-dim--ok"}`}>
           {error ?? localError ?? statusMessage ?? (!previewLaneSelected && lastValidation?.ok ? "Groq key validated." : "")}
+          {lastError ? ` ${providerErrorActionLabel(lastError.user_action)}` : ""}
         </p>
       )}
 

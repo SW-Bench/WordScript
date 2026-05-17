@@ -36,9 +36,9 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - native microphone capture with waveform, silence timeout and max-duration stop
 - guarded native session finalization, so late provider, transform or insertion results cannot overwrite the current runtime state after aborts or newer captures
 - Groq BYOK transcription with OS secret-store storage
-- first generic provider contract in Rust and Tauri, with Groq as the cloud-first production lane and `local_preview` as an external-helper STT preview lane
+- first generic provider contract in Rust and Tauri, with typed provider modes, capabilities and recovery actions; Groq remains the cloud-first production lane and `local_preview` remains an external-helper STT preview lane
 - transform pipeline with hallucination guardrails, optional AI cleanup, local text profiles, curated starter templates, dictionary and snippets
-- native insertion with direct paste, clipboard fallback, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
+- native insertion with direct paste, clipboard fallback, typed recovery actions, clipboard-restore status, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
 - native transcription history with retention policy, server-side filters, JSON export, retry and a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
 - platform diagnostics and runtime logs
 - active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a persistent sidebar profile dock for manual profile switching and a sequenced Text Rules workspace with a compact process summary, starter/setup deck, pinned stage navigation and one dominant working canvas at a time

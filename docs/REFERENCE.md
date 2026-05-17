@@ -79,6 +79,8 @@ Die native Plattformdiagnostik kommt aus `core::insertion` und wird sichtbar in 
 - `local_preview` ist die aktuelle lokale Preview-Lane fuer STT ueber einen externen `whisper-cli`-Runner
 - der Nutzer speichert den eigenen Groq-API-Key lokal im OS secret store
 - die JSON-Konfiguration wird beim Speichern gescrubbt und alte JSON-Groq-Secrets werden nativ in den Secret Store migriert
+- Provider-Status enthaelt typisierte Modi (`fast`, `quality`, `local`, spaeter `self_hosted`) und Capabilities fuer Transcription, Chat-Cleanup, Local, API-Key-Pflicht, Prompt-Bias, Language, Segments und Modellmanagement
+- Provider-Fehler enthalten neben Text auch `kind`, HTTP-Status, Retry-After, `retryable` und eine `user_action`; Settings und Runtime-Events sollen diese Semantik weiterreichen statt eigene Fehlerkategorien zu bauen
 - ein WordScript-Proxy oder Hosted Mode existiert nicht
 
 ### Lokale Preview-Voraussetzungen
@@ -156,6 +158,7 @@ Zusatzregeln des aktiven Pfads:
 
 - erfolgreicher Direct Insert stellt den vorherigen Clipboard-Inhalt best effort wieder her
 - Scratchpad und Last-Transcript-Restore bleiben sichtbar in der Input-UX
+- aktuelle Insert-Ergebnisse enthalten `recovery_action`, `recovery_message` und `clipboard_restore`, damit Settings und Diagnostics klar zwischen keiner Aktion, manuellem Paste, Scratchpad-Recovery und Clipboard-Restore-Signal unterscheiden koennen
 - Scratchpad-Recovery in Input, diagnostische Preview-Transkripte in Diagnostics und der persistente History-Store sind drei getrennte native Datenflaechen
 - Overlay, Input und About lesen denselben nativen Plattformstatus
 

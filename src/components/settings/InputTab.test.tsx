@@ -46,6 +46,9 @@ describe("InputTab", () => {
           pasted: false,
           fallback_reason: "wtype missing in PATH",
           error: null,
+          recovery_action: "manual_paste",
+          recovery_message: "Auto-paste failed, but the transcript is on the clipboard. Paste manually or use the scratchpad recovery.",
+          clipboard_restore: "not_attempted",
         },
         scratchpad_entries: [],
         scratchpad_path: "/tmp/wordscript-scratchpad.json",
@@ -122,8 +125,10 @@ describe("InputTab", () => {
     expect(screen.getAllByText(/wl-copy -> wtype/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/use recovery when direct insert failed/i)).toBeInTheDocument();
     expect(screen.getByText(/last recoverable transcript/i)).toBeInTheDocument();
+    expect(screen.getByText(/clipboard_fallback · manual paste/i)).toBeInTheDocument();
     expect(screen.getByText(/^recovery scratchpad$/i)).toBeInTheDocument();
-    expect(screen.getByText(/wtype missing in path/i)).toBeInTheDocument();
+    expect(screen.getByText(/auto-paste failed, but the transcript is on the clipboard/i)).toBeInTheDocument();
+    expect(screen.getByText(/clipboard restore not needed/i)).toBeInTheDocument();
     expect(screen.getAllByText(/wordscript-scratchpad\.json/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /restore recoverable transcript/i })).toBeEnabled();
     expect(screen.queryByText("Linux Wayland")).not.toBeInTheDocument();

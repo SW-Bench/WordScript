@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useNativeInsertion } from "../../hooks/useNativeInsertion";
 import { HOTKEY_SEPARATOR_HINT, getHotkeyValidationMessage, normalizeManualHotkey } from "../../lib/hotkeys";
 import type { AppConfig } from "../../types/ipc";
-import type { NativeInsertDriver } from "../../types/nativeInsertion";
+import type { NativeClipboardRestoreStatus, NativeInsertDriver, NativeInsertRecoveryAction } from "../../types/nativeInsertion";
 import { HotkeyRecorder } from "./HotkeyRecorder";
 
 type ShortcutField = "hotkey" | "pause_hotkey" | "abort_hotkey";
@@ -92,6 +92,32 @@ function insertDriverLabel(value: NativeInsertDriver | undefined) {
       return "scratchpad recovery";
     default:
       return "Detecting current driver";
+  }
+}
+
+function recoveryActionLabel(value: NativeInsertRecoveryAction | null | undefined) {
+  switch (value) {
+    case "none":
+      return "No recovery action needed";
+    case "manual_paste":
+      return "Manual paste";
+    case "use_scratchpad":
+      return "Use scratchpad";
+    default:
+      return "Recovery ready";
+  }
+}
+
+function clipboardRestoreLabel(value: NativeClipboardRestoreStatus | null | undefined) {
+  switch (value) {
+    case "scheduled":
+      return "previous clipboard restore scheduled";
+    case "skipped_no_previous_clipboard":
+      return "no previous clipboard to restore";
+    case "not_attempted":
+      return "clipboard restore not needed";
+    default:
+      return null;
   }
 }
 
@@ -191,6 +217,17 @@ export function InputTab({ config, onChange }: Props) {
   const latestFallbackReason = insertion.lastRestore?.fallback_reason
     ?? insertion.status?.last_transcript?.fallback_reason
     ?? null;
+  const latestRecoveryAction = insertion.lastRestore?.recovery_action
+    ?? insertion.status?.last_transcript?.recovery_action
+    ?? null;
+  const latestRecoveryMessage = insertion.lastRestore?.recovery_message
+    ?? insertion.status?.last_transcript?.recovery_message
+    ?? latestFallbackReason
+    ?? null;
+  const latestClipboardRestore = insertion.lastRestore?.clipboard_restore
+    ?? insertion.status?.last_transcript?.clipboard_restore
+    ?? null;
+  const latestClipboardRestoreLabel = clipboardRestoreLabel(latestClipboardRestore);
 
   return (
     <>
@@ -411,7 +448,7 @@ export function InputTab({ config, onChange }: Props) {
           <span className={`provider-status__dot${insertion.status?.last_transcript ? " provider-status__dot--ok" : ""}`} />
           <span>{insertion.status?.last_transcript ? "Available" : "No transcript stored yet"}</span>
           {insertion.status?.last_transcript && (
-            <code>{`${insertion.status.last_transcript.insert_mode} · ${insertDriverLabel(insertion.status.last_transcript.active_driver)}`}</code>
+            <code>{`${insertion.status.last_transcript.insert_mode} · ${recoveryActionLabel(latestRecoveryAction)}`}</code>
           )}
         </div>
       </div>
@@ -445,8 +482,9 @@ export function InputTab({ config, onChange }: Props) {
       </div>
       <p className={`form-dim${insertion.error ? " form-dim--error" : insertion.lastRestore ? " form-dim--ok" : ""}`}>
         {insertion.error
-          ?? latestFallbackReason
+          ?? latestRecoveryMessage
           ?? (insertion.lastRestore ? "Recoverable transcript restored through native insertion." : `${scratchpadLabel} ready for recovery if direct insert fails.`)}
+        {latestClipboardRestoreLabel ? ` ${latestClipboardRestoreLabel}.` : ""}
       </p>
     </>
   );

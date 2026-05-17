@@ -1,11 +1,34 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppConfig } from "../../test/factories";
+import type { ProviderCommandError } from "../../types/providers";
 import { ApiModelsTab } from "./ApiModelsTab";
 
 const openUrlMock = vi.fn();
 const revealItemInDirMock = vi.fn();
 const invokeMock = vi.fn();
+
+const groqCapabilities = {
+  transcription: true,
+  chat_completion: true,
+  local: false,
+  requires_api_key: true,
+  supports_prompt_bias: true,
+  supports_language: true,
+  supports_segments: true,
+  model_management: false,
+};
+
+const localPreviewCapabilities = {
+  transcription: true,
+  chat_completion: false,
+  local: true,
+  requires_api_key: false,
+  supports_prompt_bias: false,
+  supports_language: true,
+  supports_segments: false,
+  model_management: false,
+};
 
 const groqProviderState = {
   status: {
@@ -21,15 +44,18 @@ const groqProviderState = {
       {
         id: "cloud-fast",
         provider: "groq",
+        mode: "fast",
         model: "whisper-large-v3-turbo",
         label: "Groq fast multilingual transcription",
         default: true,
         requires_api_key: true,
       },
     ],
+    capabilities: groqCapabilities,
   },
   isLoading: false,
-  error: null,
+  error: null as string | null,
+  lastError: null as ProviderCommandError | null,
   lastValidation: null,
   saveApiKey: vi.fn(),
   clearApiKey: vi.fn(),
@@ -50,15 +76,18 @@ const localPreviewProviderState = {
       {
         id: "local-preview-base",
         provider: "local_preview",
+        mode: "local",
         model: "base",
         label: "Local preview base model (external whisper-cli)",
         default: true,
         requires_api_key: false,
       },
     ],
+    capabilities: localPreviewCapabilities,
   },
   isLoading: false,
-  error: null,
+  error: null as string | null,
+  lastError: null as ProviderCommandError | null,
   lastValidation: null,
   saveApiKey: vi.fn(),
   clearApiKey: vi.fn(),
@@ -68,6 +97,7 @@ const localPreviewProviderState = {
 afterEach(() => {
   cleanup();
 });
+
 
 beforeEach(() => {
   openUrlMock.mockReset();
@@ -93,15 +123,18 @@ beforeEach(() => {
       {
         id: "cloud-fast",
         provider: "groq",
+        mode: "fast",
         model: "whisper-large-v3-turbo",
         label: "Groq fast multilingual transcription",
         default: true,
         requires_api_key: true,
       },
     ],
+    capabilities: groqCapabilities,
   };
   groqProviderState.isLoading = false;
   groqProviderState.error = null;
+  groqProviderState.lastError = null;
   groqProviderState.lastValidation = null;
   groqProviderState.saveApiKey = vi.fn();
   groqProviderState.clearApiKey = vi.fn();
@@ -119,15 +152,18 @@ beforeEach(() => {
       {
         id: "local-preview-base",
         provider: "local_preview",
+        mode: "local",
         model: "base",
         label: "Local preview base model (external whisper-cli)",
         default: true,
         requires_api_key: false,
       },
     ],
+    capabilities: localPreviewCapabilities,
   };
   localPreviewProviderState.isLoading = false;
   localPreviewProviderState.error = null;
+  localPreviewProviderState.lastError = null;
   localPreviewProviderState.lastValidation = null;
   localPreviewProviderState.saveApiKey = vi.fn();
   localPreviewProviderState.clearApiKey = vi.fn();
@@ -144,6 +180,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 vi.mock("../../hooks/useProvider", () => ({
+  providerErrorActionLabel: (action: string) => {
+    if (action === "wait_and_retry") {
+      return "Wait for the provider limit to reset, then retry.";
+    }
+
+    return "Check the provider setup.";
+  },
   useProvider: (providerId: string) => providerId === "local_preview" ? localPreviewProviderState : groqProviderState,
 }));
 
@@ -207,5 +250,21 @@ describe("ApiModelsTab", () => {
     expect(screen.queryByRole("button", { name: /open groq keys/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save locally/i })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /^ai cleanup$/i })).toBeDisabled();
+  });
+
+  it("shows the recovery action for classified provider errors", () => {
+    groqProviderState.error = "Groq returned HTTP 429.";
+    groqProviderState.lastError = {
+      kind: "rate_limited",
+      message: "Groq returned HTTP 429.",
+      status: 429,
+      retry_after_seconds: 3,
+      retryable: true,
+      user_action: "wait_and_retry",
+    };
+
+    render(<ApiModelsTab config={createAppConfig()} onChange={vi.fn()} onOpenDiagnostics={vi.fn()} />);
+
+    expect(screen.getByText(/wait for the provider limit to reset, then retry/i)).toBeInTheDocument();
   });
 });

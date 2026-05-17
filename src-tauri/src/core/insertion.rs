@@ -127,6 +127,24 @@ pub enum NativeInsertMode {
     ScratchpadFallback,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeInsertRecoveryAction {
+    #[default]
+    None,
+    ManualPaste,
+    UseScratchpad,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeClipboardRestoreStatus {
+    #[default]
+    NotAttempted,
+    Scheduled,
+    SkippedNoPreviousClipboard,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScratchpadEntry {
     pub id: String,
@@ -141,6 +159,12 @@ pub struct ScratchpadEntry {
     pub pasted: bool,
     pub fallback_reason: Option<String>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub recovery_action: NativeInsertRecoveryAction,
+    #[serde(default)]
+    pub recovery_message: Option<String>,
+    #[serde(default)]
+    pub clipboard_restore: NativeClipboardRestoreStatus,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -156,6 +180,9 @@ pub struct NativeInsertResult {
     pub fallback_available: bool,
     pub fallback_reason: Option<String>,
     pub error: Option<String>,
+    pub recovery_action: NativeInsertRecoveryAction,
+    pub recovery_message: String,
+    pub clipboard_restore: NativeClipboardRestoreStatus,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -463,6 +490,7 @@ pub(crate) fn execute_insert_request_with_io(
     let mut error = None;
     let mut fallback_reason = None;
     let mut active_driver = NativeInsertDriver::Scratchpad;
+    let mut clipboard_restore = NativeClipboardRestoreStatus::NotAttempted;
 
     match run_clipboard_driver_chain(&platform, &insert_text, io) {
         Ok(driver) => {
@@ -487,10 +515,15 @@ pub(crate) fn execute_insert_request_with_io(
             Ok(driver) => {
                 pasted = true;
                 active_driver = driver;
-                io.schedule_clipboard_restore(
-                    previous_clipboard_text,
-                    CLIPBOARD_RESTORE_DELAY_MS,
-                );
+                if previous_clipboard_text.is_some() {
+                    io.schedule_clipboard_restore(
+                        previous_clipboard_text,
+                        CLIPBOARD_RESTORE_DELAY_MS,
+                    );
+                    clipboard_restore = NativeClipboardRestoreStatus::Scheduled;
+                } else {
+                    clipboard_restore = NativeClipboardRestoreStatus::SkippedNoPreviousClipboard;
+                }
                 NativeInsertMode::DirectPaste
             }
             Err(cause) => {
@@ -500,6 +533,14 @@ pub(crate) fn execute_insert_request_with_io(
             }
         }
     };
+
+    let (recovery_action, recovery_message) = recovery_guidance_for_insert(
+        &insert_mode,
+        clipboard_written,
+        paste_attempted,
+        pasted,
+        error.as_deref(),
+    );
 
     let entry = ScratchpadEntry {
         id: format!("scratch-{}-{}", now_ms(), entry_index),
@@ -514,6 +555,9 @@ pub(crate) fn execute_insert_request_with_io(
         pasted,
         fallback_reason: fallback_reason.clone(),
         error: error.clone(),
+        recovery_action,
+        recovery_message: Some(recovery_message.clone()),
+        clipboard_restore,
     };
 
     NativeInsertResult {
@@ -529,6 +573,43 @@ pub(crate) fn execute_insert_request_with_io(
         fallback_available: true,
         fallback_reason,
         error,
+        recovery_action,
+        recovery_message,
+        clipboard_restore,
+    }
+}
+
+fn recovery_guidance_for_insert(
+    insert_mode: &NativeInsertMode,
+    clipboard_written: bool,
+    paste_attempted: bool,
+    pasted: bool,
+    error: Option<&str>,
+) -> (NativeInsertRecoveryAction, String) {
+    match insert_mode {
+        NativeInsertMode::DirectPaste if pasted => (
+            NativeInsertRecoveryAction::None,
+            "Inserted at the cursor. No recovery action is needed.".to_string(),
+        ),
+        NativeInsertMode::ClipboardOnly if clipboard_written => (
+            NativeInsertRecoveryAction::ManualPaste,
+            "Transcript is on the clipboard. Paste manually in the target app when ready."
+                .to_string(),
+        ),
+        NativeInsertMode::ClipboardFallback if clipboard_written && paste_attempted => (
+            NativeInsertRecoveryAction::ManualPaste,
+            format!(
+                "Auto-paste failed, but the transcript is on the clipboard. Paste manually or use the scratchpad recovery.{}",
+                error.map(|value| format!(" Last error: {value}")).unwrap_or_default(),
+            ),
+        ),
+        _ => (
+            NativeInsertRecoveryAction::UseScratchpad,
+            format!(
+                "Clipboard delivery failed. Use the recovery scratchpad or last-transcript restore.{}",
+                error.map(|value| format!(" Last error: {value}")).unwrap_or_default(),
+            ),
+        ),
     }
 }
 
@@ -1264,6 +1345,8 @@ mod tests {
         assert!(result.ok);
         assert_eq!(result.insert_mode, NativeInsertMode::DirectPaste);
         assert_eq!(result.active_driver, NativeInsertDriver::Enigo);
+        assert_eq!(result.recovery_action, NativeInsertRecoveryAction::None);
+        assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::Scheduled);
         assert_eq!(io.waits, vec![5]);
         assert_eq!(io.clipboard_texts, vec!["Hello world".to_string()]);
         assert_eq!(io.clipboard_drivers, vec![NativeInsertDriver::Arboard]);
@@ -1330,12 +1413,68 @@ mod tests {
         assert_eq!(result.insert_mode, NativeInsertMode::ClipboardFallback);
         assert!(result.fallback_available);
         assert_eq!(result.active_driver, NativeInsertDriver::Arboard);
+        assert_eq!(result.recovery_action, NativeInsertRecoveryAction::ManualPaste);
+        assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::NotAttempted);
+        assert!(result.recovery_message.contains("transcript is on the clipboard"));
         assert_eq!(
             result.fallback_reason.as_deref(),
             Some(
                 "wtype: Target app blocked paste; ydotool: ydotool daemon unavailable; enigo: Enigo input adapter unavailable"
             )
         );
+        assert!(io.scheduled_restores.is_empty());
+    }
+
+    #[test]
+    fn scratchpad_fallback_surfaces_recovery_action_when_clipboard_fails() {
+        let mut clipboard_results = HashMap::new();
+        clipboard_results.insert(
+            NativeInsertDriver::Arboard,
+            Err("Clipboard unavailable".to_string()),
+        );
+
+        let mut io = FakeInsertIo {
+            clipboard_results,
+            clipboard_read: Some("Previous clipboard".to_string()),
+            paste_results: HashMap::new(),
+            scheduled_restores: Vec::new(),
+            waits: Vec::new(),
+            clipboard_texts: Vec::new(),
+            clipboard_drivers: Vec::new(),
+            paste_drivers: Vec::new(),
+        };
+
+        let result = execute_insert_request_with_io(
+            NativeInsertRequest {
+                text: "Hello world".to_string(),
+                source: Some("test".to_string()),
+                corrected: Some(false),
+                auto_paste: Some(true),
+            },
+            &NativeInsertionConfig {
+                auto_paste: true,
+                paste_delay_ms: 0,
+            },
+            1,
+            NativeInsertPlatformContext {
+                auto_paste: true,
+                is_wayland: false,
+                has_x11_display: false,
+                has_wl_copy: false,
+                has_xdotool: false,
+                has_wtype: false,
+                has_ydotool: false,
+            },
+            &mut io,
+        );
+
+        assert!(!result.ok);
+        assert_eq!(result.insert_mode, NativeInsertMode::ScratchpadFallback);
+        assert_eq!(result.active_driver, NativeInsertDriver::Scratchpad);
+        assert_eq!(result.recovery_action, NativeInsertRecoveryAction::UseScratchpad);
+        assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::NotAttempted);
+        assert!(result.recovery_message.contains("recovery scratchpad"));
+        assert!(io.paste_drivers.is_empty());
         assert!(io.scheduled_restores.is_empty());
     }
 

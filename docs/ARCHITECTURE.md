@@ -176,6 +176,7 @@ Wichtige Architekturregeln dieses Pfads:
 
 - erfolgreicher Direct Insert stellt den vorherigen Clipboard-Inhalt best effort wieder her
 - Scratchpad und Last-Transcript-Restore sind Teil des Produktpfads
+- jeder Insert-Outcome traegt eine maschinenlesbare Recovery-Aktion, eine Recovery-Message und den Clipboard-Restore-Status; UI und History duerfen Recovery nicht aus Freitext-Fallbacks erraten
 - Overlay, Input und About nutzen denselben nativen Plattformstatus als Quelle
 - About zeigt Voraussetzungen und Grenzen aus diesem nativen Vertrag, statt pro Plattform neue UI-Nebenwahrheiten zu erfinden
 - Linux/X11/Wayland werden als explizite Driver-Ketten modelliert; `wl-copy`, `xdotool`, `wtype`, `ydotool`, `enigo` und Scratchpad stehen im Status nicht mehr nur implizit im Code
@@ -202,6 +203,8 @@ Architekturregeln dafuer:
 - Groq laeuft als BYOK-Modell
 - der API-Key liegt im OS secret store
 - die JSON-Config wird beim Speichern gescrubbt
+- `ProviderStatus` liefert neben Profilen auch typisierte Modi (`fast`, `quality`, `local`, spaeter `self_hosted`) und Capabilities wie Transcription, Chat-Cleanup, Prompt-Bias, Segments, Local und API-Key-Pflicht
+- `ProviderCommandError` traegt Fehlerart, Status, Retry-After, `retryable` und eine `user_action`, damit Runtime-Events und Settings dieselbe Recovery-Semantik verwenden
 - `local_preview` nutzt keine API-Keys, sondern sichtbare Helper-/Model-Voraussetzungen in Settings und Diagnostics
 - `local_preview` ist bewusst kein zweiter Full-Feature-Produktpfad; Capture, Insertion und Recovery bleiben gleich, AI cleanup bleibt cloud-first
 - ein eigener WordScript-Proxy oder Hosted Mode existiert nicht

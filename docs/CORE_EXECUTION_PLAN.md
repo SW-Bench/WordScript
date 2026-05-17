@@ -140,6 +140,8 @@ Groq vom Einzeladapter zum ersten Provider in einem echten Provider-System mache
 - Konfigurationsschema blockiert spaetere Provider nicht mehr
 - UI und Rust teilen denselben Provider-Vertrag typisiert
 
+Status: erster Provider-Haertungspass umgesetzt. `ProviderStatus` traegt jetzt Capabilities und typisierte Provider-Modi fuer `fast`, `quality`, `local` und spaeter `self_hosted`; `ProviderCommandError` traegt Retrybarkeit und eine konkrete Recovery-Aktion. Groq bleibt der einzige produktive Cloud-Adapter, `local_preview` bleibt STT-only, aber beide Lanes teilen denselben Status- und Fehlervertrag in Rust und TypeScript.
+
 ## Slice 3 - Insert-Stack fuer Linux / Wayland haerten
 
 ### Ziel
@@ -177,6 +179,8 @@ Die Textinsertion von WordScript muss unter Linux nicht nur "irgendwie paste" ko
 - Wayland/X11-Insert-Pfad ist im Code als Kette nachvollziehbar
 - Diagnostics nennen aktive Strategie plus Fallback-Grund
 - Clipboard-Restore bleibt best effort, aber strukturell stabil
+
+Status: erster Recovery-Haertungspass umgesetzt. Native Insert-Ergebnisse tragen jetzt eine typisierte Recovery-Aktion (`none`, `manual_paste`, `use_scratchpad`), eine nutzerfaehige Recovery-Message und einen Clipboard-Restore-Status (`not_attempted`, `scheduled`, `skipped_no_previous_clipboard`). Input liest diese Werte aus dem nativen Vertrag statt aus Fallback-Freitext zu raten.
 
 ## Slice 4 - Lokale STT-Lane als Preview einfuehren
 

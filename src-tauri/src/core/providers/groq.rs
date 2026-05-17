@@ -8,8 +8,8 @@ use tokio::time::sleep;
 use crate::core::runtime_log;
 
 use super::{
-    ChatCompletionRequest, ProviderCommandError, ProviderCredentialStatus,
-    ProviderErrorKind, ProviderProfile, ProviderStatus, TranscribeAudioFileRequest,
+    ChatCompletionRequest, ProviderCapabilities, ProviderCommandError, ProviderCredentialStatus,
+    ProviderErrorKind, ProviderMode, ProviderProfile, ProviderStatus, TranscribeAudioFileRequest,
     TranscriptionResponse, ValidateProviderApiKeyResponse,
 };
 
@@ -34,12 +34,12 @@ struct GroqProviderError {
 
 impl From<GroqProviderError> for ProviderCommandError {
     fn from(error: GroqProviderError) -> Self {
-        Self {
-            kind: error.kind,
-            message: error.message,
-            status: error.status,
-            retry_after_seconds: error.retry_after_seconds,
-        }
+        Self::new(
+            error.kind,
+            error.message,
+            error.status,
+            error.retry_after_seconds,
+        )
     }
 }
 
@@ -77,6 +77,7 @@ pub fn provider_status() -> Result<GroqProviderStatus, ProviderCommandError> {
         default_profile: "cloud-fast".to_string(),
         credential: credential_status().map_err(ProviderCommandError::from)?,
         profiles: provider_profiles(),
+        capabilities: provider_capabilities(),
     })
 }
 
@@ -491,6 +492,7 @@ fn provider_profiles() -> Vec<ProviderProfile> {
         ProviderProfile {
             id: "cloud-fast".to_string(),
             provider: "groq".to_string(),
+            mode: ProviderMode::Fast,
             model: "whisper-large-v3-turbo".to_string(),
             label: "Groq fast multilingual transcription".to_string(),
             default: true,
@@ -499,12 +501,26 @@ fn provider_profiles() -> Vec<ProviderProfile> {
         ProviderProfile {
             id: "cloud-quality".to_string(),
             provider: "groq".to_string(),
+            mode: ProviderMode::Quality,
             model: "whisper-large-v3".to_string(),
             label: "Groq high-accuracy multilingual transcription".to_string(),
             default: false,
             requires_api_key: true,
         },
     ]
+}
+
+fn provider_capabilities() -> ProviderCapabilities {
+    ProviderCapabilities {
+        transcription: true,
+        chat_completion: true,
+        local: false,
+        requires_api_key: true,
+        supports_prompt_bias: true,
+        supports_language: true,
+        supports_segments: true,
+        model_management: false,
+    }
 }
 
 fn credential_status() -> Result<ProviderCredentialStatus, GroqProviderError> {
@@ -730,6 +746,27 @@ mod tests {
     #[test]
     fn uses_single_neutral_product_namespace_for_key_service() {
         assert_eq!(GROQ_KEY_SERVICE, "io.github.swbench.wordscript");
+    }
+
+    #[test]
+    fn groq_capabilities_match_cloud_product_lane() {
+        let capabilities = provider_capabilities();
+
+        assert!(capabilities.transcription);
+        assert!(capabilities.chat_completion);
+        assert!(capabilities.requires_api_key);
+        assert!(capabilities.supports_prompt_bias);
+        assert!(capabilities.supports_segments);
+        assert!(!capabilities.local);
+        assert!(!capabilities.model_management);
+    }
+
+    #[test]
+    fn groq_profiles_declare_fast_and_quality_modes() {
+        let profiles = provider_profiles();
+
+        assert_eq!(profiles[0].mode, ProviderMode::Fast);
+        assert_eq!(profiles[1].mode, ProviderMode::Quality);
     }
 
     #[test]

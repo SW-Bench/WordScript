@@ -84,6 +84,7 @@ Optionaler lokaler Preview-Pfad:
 - Produkt- und Scope-Fragen zuerst gegen [VISION.md](./VISION.md) pruefen
 - Provider-Slices starten bei `src-tauri/src/core/providers/` und duerfen nicht mehr direkt am Groq-Einzelfall vorbei in UI oder Host verdrahtet werden
 - Preview-/Offline-Slices muessen ihre externen Runtime-Voraussetzungen in Settings, README und REFERENCE explizit benennen statt einen eingebetteten Local-Mode vorzutaeuschen
+- Provider-Fehler muessen ueber `ProviderCommandError` laufen und `kind`, `retryable` sowie `user_action` behalten; UI-Copy darf daraus anzeigen, aber keine eigene Fehlersemantik erfinden
 
 ### 2. Rust bleibt Runtime-Owner
 
@@ -99,6 +100,8 @@ Die folgenden Themen gehoeren in Rust, nicht in React:
 React darf diese Dinge anzeigen, konfigurieren und diagnostisch erklaeren, aber nicht semantisch neu erfinden.
 
 Async Runtime-Ergebnisse aus Provider, Transform und Insert muessen ueber die aktive `processing`-Session-ID guardiert werden. Ein spaeter Provider- oder Insert-Fehler darf nach Abort, neuer Aufnahme oder bereits finalisierter Session keinen UI-State mehr ueberschreiben.
+Provider-Capabilities und Provider-Modi kommen aus dem nativen Provider-Vertrag. Settings duerfen sie als Status- und Auswahlhilfe nutzen, aber nicht aus Modellnamen oder UI-Heuristiken ableiten.
+Insert-Recovery muss ueber den nativen Insert-Outcome laufen. Neue UI darf `recovery_action`, `recovery_message` und `clipboard_restore` anzeigen, aber nicht aus `fallback_reason` eigene Recovery-States ableiten.
 
 ### 3. Kleine, pruefbare Slices bauen
 
