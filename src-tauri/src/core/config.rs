@@ -32,6 +32,20 @@ pub struct TextProfile {
     pub snippet_entries: Vec<SnippetEntry>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LocalProfileDecodeSettings {
+    pub profile_id: String,
+    pub beam_size: u8,
+    pub best_of: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LocalProfilePromptSettings {
+    pub profile_id: String,
+    pub prompt_strength: String,
+    pub prompt_carry: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -51,6 +65,13 @@ pub struct AppConfig {
     #[serde(alias = "backend")]
     pub provider: String,
     pub local_model: String,
+    pub local_profile: String,
+    pub local_prompt_strength: String,
+    pub local_prompt_carry: bool,
+    pub local_beam_size: u8,
+    pub local_best_of: u8,
+    pub local_profile_prompt_settings: Vec<LocalProfilePromptSettings>,
+    pub local_profile_decode_settings: Vec<LocalProfileDecodeSettings>,
     pub hotkey: String,
     pub pause_hotkey: String,
     pub abort_hotkey: String,
@@ -71,6 +92,11 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
+        let default_local_profile = default_local_profile_for_model("base");
+        let default_local_beam_size = default_local_beam_size_for_profile(&default_local_profile);
+        let default_local_best_of = default_local_best_of_for_profile(&default_local_profile);
+        let default_local_prompt_strength = default_local_prompt_strength().to_string();
+
         Self {
             legacy_groq_api_key: String::new(),
             model: "whisper-large-v3-turbo".to_string(),
@@ -90,6 +116,21 @@ impl Default for AppConfig {
             professionalize: false,
             provider: default_provider_id().to_string(),
             local_model: "base".to_string(),
+            local_profile: default_local_profile.clone(),
+            local_prompt_strength: default_local_prompt_strength.clone(),
+            local_prompt_carry: false,
+            local_beam_size: default_local_beam_size,
+            local_best_of: default_local_best_of,
+            local_profile_prompt_settings: vec![LocalProfilePromptSettings {
+                profile_id: default_local_profile.clone(),
+                prompt_strength: default_local_prompt_strength,
+                prompt_carry: false,
+            }],
+            local_profile_decode_settings: vec![LocalProfileDecodeSettings {
+                profile_id: default_local_profile,
+                beam_size: default_local_beam_size,
+                best_of: default_local_best_of,
+            }],
             hotkey: default_hotkey().to_string(),
             pause_hotkey: default_pause_hotkey().to_string(),
             abort_hotkey: default_abort_hotkey().to_string(),
@@ -206,6 +247,40 @@ impl AppConfig {
     fn normalize_for_runtime(&mut self) {
         self.normalize_text_profiles();
         self.provider = normalize_provider_value(&self.provider);
+        self.local_model = normalize_local_model_value(&self.local_model);
+        self.local_profile = normalize_local_profile_id(&self.local_profile, &self.local_model);
+        self.local_model = local_model_from_profile_id(&self.local_profile)
+            .unwrap_or_else(|| self.local_model.clone());
+        self.local_prompt_strength =
+            normalize_local_prompt_strength_value(&self.local_prompt_strength);
+        self.local_profile_prompt_settings =
+            normalize_local_profile_prompt_settings(&self.local_profile_prompt_settings);
+        let active_local_prompt = resolve_active_local_profile_prompt_settings(
+            &self.local_profile_prompt_settings,
+            &self.local_profile,
+            &self.local_prompt_strength,
+            self.local_prompt_carry,
+        );
+        self.local_prompt_strength = active_local_prompt.prompt_strength.clone();
+        self.local_prompt_carry = active_local_prompt.prompt_carry;
+        upsert_local_profile_prompt_settings(
+            &mut self.local_profile_prompt_settings,
+            active_local_prompt,
+        );
+        self.local_profile_decode_settings =
+            normalize_local_profile_decode_settings(&self.local_profile_decode_settings);
+        let active_local_decode = resolve_active_local_profile_decode_settings(
+            &self.local_profile_decode_settings,
+            &self.local_profile,
+            self.local_beam_size,
+            self.local_best_of,
+        );
+        self.local_beam_size = active_local_decode.beam_size;
+        self.local_best_of = active_local_decode.best_of;
+        upsert_local_profile_decode_settings(
+            &mut self.local_profile_decode_settings,
+            active_local_decode,
+        );
         self.hotkey = normalize_shortcut_value(&self.hotkey, default_hotkey(), true);
         self.pause_hotkey =
             normalize_shortcut_value(&self.pause_hotkey, default_pause_hotkey(), true);
@@ -429,6 +504,225 @@ fn is_modifier_only(part: &str) -> bool {
     matches!(part, "ctrl_l" | "alt_l" | "shift_l" | "win" | "cmd")
 }
 
+fn default_local_prompt_strength() -> &'static str {
+    "profile"
+}
+
+fn normalize_local_decode_value(value: u8, fallback: u8) -> u8 {
+    match value {
+        1..=8 => value,
+        _ => fallback.clamp(1, 8),
+    }
+}
+
+fn default_local_beam_size_for_profile(profile: &str) -> u8 {
+    if normalize_local_profile_id(profile, "base").ends_with("-quality") {
+        5
+    } else {
+        1
+    }
+}
+
+fn default_local_best_of_for_profile(profile: &str) -> u8 {
+    if normalize_local_profile_id(profile, "base").ends_with("-quality") {
+        5
+    } else {
+        1
+    }
+}
+
+fn normalize_local_profile_prompt_settings(
+    settings: &[LocalProfilePromptSettings],
+) -> Vec<LocalProfilePromptSettings> {
+    let mut normalized = Vec::new();
+
+    for entry in settings {
+        let profile_id = normalize_local_profile_id(&entry.profile_id, "base");
+        let normalized_entry = LocalProfilePromptSettings {
+            profile_id,
+            prompt_strength: normalize_local_prompt_strength_value(&entry.prompt_strength),
+            prompt_carry: entry.prompt_carry,
+        };
+
+        upsert_local_profile_prompt_settings(&mut normalized, normalized_entry);
+    }
+
+    normalized
+}
+
+fn upsert_local_profile_prompt_settings(
+    settings: &mut Vec<LocalProfilePromptSettings>,
+    entry: LocalProfilePromptSettings,
+) {
+    if let Some(existing) = settings
+        .iter_mut()
+        .find(|candidate| candidate.profile_id == entry.profile_id)
+    {
+        *existing = entry;
+        return;
+    }
+
+    settings.push(entry);
+}
+
+fn resolve_active_local_profile_prompt_settings(
+    settings: &[LocalProfilePromptSettings],
+    profile_id: &str,
+    active_prompt_strength: &str,
+    active_prompt_carry: bool,
+) -> LocalProfilePromptSettings {
+    let normalized_profile_id = normalize_local_profile_id(profile_id, "base");
+
+    if let Some(existing) = settings
+        .iter()
+        .find(|candidate| candidate.profile_id == normalized_profile_id)
+    {
+        return existing.clone();
+    }
+
+    LocalProfilePromptSettings {
+        profile_id: normalized_profile_id,
+        prompt_strength: normalize_local_prompt_strength_value(active_prompt_strength),
+        prompt_carry: active_prompt_carry,
+    }
+}
+
+fn normalize_local_profile_decode_settings(
+    settings: &[LocalProfileDecodeSettings],
+) -> Vec<LocalProfileDecodeSettings> {
+    let mut normalized = Vec::new();
+
+    for entry in settings {
+        let profile_id = normalize_local_profile_id(&entry.profile_id, "base");
+        let normalized_entry = LocalProfileDecodeSettings {
+            beam_size: normalize_local_decode_value(
+                entry.beam_size,
+                default_local_beam_size_for_profile(&profile_id),
+            ),
+            best_of: normalize_local_decode_value(
+                entry.best_of,
+                default_local_best_of_for_profile(&profile_id),
+            ),
+            profile_id,
+        };
+
+        upsert_local_profile_decode_settings(&mut normalized, normalized_entry);
+    }
+
+    normalized
+}
+
+fn upsert_local_profile_decode_settings(
+    settings: &mut Vec<LocalProfileDecodeSettings>,
+    entry: LocalProfileDecodeSettings,
+) {
+    if let Some(existing) = settings
+        .iter_mut()
+        .find(|candidate| candidate.profile_id == entry.profile_id)
+    {
+        *existing = entry;
+        return;
+    }
+
+    settings.push(entry);
+}
+
+fn resolve_active_local_profile_decode_settings(
+    settings: &[LocalProfileDecodeSettings],
+    profile_id: &str,
+    active_beam_size: u8,
+    active_best_of: u8,
+) -> LocalProfileDecodeSettings {
+    let normalized_profile_id = normalize_local_profile_id(profile_id, "base");
+
+    if let Some(existing) = settings
+        .iter()
+        .find(|candidate| candidate.profile_id == normalized_profile_id)
+    {
+        return existing.clone();
+    }
+
+    LocalProfileDecodeSettings {
+        profile_id: normalized_profile_id.clone(),
+        beam_size: normalize_local_decode_value(
+            active_beam_size,
+            default_local_beam_size_for_profile(&normalized_profile_id),
+        ),
+        best_of: normalize_local_decode_value(
+            active_best_of,
+            default_local_best_of_for_profile(&normalized_profile_id),
+        ),
+    }
+}
+
+fn normalize_local_prompt_strength_value(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "off" => "off".to_string(),
+        "profile_and_terms" | "terms" | "strong" => "profile_and_terms".to_string(),
+        _ => default_local_prompt_strength().to_string(),
+    }
+}
+
+fn normalize_local_model_value(model: &str) -> String {
+    let normalized = model.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" => "base".to_string(),
+        "large" => "large-v3".to_string(),
+        "large_v3" => "large-v3".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn default_local_profile_mode_for_model(model: &str) -> &'static str {
+    let normalized = normalize_local_model_value(model);
+
+    if normalized.starts_with("tiny")
+        || normalized.starts_with("base")
+        || normalized.starts_with("small")
+        || normalized.starts_with("distil-")
+        || normalized.ends_with("-turbo")
+    {
+        "fast"
+    } else {
+        "quality"
+    }
+}
+
+fn default_local_profile_for_model(model: &str) -> String {
+    let normalized = normalize_local_model_value(model);
+    format!(
+        "local-preview-{}-{}",
+        normalized,
+        default_local_profile_mode_for_model(&normalized)
+    )
+}
+
+fn local_model_from_profile_id(profile: &str) -> Option<String> {
+    let normalized = profile.trim().to_ascii_lowercase();
+    let rest = normalized.strip_prefix("local-preview-")?;
+
+    rest.strip_suffix("-fast")
+        .or_else(|| rest.strip_suffix("-quality"))
+        .map(normalize_local_model_value)
+}
+
+fn normalize_local_profile_id(profile: &str, fallback_model: &str) -> String {
+    let normalized = profile.trim().to_ascii_lowercase();
+    let fallback = default_local_profile_for_model(fallback_model);
+
+    let Some(model) = local_model_from_profile_id(&normalized) else {
+        return fallback;
+    };
+
+    let mode = if normalized.ends_with("-quality") {
+        "quality"
+    } else {
+        "fast"
+    };
+
+    format!("local-preview-{}-{}", model, mode)
+}
+
 fn default_text_profile_id() -> &'static str {
     "general"
 }
@@ -518,6 +812,127 @@ mod tests {
 
         assert_eq!(config.history_limit, 25);
         assert_eq!(config.history_retention_days, 3650);
+    }
+
+    #[test]
+    fn normalizes_local_preview_controls_into_runtime_safe_values() {
+        let mut config = AppConfig {
+            provider: "local_preview".to_string(),
+            local_model: "large_v3".to_string(),
+            local_profile: String::new(),
+            local_prompt_strength: "strong".to_string(),
+            local_beam_size: 0,
+            local_best_of: 42,
+            ..AppConfig::default()
+        };
+
+        config.normalize_for_runtime();
+
+        assert_eq!(config.local_model, "large-v3");
+        assert_eq!(config.local_profile, "local-preview-large-v3-quality");
+        assert_eq!(config.local_prompt_strength, "profile_and_terms");
+        assert!(!config.local_prompt_carry);
+        assert!(config.local_profile_prompt_settings.iter().any(|entry| {
+            entry
+                == &LocalProfilePromptSettings {
+                    profile_id: "local-preview-large-v3-quality".to_string(),
+                    prompt_strength: "profile_and_terms".to_string(),
+                    prompt_carry: false,
+                }
+        }));
+        assert_eq!(config.local_beam_size, 5);
+        assert_eq!(config.local_best_of, 5);
+        assert!(config.local_profile_decode_settings.iter().any(|entry| {
+            entry
+                == &LocalProfileDecodeSettings {
+                    profile_id: "local-preview-large-v3-quality".to_string(),
+                    beam_size: 5,
+                    best_of: 5,
+                }
+        }));
+        assert!(config.local_profile_decode_settings.iter().any(|entry| {
+            LocalProfileDecodeSettings {
+                profile_id: "local-preview-base-fast".to_string(),
+                beam_size: 1,
+                best_of: 1,
+            }
+                == *entry
+        }));
+    }
+
+    #[test]
+    fn selected_local_profile_overrides_stale_local_model() {
+        let mut config = AppConfig {
+            provider: "local_preview".to_string(),
+            local_model: "base".to_string(),
+            local_profile: "local-preview-medium-fast".to_string(),
+            ..AppConfig::default()
+        };
+
+        config.normalize_for_runtime();
+
+        assert_eq!(config.local_model, "medium");
+        assert_eq!(config.local_profile, "local-preview-medium-fast");
+    }
+
+    #[test]
+    fn selected_local_profile_uses_profile_specific_decode_settings() {
+        let mut config = AppConfig {
+            provider: "local_preview".to_string(),
+            local_model: "base".to_string(),
+            local_profile: "local-preview-medium-quality".to_string(),
+            local_beam_size: 1,
+            local_best_of: 1,
+            local_profile_decode_settings: vec![LocalProfileDecodeSettings {
+                profile_id: "local-preview-medium-quality".to_string(),
+                beam_size: 7,
+                best_of: 6,
+            }],
+            ..AppConfig::default()
+        };
+
+        config.normalize_for_runtime();
+
+        assert_eq!(config.local_beam_size, 7);
+        assert_eq!(config.local_best_of, 6);
+        assert_eq!(
+            config.local_profile_decode_settings[0],
+            LocalProfileDecodeSettings {
+                profile_id: "local-preview-medium-quality".to_string(),
+                beam_size: 7,
+                best_of: 6,
+            }
+        );
+    }
+
+    #[test]
+    fn selected_local_profile_uses_profile_specific_prompt_settings() {
+        let mut config = AppConfig {
+            provider: "local_preview".to_string(),
+            local_model: "base".to_string(),
+            local_profile: "local-preview-medium-quality".to_string(),
+            local_prompt_strength: "off".to_string(),
+            local_prompt_carry: false,
+            local_profile_prompt_settings: vec![LocalProfilePromptSettings {
+                profile_id: "local-preview-medium-quality".to_string(),
+                prompt_strength: "profile_and_terms".to_string(),
+                prompt_carry: true,
+            }],
+            ..AppConfig::default()
+        };
+
+        config.normalize_for_runtime();
+
+        assert_eq!(config.local_prompt_strength, "profile_and_terms");
+        assert!(config.local_prompt_carry);
+        assert_eq!(
+            config.local_profile_prompt_settings[0],
+            LocalProfilePromptSettings {
+                profile_id: "local-preview-medium-quality".to_string(),
+                prompt_strength: "profile_and_terms".to_string(),
+                prompt_carry: true,
+            }
+        );
     }
 
     #[test]

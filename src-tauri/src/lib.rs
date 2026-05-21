@@ -21,6 +21,7 @@ const OVERLAY_BOTTOM_INSET: f64 = 76.0;
 const MIN_TRANSCRIPTION_TIMEOUT_MS: u64 = 18_000;
 const MAX_TRANSCRIPTION_TIMEOUT_MS: u64 = 35_000;
 const TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS: u64 = 800;
+const LOCAL_PREVIEW_PROMPT_MAX_CHARS: usize = 480;
 
 fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("overlay") {
@@ -311,8 +312,17 @@ fn handle_audio_ready<R: Runtime + 'static>(
         provider: provider.clone(),
         audio_path: audio_path.clone(),
         model: optional_string(&value, "model"),
+        profile: optional_string(&value, "local_profile"),
         language: optional_string(&value, "language"),
-        prompt: optional_string(&value, "prompt"),
+        prompt: transcription_prompt_for_request(&provider, &value),
+        carry_initial_prompt: (provider == core::providers::LOCAL_PREVIEW_PROVIDER_ID)
+            .then(|| local_preview_prompt_carry(&value)),
+        beam_size: (provider == core::providers::LOCAL_PREVIEW_PROVIDER_ID)
+            .then(|| optional_u8(&value, "local_beam_size"))
+            .flatten(),
+        best_of: (provider == core::providers::LOCAL_PREVIEW_PROVIDER_ID)
+            .then(|| optional_u8(&value, "local_best_of"))
+            .flatten(),
         response_format: Some("json".to_string()),
         timeout_ms: Some(runtime_transcription_timeout_ms(
             value
@@ -566,40 +576,12 @@ fn handle_audio_ready<R: Runtime + 'static>(
                                 return;
                             }
 
-                            let _ = core::history::record_entry(
-                                core::history::RecordHistoryEntryRequest {
-                                    status: core::history::TranscriptionHistoryStatus::Failed,
-                                    source:
-                                        core::history::TranscriptionHistorySource::NativePipeline,
-                                    retry_of: None,
-                                    provider: app_config.provider.clone(),
-                                    model: Some(
-                                        if app_config.provider
-                                            == core::providers::LOCAL_PREVIEW_PROVIDER_ID
-                                        {
-                                            app_config.local_model.clone()
-                                        } else {
-                                            app_config.model.clone()
-                                        },
-                                    ),
-                                    language: if app_config.language.trim().is_empty() {
-                                        None
-                                    } else {
-                                        Some(app_config.language.clone())
-                                    },
-                                    active_profile: app_config.active_text_profile_label(),
-                                    raw_transcript: Some(response.text.clone()),
-                                    transformed_transcript: Some(text.clone()),
-                                    corrected: transformed.corrected,
-                                    applied_rules: transformed.applied_rules.clone(),
-                                    transform_warning: transformed.warning.clone(),
-                                    insert_mode: None,
-                                    active_driver: None,
-                                    pasted: None,
-                                    fallback_available: None,
-                                    fallback_reason: None,
-                                    error: Some(error.clone()),
-                                },
+                            let _ = core::history::record_insert_failure(
+                                &app_config,
+                                response.text.clone(),
+                                text.clone(),
+                                transformed.clone(),
+                                error.clone(),
                             );
                             core::runtime_log::record(format!(
                                 "[WordScript] Native pipeline insertion failed session_id={} elapsed_ms={} error={}",
@@ -729,6 +711,114 @@ fn optional_string(value: &serde_json::Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
+}
+
+fn optional_u8(value: &serde_json::Value, key: &str) -> Option<u8> {
+    value
+        .get(key)
+        .and_then(|value| value.as_u64())
+        .and_then(|value| u8::try_from(value).ok())
+}
+
+fn transcription_prompt_for_request(
+    provider: &str,
+    value: &serde_json::Value,
+) -> Option<String> {
+    if provider == core::providers::LOCAL_PREVIEW_PROVIDER_ID {
+        return local_preview_prompt_for_request(value);
+    }
+
+    optional_string(value, "prompt")
+}
+
+fn local_preview_prompt_for_request(value: &serde_json::Value) -> Option<String> {
+    let strength = value
+        .get("local_prompt_strength")
+        .and_then(|raw| raw.as_str())
+        .unwrap_or("profile");
+
+    match strength {
+        "off" => None,
+        "profile_and_terms" => {
+            let mut sections = Vec::new();
+
+            if let Some(prompt) = optional_string(value, "prompt") {
+                sections.push(prompt);
+            }
+
+            let dictionary_hints = local_preview_dictionary_hints(value);
+            if !dictionary_hints.is_empty() {
+                sections.push(format!(
+                    "Preferred terms: {}",
+                    dictionary_hints.join("; ")
+                ));
+            }
+
+            let snippet_hints = local_preview_snippet_hints(value);
+            if !snippet_hints.is_empty() {
+                sections.push(format!(
+                    "Likely phrases: {}",
+                    snippet_hints.join("; ")
+                ));
+            }
+
+            truncate_local_preview_prompt(sections.join("\n"))
+        }
+        _ => optional_string(value, "prompt").and_then(truncate_local_preview_prompt),
+    }
+}
+
+fn local_preview_prompt_carry(value: &serde_json::Value) -> bool {
+    value
+        .get("local_prompt_carry")
+        .and_then(|carry| carry.as_bool())
+        .unwrap_or(false)
+}
+
+fn local_preview_dictionary_hints(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("dictionary_entries")
+        .and_then(|entries| entries.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let phrase = entry.get("phrase")?.as_str()?.trim();
+            let replace_with = entry.get("replace_with")?.as_str()?.trim();
+            if phrase.is_empty() || replace_with.is_empty() {
+                return None;
+            }
+
+            Some(format!("{} -> {}", phrase, replace_with))
+        })
+        .take(8)
+        .collect()
+}
+
+fn local_preview_snippet_hints(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("snippet_entries")
+        .and_then(|entries| entries.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("trigger")?.as_str().map(str::trim))
+        .filter(|trigger| !trigger.is_empty())
+        .take(6)
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn truncate_local_preview_prompt(prompt: String) -> Option<String> {
+    let trimmed = prompt.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let truncated = trimmed
+        .chars()
+        .take(LOCAL_PREVIEW_PROMPT_MAX_CHARS)
+        .collect::<String>();
+
+    Some(truncated.trim().to_string())
 }
 
 fn runtime_transcription_timeout_ms(audio_duration_seconds: Option<f64>) -> u64 {
@@ -929,6 +1019,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn runtime_transcription_timeout_stays_interactive() {
@@ -945,5 +1036,47 @@ mod tests {
             runtime_transcription_timeout_ms(Some(90.0)),
             MAX_TRANSCRIPTION_TIMEOUT_MS
         );
+    }
+
+    #[test]
+    fn local_preview_prompt_strength_can_disable_bias() {
+        let payload = json!({
+            "prompt": "Customer success terminology",
+            "local_prompt_strength": "off",
+        });
+
+        assert_eq!(
+            transcription_prompt_for_request(core::providers::LOCAL_PREVIEW_PROVIDER_ID, &payload),
+            None
+        );
+    }
+
+    #[test]
+    fn local_preview_prompt_strength_can_enrich_bias_with_terms() {
+        let payload = json!({
+            "prompt": "Support escalations and product names",
+            "local_prompt_strength": "profile_and_terms",
+            "dictionary_entries": [
+                {
+                    "phrase": "word script",
+                    "replace_with": "WordScript"
+                }
+            ],
+            "snippet_entries": [
+                {
+                    "trigger": "status update"
+                }
+            ]
+        });
+
+        let prompt = transcription_prompt_for_request(
+            core::providers::LOCAL_PREVIEW_PROVIDER_ID,
+            &payload,
+        )
+        .expect("local preview prompt");
+
+        assert!(prompt.contains("Support escalations and product names"));
+        assert!(prompt.contains("Preferred terms: word script -> WordScript"));
+        assert!(prompt.contains("Likely phrases: status update"));
     }
 }

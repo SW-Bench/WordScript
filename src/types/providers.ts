@@ -62,12 +62,41 @@ export interface ProviderCapabilities {
   model_management: boolean;
 }
 
+export type LocalProviderReadiness = "ready" | "setup_required";
+
+export type LocalProviderIssueCode =
+  | "missing_runner"
+  | "invalid_runner_path"
+  | "runner_probe_failed"
+  | "runner_probe_timed_out"
+  | "missing_model"
+  | "invalid_model_path"
+  | "unreadable_model_directory"
+  | "model_not_found"
+  | "missing_runner_and_model";
+
+export interface LocalProviderSetupStatus {
+  readiness: LocalProviderReadiness;
+  runner_ready: boolean;
+  model_ready: boolean;
+  issue_code: LocalProviderIssueCode | null;
+  resolved_runner: string | null;
+  resolved_model: string | null;
+  guidance: string;
+}
+
 export interface ProviderStatus {
   provider: string;
   default_profile: string;
   credential: ProviderCredentialStatus;
   profiles: ProviderProfile[];
   capabilities: ProviderCapabilities;
+  local_setup: LocalProviderSetupStatus | null;
+}
+
+export interface ProviderStatusRequest {
+  provider: string;
+  model: string | null;
 }
 
 export type GroqProviderStatus = ProviderStatus;

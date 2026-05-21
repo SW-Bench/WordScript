@@ -32,6 +32,11 @@ const TRANSCRIPTION_CHANNELS: u16 = 1;
 pub struct NativeCaptureConfig {
     pub provider: String,
     pub model: String,
+    pub local_profile: String,
+    pub local_prompt_strength: String,
+    pub local_prompt_carry: bool,
+    pub local_beam_size: u8,
+    pub local_best_of: u8,
     pub language: String,
     pub prompt: String,
     pub dictionary_entries: Vec<DictionaryEntry>,
@@ -51,6 +56,11 @@ impl Default for NativeCaptureConfig {
         Self {
             provider: default_provider_id().to_string(),
             model: "whisper-large-v3-turbo".to_string(),
+            local_profile: "local-preview-base-fast".to_string(),
+            local_prompt_strength: "profile".to_string(),
+            local_prompt_carry: false,
+            local_beam_size: 1,
+            local_best_of: 1,
             language: String::new(),
             prompt: String::new(),
             dictionary_entries: Vec::new(),
@@ -84,6 +94,11 @@ impl NativeCaptureConfig {
         Self {
             provider,
             model,
+            local_profile: app_config.local_profile,
+            local_prompt_strength: app_config.local_prompt_strength,
+            local_prompt_carry: app_config.local_prompt_carry,
+            local_beam_size: app_config.local_beam_size,
+            local_best_of: app_config.local_best_of,
             language: app_config.language,
             prompt: app_config.prompt,
             dictionary_entries: app_config.dictionary_entries,
@@ -244,6 +259,14 @@ impl NativeCaptureState {
 pub fn native_capture_status(
     state: State<'_, Mutex<NativeCaptureState>>,
 ) -> Result<NativeCaptureStatus, String> {
+    let state = state.lock().map_err(|error| error.to_string())?;
+    Ok(state.status())
+}
+
+pub fn current_status_for_app<R: Runtime>(app: &AppHandle<R>) -> Result<NativeCaptureStatus, String> {
+    let state = app
+        .try_state::<Mutex<NativeCaptureState>>()
+        .ok_or_else(|| "Native capture state is not available.".to_string())?;
     let state = state.lock().map_err(|error| error.to_string())?;
     Ok(state.status())
 }

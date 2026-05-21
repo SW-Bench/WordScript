@@ -21,6 +21,18 @@ export interface TextProfile {
   snippet_entries:         SnippetEntry[];
 }
 
+export interface LocalProfileDecodeSettings {
+  profile_id:              string;
+  beam_size:               number;
+  best_of:                 number;
+}
+
+export interface LocalProfilePromptSettings {
+  profile_id:              string;
+  prompt_strength:         "off" | "profile" | "profile_and_terms";
+  prompt_carry:            boolean;
+}
+
 export interface AppConfig {
   model:                   string;
   language:                string;
@@ -35,6 +47,13 @@ export interface AppConfig {
   professionalize:         boolean;
   provider:                string;
   local_model:             string;
+  local_profile:           string;
+  local_prompt_strength:   "off" | "profile" | "profile_and_terms";
+  local_prompt_carry:      boolean;
+  local_beam_size:         number;
+  local_best_of:           number;
+  local_profile_prompt_settings: LocalProfilePromptSettings[];
+  local_profile_decode_settings: LocalProfileDecodeSettings[];
   hotkey:                  string;
   pause_hotkey:            string;
   abort_hotkey:            string;

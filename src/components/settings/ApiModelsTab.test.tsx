@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppConfig } from "../../test/factories";
-import type { ProviderCommandError } from "../../types/providers";
+import type { ProviderCommandError, ProviderStatus } from "../../types/providers";
 import { ApiModelsTab } from "./ApiModelsTab";
 
 const openUrlMock = vi.fn();
@@ -24,10 +24,10 @@ const localPreviewCapabilities = {
   chat_completion: false,
   local: true,
   requires_api_key: false,
-  supports_prompt_bias: false,
+  supports_prompt_bias: true,
   supports_language: true,
   supports_segments: false,
-  model_management: false,
+  model_management: true,
 };
 
 const groqProviderState = {
@@ -52,7 +52,8 @@ const groqProviderState = {
       },
     ],
     capabilities: groqCapabilities,
-  },
+    local_setup: null,
+  } as ProviderStatus,
   isLoading: false,
   error: null as string | null,
   lastError: null as ProviderCommandError | null,
@@ -65,7 +66,7 @@ const groqProviderState = {
 const localPreviewProviderState = {
   status: {
     provider: "local_preview",
-    default_profile: "local-preview-base",
+    default_profile: "local-preview-base-fast",
     credential: {
       provider: "local_preview",
       configured: false,
@@ -74,17 +75,35 @@ const localPreviewProviderState = {
     },
     profiles: [
       {
-        id: "local-preview-base",
+        id: "local-preview-base-fast",
         provider: "local_preview",
-        mode: "local",
+        mode: "fast",
         model: "base",
-        label: "Local preview base model (external whisper-cli)",
+        label: "Local preview base fast profile (external whisper-cli)",
         default: true,
+        requires_api_key: false,
+      },
+      {
+        id: "local-preview-base-quality",
+        provider: "local_preview",
+        mode: "quality",
+        model: "base",
+        label: "Local preview base quality profile (external whisper-cli)",
+        default: false,
         requires_api_key: false,
       },
     ],
     capabilities: localPreviewCapabilities,
-  },
+    local_setup: {
+      readiness: "setup_required" as const,
+      runner_ready: false,
+      model_ready: false,
+      issue_code: "missing_runner_and_model" as const,
+      resolved_runner: null,
+      resolved_model: null,
+      guidance: "Local preview requires an external whisper-cli runner and a local model file. Set WORDSCRIPT_LOCAL_WHISPER_CLI to the binary or install whisper-cli in PATH, then point WORDSCRIPT_LOCAL_MODEL_PATH to a ggml model file or WORDSCRIPT_LOCAL_MODEL_DIR to a directory containing ggml-base.bin.",
+    },
+  } as ProviderStatus,
   isLoading: false,
   error: null as string | null,
   lastError: null as ProviderCommandError | null,
@@ -131,7 +150,8 @@ beforeEach(() => {
       },
     ],
     capabilities: groqCapabilities,
-  };
+    local_setup: null,
+  } as ProviderStatus;
   groqProviderState.isLoading = false;
   groqProviderState.error = null;
   groqProviderState.lastError = null;
@@ -141,7 +161,7 @@ beforeEach(() => {
   groqProviderState.validateApiKey = vi.fn();
   localPreviewProviderState.status = {
     provider: "local_preview",
-    default_profile: "local-preview-base",
+    default_profile: "local-preview-base-fast",
     credential: {
       provider: "local_preview",
       configured: false,
@@ -150,17 +170,35 @@ beforeEach(() => {
     },
     profiles: [
       {
-        id: "local-preview-base",
+        id: "local-preview-base-fast",
         provider: "local_preview",
-        mode: "local",
+        mode: "fast",
         model: "base",
-        label: "Local preview base model (external whisper-cli)",
+        label: "Local preview base fast profile (external whisper-cli)",
         default: true,
+        requires_api_key: false,
+      },
+      {
+        id: "local-preview-base-quality",
+        provider: "local_preview",
+        mode: "quality",
+        model: "base",
+        label: "Local preview base quality profile (external whisper-cli)",
+        default: false,
         requires_api_key: false,
       },
     ],
     capabilities: localPreviewCapabilities,
-  };
+    local_setup: {
+      readiness: "setup_required",
+      runner_ready: false,
+      model_ready: false,
+      issue_code: "missing_runner_and_model",
+      resolved_runner: null,
+      resolved_model: null,
+      guidance: "Local preview requires an external whisper-cli runner and a local model file. Set WORDSCRIPT_LOCAL_WHISPER_CLI to the binary or install whisper-cli in PATH, then point WORDSCRIPT_LOCAL_MODEL_PATH to a ggml model file or WORDSCRIPT_LOCAL_MODEL_DIR to a directory containing ggml-base.bin.",
+    },
+  } as ProviderStatus;
   localPreviewProviderState.isLoading = false;
   localPreviewProviderState.error = null;
   localPreviewProviderState.lastError = null;
@@ -237,19 +275,192 @@ describe("ApiModelsTab", () => {
   it("shows local preview as an STT-only lane without key actions", () => {
     render(
       <ApiModelsTab
-        config={createAppConfig({ provider: "local_preview", local_model: "base" })}
+        config={createAppConfig({
+          provider: "local_preview",
+          local_model: "base",
+          local_profile: "local-preview-base-fast",
+        })}
         onChange={vi.fn()}
         onOpenDiagnostics={vi.fn()}
       />,
     );
 
-    expect(screen.getAllByText(/local preview helper missing/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/local preview setup required/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/runner and model missing/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/external helper setup/i)).toBeInTheDocument();
-    expect(screen.getByText(/wordscript_local_whisper_cli/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/wordscript_local_whisper_cli/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("combobox", { name: /provider/i })).toHaveValue("local_preview");
+    expect(screen.getByRole("combobox", { name: /profile/i })).toHaveValue("local-preview-base-fast");
+    expect(screen.getByText(/fast transcription mode/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /bias strength/i })).toHaveValue("profile");
+    expect(screen.getByRole("checkbox", { name: /carry initial prompt/i })).not.toBeChecked();
+    expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("1");
+    expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("1");
+    expect(screen.getByText(/^supported$/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open groq keys/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save locally/i })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /^ai cleanup$/i })).toBeDisabled();
+  });
+
+  it("renders discovered local models from the native provider status", () => {
+    localPreviewProviderState.status = {
+      ...localPreviewProviderState.status,
+      default_profile: "local-preview-large-v3-q5_0-quality",
+      profiles: [
+        {
+          id: "local-preview-large-v3-q5_0-fast",
+          provider: "local_preview",
+          mode: "fast",
+          model: "large-v3-q5_0",
+          label: "Local preview large-v3-q5_0 fast profile (discovered)",
+          default: false,
+          requires_api_key: false,
+        },
+        {
+          id: "local-preview-large-v3-q5_0-quality",
+          provider: "local_preview",
+          mode: "quality",
+          model: "large-v3-q5_0",
+          label: "Local preview large-v3-q5_0 quality profile (discovered)",
+          default: true,
+          requires_api_key: false,
+        },
+      ],
+      local_setup: {
+        ...localPreviewProviderState.status.local_setup!,
+        model_ready: true,
+        resolved_model: "/models/ggml-large-v3-q5_0.bin",
+      },
+    } as ProviderStatus;
+
+    render(
+      <ApiModelsTab
+        config={createAppConfig({
+          provider: "local_preview",
+          local_model: "large-v3-q5_0",
+          local_profile: "local-preview-large-v3-q5_0-quality",
+          local_prompt_strength: "profile_and_terms",
+          local_prompt_carry: true,
+          local_beam_size: 5,
+          local_best_of: 5,
+          local_profile_prompt_settings: [
+            {
+              profile_id: "local-preview-base-fast",
+              prompt_strength: "profile",
+              prompt_carry: false,
+            },
+            {
+              profile_id: "local-preview-large-v3-q5_0-quality",
+              prompt_strength: "profile_and_terms",
+              prompt_carry: true,
+            },
+          ],
+          local_profile_decode_settings: [
+            {
+              profile_id: "local-preview-base-fast",
+              beam_size: 1,
+              best_of: 1,
+            },
+            {
+              profile_id: "local-preview-large-v3-q5_0-quality",
+              beam_size: 5,
+              best_of: 5,
+            },
+          ],
+        })}
+        onChange={vi.fn()}
+        onOpenDiagnostics={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: /profile/i })).toHaveValue("local-preview-large-v3-q5_0-quality");
+    expect(screen.getByRole("option", { name: /local preview large-v3-q5_0 quality profile \(discovered\)/i })).toBeInTheDocument();
+    expect(screen.getByText(/quality transcription mode/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /bias strength/i })).toHaveValue("profile_and_terms");
+    expect(screen.getByRole("checkbox", { name: /carry initial prompt/i })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("5");
+    expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("5");
+  });
+
+  it("loads stored local prompt and decode controls when the profile changes", () => {
+    const onChange = vi.fn();
+
+    render(
+      <ApiModelsTab
+        config={createAppConfig({
+          provider: "local_preview",
+          local_model: "base",
+          local_profile: "local-preview-base-fast",
+          local_prompt_strength: "off",
+          local_prompt_carry: false,
+          local_beam_size: 3,
+          local_best_of: 4,
+          local_profile_prompt_settings: [
+            {
+              profile_id: "local-preview-base-fast",
+              prompt_strength: "off",
+              prompt_carry: false,
+            },
+            {
+              profile_id: "local-preview-base-quality",
+              prompt_strength: "profile_and_terms",
+              prompt_carry: true,
+            },
+          ],
+          local_profile_decode_settings: [
+            {
+              profile_id: "local-preview-base-fast",
+              beam_size: 3,
+              best_of: 4,
+            },
+            {
+              profile_id: "local-preview-base-quality",
+              beam_size: 7,
+              best_of: 6,
+            },
+          ],
+        })}
+        onChange={onChange}
+        onOpenDiagnostics={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: /profile/i }), {
+      target: { value: "local-preview-base-quality" },
+    });
+
+    expect(onChange).toHaveBeenCalledWith({
+      local_profile: "local-preview-base-quality",
+      local_model: "base",
+      local_prompt_strength: "profile_and_terms",
+      local_prompt_carry: true,
+      local_beam_size: 7,
+      local_best_of: 6,
+      local_profile_prompt_settings: [
+        {
+          profile_id: "local-preview-base-fast",
+          prompt_strength: "off",
+          prompt_carry: false,
+        },
+        {
+          profile_id: "local-preview-base-quality",
+          prompt_strength: "profile_and_terms",
+          prompt_carry: true,
+        },
+      ],
+      local_profile_decode_settings: [
+        {
+          profile_id: "local-preview-base-fast",
+          beam_size: 3,
+          best_of: 4,
+        },
+        {
+          profile_id: "local-preview-base-quality",
+          beam_size: 7,
+          best_of: 6,
+        },
+      ],
+    });
   });
 
   it("shows the recovery action for classified provider errors", () => {

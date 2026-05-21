@@ -159,6 +159,7 @@ Zusatzregeln des aktiven Pfads:
 - erfolgreicher Direct Insert stellt den vorherigen Clipboard-Inhalt best effort wieder her
 - Scratchpad und Last-Transcript-Restore bleiben sichtbar in der Input-UX
 - aktuelle Insert-Ergebnisse enthalten `recovery_action`, `recovery_message` und `clipboard_restore`, damit Settings und Diagnostics klar zwischen keiner Aktion, manuellem Paste, Scratchpad-Recovery und Clipboard-Restore-Signal unterscheiden koennen
+- persistierte History-Eintraege und History-Exporte tragen dieselben Recovery-Felder, damit Retry, Export und Diagnostics dieselbe Insert-Wahrheit behalten
 - Scratchpad-Recovery in Input, diagnostische Preview-Transkripte in Diagnostics und der persistente History-Store sind drei getrennte native Datenflaechen
 - Overlay, Input und About lesen denselben nativen Plattformstatus
 

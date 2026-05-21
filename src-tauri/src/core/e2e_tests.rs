@@ -1,7 +1,8 @@
 use super::{
     insertion::{
-        execute_insert_request_with_io, InsertIo, NativeInsertDriver, NativeInsertMode,
-        NativeInsertPlatformContext, NativeInsertRequest, NativeInsertionConfig,
+        execute_insert_request_with_io, InsertIo, NativeClipboardRestoreStatus,
+        NativeInsertDriver, NativeInsertMode, NativeInsertPlatformContext,
+        NativeInsertRecoveryAction, NativeInsertRequest, NativeInsertionConfig,
     },
     sessions::{NativeSessionStage, NativeSessionState},
     transform::{apply_native_transform, NativeTransformConfig},
@@ -30,6 +31,26 @@ impl FakeInsertIo {
     fn clipboard_fallback() -> Self {
         Self {
             clipboard_ok: true,
+            clipboard_text: Some("Existing clipboard".to_string()),
+            paste_ok: false,
+            restores: Vec::new(),
+            writes: Vec::new(),
+        }
+    }
+
+    fn direct_without_previous_clipboard() -> Self {
+        Self {
+            clipboard_ok: true,
+            clipboard_text: None,
+            paste_ok: true,
+            restores: Vec::new(),
+            writes: Vec::new(),
+        }
+    }
+
+    fn scratchpad_fallback() -> Self {
+        Self {
+            clipboard_ok: false,
             clipboard_text: Some("Existing clipboard".to_string()),
             paste_ok: false,
             restores: Vec::new(),
@@ -131,6 +152,12 @@ async fn resolves_native_session_transform_insert_chain_with_direct_paste() {
 
     assert!(result.ok);
     assert_eq!(result.insert_mode, NativeInsertMode::DirectPaste);
+    assert_eq!(result.recovery_action, NativeInsertRecoveryAction::None);
+    assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::Scheduled);
+    assert_eq!(
+        result.recovery_message,
+        "Inserted at the cursor. No recovery action is needed."
+    );
     assert_eq!(
         io.writes,
         vec![
@@ -201,8 +228,119 @@ async fn surfaces_direct_paste_failure_with_recovery_copy() {
     assert_eq!(result.insert_mode, NativeInsertMode::ClipboardFallback);
     assert!(result.fallback_available);
     assert_eq!(result.error.as_deref(), Some("enigo: Target app blocked paste"));
+    assert_eq!(result.recovery_action, NativeInsertRecoveryAction::ManualPaste);
+    assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::NotAttempted);
+    assert!(result.recovery_message.contains("transcript is on the clipboard"));
 
     let completed = session.complete_transcription(result.text);
     assert_eq!(completed.stage, NativeSessionStage::Completed);
     assert_eq!(completed.last_transcript.as_deref(), Some("WordScript"));
+}
+
+#[tokio::test]
+async fn skips_clipboard_restore_when_no_previous_clipboard_exists() {
+    let transformed = apply_native_transform(
+        "word script",
+        NativeTransformConfig {
+            provider: "groq".to_string(),
+            dictionary_entries: vec![DictionaryEntry {
+                id: "dict-brand".to_string(),
+                phrase: "word script".to_string(),
+                replace_with: "WordScript".to_string(),
+            }],
+            snippet_entries: Vec::new(),
+            post_process: false,
+            correction_model: "llama-3.1-8b-instant".to_string(),
+            filter_fillers: true,
+            professionalize: false,
+        },
+    )
+    .await;
+
+    let mut io = FakeInsertIo::direct_without_previous_clipboard();
+    let result = execute_insert_request_with_io(
+        NativeInsertRequest {
+            text: transformed.text.clone(),
+            source: Some("e2e_no_clipboard_restore".to_string()),
+            corrected: Some(transformed.corrected),
+            auto_paste: Some(true),
+        },
+        &NativeInsertionConfig {
+            auto_paste: true,
+            paste_delay_ms: 0,
+        },
+        1,
+        NativeInsertPlatformContext {
+            auto_paste: true,
+            is_wayland: false,
+            has_x11_display: false,
+            has_wl_copy: false,
+            has_xdotool: false,
+            has_wtype: false,
+            has_ydotool: false,
+        },
+        &mut io,
+    );
+
+    assert!(result.ok);
+    assert_eq!(result.insert_mode, NativeInsertMode::DirectPaste);
+    assert_eq!(result.recovery_action, NativeInsertRecoveryAction::None);
+    assert_eq!(
+        result.clipboard_restore,
+        NativeClipboardRestoreStatus::SkippedNoPreviousClipboard
+    );
+    assert!(io.restores.is_empty());
+}
+
+#[tokio::test]
+async fn surfaces_clipboard_write_failure_with_scratchpad_recovery() {
+    let transformed = apply_native_transform(
+        "word script",
+        NativeTransformConfig {
+            provider: "groq".to_string(),
+            dictionary_entries: vec![DictionaryEntry {
+                id: "dict-brand".to_string(),
+                phrase: "word script".to_string(),
+                replace_with: "WordScript".to_string(),
+            }],
+            snippet_entries: Vec::new(),
+            post_process: false,
+            correction_model: "llama-3.1-8b-instant".to_string(),
+            filter_fillers: true,
+            professionalize: false,
+        },
+    )
+    .await;
+
+    let mut io = FakeInsertIo::scratchpad_fallback();
+    let result = execute_insert_request_with_io(
+        NativeInsertRequest {
+            text: transformed.text.clone(),
+            source: Some("e2e_scratchpad_fallback".to_string()),
+            corrected: Some(transformed.corrected),
+            auto_paste: Some(true),
+        },
+        &NativeInsertionConfig {
+            auto_paste: true,
+            paste_delay_ms: 0,
+        },
+        1,
+        NativeInsertPlatformContext {
+            auto_paste: true,
+            is_wayland: false,
+            has_x11_display: false,
+            has_wl_copy: false,
+            has_xdotool: false,
+            has_wtype: false,
+            has_ydotool: false,
+        },
+        &mut io,
+    );
+
+    assert!(!result.ok);
+    assert_eq!(result.insert_mode, NativeInsertMode::ScratchpadFallback);
+    assert_eq!(result.recovery_action, NativeInsertRecoveryAction::UseScratchpad);
+    assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::NotAttempted);
+    assert!(result.recovery_message.contains("recovery scratchpad"));
+    assert!(io.restores.is_empty());
 }

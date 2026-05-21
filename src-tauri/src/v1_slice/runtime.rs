@@ -1,6 +1,20 @@
 use super::contracts::{
-    CompleteCaptureRequest, InsertMode, SliceCapabilities, SliceInsertionPlan, SliceResult,
-    SliceStage, SliceStatus, SliceTranscript, StartCaptureRequest,
+    CompleteCaptureRequest, InsertMode, SliceCapabilities, SliceCaptureRuntimeStatus,
+    SliceInsertionPlan, SliceLocalPreviewContract, SliceLocalProviderSetupContract,
+    SlicePipelineState, SlicePipelineStep, SlicePipelineStepStatus, SliceProviderRuntimeStatus,
+    SliceResult, SliceRuntimeContract, SliceStage, SliceStatus, SliceTranscript,
+    StartCaptureRequest,
+};
+use std::time::Instant;
+use tauri::{AppHandle, Runtime};
+
+use crate::core::{
+    capture::{self, NativeCaptureStatus},
+    config::AppConfig,
+    providers::{
+        self, LocalProviderIssueCode, LocalProviderReadiness, LocalProviderSetupStatus,
+        ProviderCommandError, ProviderStatus, ProviderStatusRequest, LOCAL_PREVIEW_PROVIDER_ID,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -18,10 +32,21 @@ pub struct V1SliceState {
     last_transcript: Option<SliceTranscript>,
     last_insert_target: Option<String>,
     last_error: Option<String>,
+    capture_started_at: Option<Instant>,
+    pipeline: Vec<SlicePipelineStepStatus>,
 }
 
 impl V1SliceState {
+    #[cfg(test)]
     pub fn status(&self) -> SliceStatus {
+        let runtime_contract = runtime_contract_from_config(&AppConfig::load_from_disk());
+        self.status_with_runtime(runtime_contract)
+    }
+
+    pub fn status_with_runtime(&self, runtime_contract: SliceRuntimeContract) -> SliceStatus {
+        let cloud_transcription = runtime_contract.provider != LOCAL_PREVIEW_PROVIDER_ID;
+        let local_transcription = runtime_contract.provider == LOCAL_PREVIEW_PROVIDER_ID;
+
         SliceStatus {
             stage: self.stage.clone(),
             session_id: self.last_session_id.clone(),
@@ -29,17 +54,23 @@ impl V1SliceState {
                 .active_session
                 .as_ref()
                 .map(|session| session.trigger.clone()),
-            preferred_provider: "cloud-fast".to_string(),
+            preferred_provider: runtime_provider_mode(&runtime_contract),
             architecture_mode: "native-rebuild-slice".to_string(),
+            runtime_contract,
             last_transcript: self
                 .last_transcript
                 .as_ref()
                 .map(|transcript| transcript.final_text.clone()),
             last_insert_target: self.last_insert_target.clone(),
             last_error: self.last_error.clone(),
+            pipeline: if self.pipeline.is_empty() {
+                default_pipeline_statuses()
+            } else {
+                self.pipeline.clone()
+            },
             capabilities: SliceCapabilities {
-                cloud_transcription: true,
-                local_transcription: false,
+                cloud_transcription,
+                local_transcription,
                 insertion_fallback: true,
                 typed_contracts: true,
                 rebuild_lab: true,
@@ -53,17 +84,35 @@ impl V1SliceState {
         }
     }
 
+    #[cfg(test)]
     pub fn reset(&mut self) -> SliceStatus {
+        let runtime_contract = runtime_contract_from_config(&AppConfig::load_from_disk());
+        self.reset_with_runtime(runtime_contract)
+    }
+
+    pub fn reset_with_runtime(&mut self, runtime_contract: SliceRuntimeContract) -> SliceStatus {
         self.stage = SliceStage::Idle;
         self.active_session = None;
         self.last_session_id = None;
         self.last_transcript = None;
         self.last_insert_target = None;
         self.last_error = None;
-        self.status()
+        self.capture_started_at = None;
+        self.pipeline = default_pipeline_statuses();
+        self.status_with_runtime(runtime_contract)
     }
 
+    #[cfg(test)]
     pub fn start_capture(&mut self, request: StartCaptureRequest) -> Result<SliceStatus, String> {
+        let runtime_contract = runtime_contract_from_config(&AppConfig::load_from_disk());
+        self.start_capture_with_runtime(request, runtime_contract)
+    }
+
+    pub fn start_capture_with_runtime(
+        &mut self,
+        request: StartCaptureRequest,
+        runtime_contract: SliceRuntimeContract,
+    ) -> Result<SliceStatus, String> {
         if self.active_session.is_some() {
             return Err("A capture session is already active.".to_string());
         }
@@ -81,14 +130,37 @@ impl V1SliceState {
         });
         self.last_session_id = Some(session_id);
         self.last_error = None;
+        self.capture_started_at = Some(Instant::now());
+        self.pipeline = vec![
+            pipeline_step(
+                SlicePipelineStep::Capture,
+                SlicePipelineState::Running,
+                None,
+                None,
+                Some(format!("Listening for live audio via {}.", trigger)),
+            ),
+            pipeline_step(SlicePipelineStep::Provider, SlicePipelineState::Idle, None, None, None),
+            pipeline_step(SlicePipelineStep::Transform, SlicePipelineState::Idle, None, None, None),
+            pipeline_step(SlicePipelineStep::Insert, SlicePipelineState::Idle, None, None, None),
+        ];
         self.stage = SliceStage::Capturing;
 
-        Ok(self.status())
+        Ok(self.status_with_runtime(runtime_contract))
     }
 
+    #[cfg(test)]
     pub fn complete_capture(
         &mut self,
         request: CompleteCaptureRequest,
+    ) -> Result<SliceResult, String> {
+        let runtime_contract = runtime_contract_from_config(&AppConfig::load_from_disk());
+        self.complete_capture_with_runtime(request, runtime_contract)
+    }
+
+    pub fn complete_capture_with_runtime(
+        &mut self,
+        request: CompleteCaptureRequest,
+        runtime_contract: SliceRuntimeContract,
     ) -> Result<SliceResult, String> {
         let active_session = self
             .active_session
@@ -96,7 +168,39 @@ impl V1SliceState {
             .ok_or_else(|| "No active capture session. Start capture first.".to_string())?;
 
         let raw_text = request.raw_text.trim();
+        let capture_duration_ms = self.capture_started_at.take().map(elapsed_ms);
         if raw_text.is_empty() {
+            self.pipeline = vec![
+                pipeline_step(
+                    SlicePipelineStep::Capture,
+                    SlicePipelineState::Completed,
+                    capture_duration_ms,
+                    None,
+                    Some("Capture stopped, but the diagnostic request carried no raw transcript."
+                        .to_string()),
+                ),
+                pipeline_step(
+                    SlicePipelineStep::Provider,
+                    SlicePipelineState::Failed,
+                    None,
+                    Some("empty_raw_text".to_string()),
+                    Some("Raw text must not be empty.".to_string()),
+                ),
+                pipeline_step(
+                    SlicePipelineStep::Transform,
+                    SlicePipelineState::Skipped,
+                    None,
+                    None,
+                    Some("Provider stage did not yield text for transform.".to_string()),
+                ),
+                pipeline_step(
+                    SlicePipelineStep::Insert,
+                    SlicePipelineState::Skipped,
+                    None,
+                    None,
+                    Some("Transform stage did not yield text for insert planning.".to_string()),
+                ),
+            ];
             self.stage = SliceStage::Error;
             self.last_error = Some("Raw text must not be empty.".to_string());
             return Err("Raw text must not be empty.".to_string());
@@ -104,25 +208,259 @@ impl V1SliceState {
 
         self.stage = SliceStage::Processing;
 
-        let transcript = build_transcript(raw_text, &request.profile);
+        let provider_started_at = Instant::now();
+        let provider_mode = runtime_provider_mode(&runtime_contract);
+        let provider_duration_ms = elapsed_ms(provider_started_at);
+
+        let transform_started_at = Instant::now();
+        let transcript = build_transcript(raw_text, &request.profile, &provider_mode);
+        let transform_duration_ms = elapsed_ms(transform_started_at);
+
+        let insert_started_at = Instant::now();
         let insertion = build_insertion_plan(&request.insert_target);
+        let insert_duration_ms = elapsed_ms(insert_started_at);
 
         self.last_session_id = Some(active_session.id);
         self.last_transcript = Some(transcript.clone());
         self.last_insert_target = Some(insertion.target.clone());
         self.last_error = None;
+        self.pipeline = vec![
+            pipeline_step(
+                SlicePipelineStep::Capture,
+                SlicePipelineState::Completed,
+                capture_duration_ms,
+                None,
+                Some("Capture finished and handed text to the provider preview stage.".to_string()),
+            ),
+            pipeline_step(
+                SlicePipelineStep::Provider,
+                SlicePipelineState::Completed,
+                Some(provider_duration_ms),
+                None,
+                Some(format!("Simulated {} transcription response prepared.", provider_mode)),
+            ),
+            pipeline_step(
+                SlicePipelineStep::Transform,
+                SlicePipelineState::Completed,
+                Some(transform_duration_ms),
+                None,
+                Some(format!(
+                    "Applied {} runtime rules to the transcript.",
+                    transcript.applied_rules.len()
+                )),
+            ),
+            pipeline_step(
+                SlicePipelineStep::Insert,
+                SlicePipelineState::Completed,
+                Some(insert_duration_ms),
+                None,
+                Some(format!(
+                    "Planned {:?} toward {} with fallback {}.",
+                    insertion.mode, insertion.target, insertion.fallback
+                )),
+            ),
+        ];
         self.active_session = None;
         self.stage = SliceStage::Completed;
 
         Ok(SliceResult {
-            status: self.status(),
+            status: self.status_with_runtime(runtime_contract),
             transcript,
             insertion,
         })
     }
 }
 
-fn build_transcript(raw_text: &str, profile: &str) -> SliceTranscript {
+pub fn runtime_contract_for_app<R: Runtime>(app: &AppHandle<R>) -> SliceRuntimeContract {
+    let config = AppConfig::load_from_disk();
+    let provider = normalized_runtime_provider(&config).to_string();
+    let model = runtime_model_for_provider(&config, &provider).to_string();
+    let provider_status = providers::provider_status(ProviderStatusRequest {
+        provider,
+        model: Some(model),
+    });
+    let capture_status = capture::current_status_for_app(app).ok();
+
+    runtime_contract_from_sources(&config, capture_status, Some(provider_status))
+}
+
+fn default_pipeline_statuses() -> Vec<SlicePipelineStepStatus> {
+    vec![
+        pipeline_step(SlicePipelineStep::Capture, SlicePipelineState::Idle, None, None, None),
+        pipeline_step(SlicePipelineStep::Provider, SlicePipelineState::Idle, None, None, None),
+        pipeline_step(SlicePipelineStep::Transform, SlicePipelineState::Idle, None, None, None),
+        pipeline_step(SlicePipelineStep::Insert, SlicePipelineState::Idle, None, None, None),
+    ]
+}
+
+fn pipeline_step(
+    step: SlicePipelineStep,
+    state: SlicePipelineState,
+    duration_ms: Option<u64>,
+    error_code: Option<String>,
+    detail: Option<String>,
+) -> SlicePipelineStepStatus {
+    SlicePipelineStepStatus {
+        step,
+        state,
+        duration_ms,
+        error_code,
+        detail,
+    }
+}
+
+fn elapsed_ms(started_at: Instant) -> u64 {
+    started_at.elapsed().as_millis() as u64
+}
+
+#[cfg(test)]
+fn runtime_contract_from_config(config: &AppConfig) -> SliceRuntimeContract {
+    runtime_contract_from_sources(config, None, None)
+}
+
+fn runtime_contract_from_sources(
+    config: &AppConfig,
+    capture_status: Option<NativeCaptureStatus>,
+    provider_status: Option<Result<ProviderStatus, ProviderCommandError>>,
+) -> SliceRuntimeContract {
+    let provider = normalized_runtime_provider(config);
+    let local_model = normalized_local_model(config);
+
+    SliceRuntimeContract {
+        provider: provider.to_string(),
+        model: runtime_model_for_provider(config, provider).to_string(),
+        provider_status: map_provider_runtime_status(provider_status),
+        capture_status: map_capture_runtime_status(capture_status),
+        local_preview: if provider == LOCAL_PREVIEW_PROVIDER_ID {
+            Some(SliceLocalPreviewContract {
+                provider_profile: config.local_profile.trim().to_string(),
+                model: local_model.to_string(),
+                prompt_strength: config.local_prompt_strength.trim().to_string(),
+                prompt_carry: config.local_prompt_carry,
+                beam_size: config.local_beam_size,
+                best_of: config.local_best_of,
+            })
+        } else {
+            None
+        },
+    }
+}
+
+fn normalized_runtime_provider(config: &AppConfig) -> &str {
+    if config.provider.trim().is_empty() {
+        "groq"
+    } else {
+        config.provider.trim()
+    }
+}
+
+fn normalized_cloud_model(config: &AppConfig) -> &str {
+    if config.model.trim().is_empty() {
+        "whisper-large-v3-turbo"
+    } else {
+        config.model.trim()
+    }
+}
+
+fn normalized_local_model(config: &AppConfig) -> &str {
+    if config.local_model.trim().is_empty() {
+        "base"
+    } else {
+        config.local_model.trim()
+    }
+}
+
+fn runtime_model_for_provider<'a>(config: &'a AppConfig, provider: &str) -> &'a str {
+    if provider == LOCAL_PREVIEW_PROVIDER_ID {
+        normalized_local_model(config)
+    } else {
+        normalized_cloud_model(config)
+    }
+}
+
+fn map_provider_runtime_status(
+    provider_status: Option<Result<ProviderStatus, ProviderCommandError>>,
+) -> SliceProviderRuntimeStatus {
+    match provider_status {
+        Some(Ok(status)) => SliceProviderRuntimeStatus {
+            ready: status.credential.configured,
+            detail: status.credential.key_preview,
+            local_setup: status.local_setup.map(map_local_provider_setup),
+        },
+        Some(Err(error)) => SliceProviderRuntimeStatus {
+            ready: false,
+            detail: Some(error.message),
+            local_setup: None,
+        },
+        None => SliceProviderRuntimeStatus {
+            ready: false,
+            detail: None,
+            local_setup: None,
+        },
+    }
+}
+
+fn map_local_provider_setup(setup: LocalProviderSetupStatus) -> SliceLocalProviderSetupContract {
+    SliceLocalProviderSetupContract {
+        readiness: match setup.readiness {
+            LocalProviderReadiness::Ready => "ready".to_string(),
+            LocalProviderReadiness::SetupRequired => "setup_required".to_string(),
+        },
+        runner_ready: setup.runner_ready,
+        model_ready: setup.model_ready,
+        issue_code: setup.issue_code.map(local_provider_issue_code_value),
+        resolved_runner: setup.resolved_runner,
+        resolved_model: setup.resolved_model,
+        guidance: setup.guidance,
+    }
+}
+
+fn local_provider_issue_code_value(code: LocalProviderIssueCode) -> String {
+    match code {
+        LocalProviderIssueCode::MissingRunner => "missing_runner".to_string(),
+        LocalProviderIssueCode::InvalidRunnerPath => "invalid_runner_path".to_string(),
+        LocalProviderIssueCode::RunnerProbeFailed => "runner_probe_failed".to_string(),
+        LocalProviderIssueCode::RunnerProbeTimedOut => "runner_probe_timed_out".to_string(),
+        LocalProviderIssueCode::MissingModel => "missing_model".to_string(),
+        LocalProviderIssueCode::InvalidModelPath => "invalid_model_path".to_string(),
+        LocalProviderIssueCode::UnreadableModelDirectory => "unreadable_model_directory".to_string(),
+        LocalProviderIssueCode::ModelNotFound => "model_not_found".to_string(),
+        LocalProviderIssueCode::MissingRunnerAndModel => "missing_runner_and_model".to_string(),
+    }
+}
+
+fn map_capture_runtime_status(capture_status: Option<NativeCaptureStatus>) -> SliceCaptureRuntimeStatus {
+    match capture_status {
+        Some(status) => SliceCaptureRuntimeStatus {
+            is_recording: status.is_recording,
+            muted: status.muted,
+            paused: status.paused,
+            device_name: status.device_name,
+            silence_seconds: status.silence_seconds,
+        },
+        None => SliceCaptureRuntimeStatus {
+            is_recording: false,
+            muted: false,
+            paused: false,
+            device_name: None,
+            silence_seconds: 0.0,
+        },
+    }
+}
+
+fn runtime_provider_mode(runtime_contract: &SliceRuntimeContract) -> String {
+    if let Some(local_preview) = &runtime_contract.local_preview {
+        return local_preview.provider_profile.clone();
+    }
+
+    if runtime_contract.model.contains("turbo") || runtime_contract.model.contains("distil") {
+        "cloud-fast".to_string()
+    } else {
+        "cloud-quality".to_string()
+    }
+}
+
+fn build_transcript(raw_text: &str, profile: &str, provider_mode: &str) -> SliceTranscript {
     let mut applied_rules = Vec::new();
     let trimmed = raw_text.trim();
     if trimmed != raw_text {
@@ -163,7 +501,7 @@ fn build_transcript(raw_text: &str, profile: &str) -> SliceTranscript {
     SliceTranscript {
         raw_text: raw_text.to_string(),
         final_text,
-        provider_mode: "cloud-fast".to_string(),
+        provider_mode: provider_mode.to_string(),
         profile: profile.trim().to_string(),
         applied_rules,
     }
@@ -203,7 +541,7 @@ mod tests {
 
     #[test]
     fn transforms_text_for_the_first_slice() {
-        let transcript = build_transcript(" ähm wir shippen das morgen ", "developer");
+        let transcript = build_transcript(" ähm wir shippen das morgen ", "developer", "cloud-fast");
 
         assert_eq!(transcript.final_text, "Wir shippen das morgen.");
         assert!(transcript
@@ -224,5 +562,195 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn status_reports_pipeline_steps_and_durations_after_completion() {
+        let mut state = V1SliceState::default();
+        state
+            .start_capture(StartCaptureRequest {
+                trigger: "diagnostic_demo".to_string(),
+            })
+            .expect("start capture");
+
+        let result = state
+            .complete_capture(CompleteCaptureRequest {
+                raw_text: "hello world".to_string(),
+                insert_target: "editor_preview".to_string(),
+                profile: "developer".to_string(),
+            })
+            .expect("complete capture");
+
+        assert_eq!(result.status.pipeline.len(), 4);
+        assert!(matches!(
+            result.status.pipeline[0].state,
+            SlicePipelineState::Completed
+        ));
+        assert!(result.status.pipeline[0].duration_ms.is_some());
+        assert!(matches!(
+            result.status.pipeline[1].step,
+            SlicePipelineStep::Provider
+        ));
+        assert!(matches!(
+            result.status.pipeline[3].step,
+            SlicePipelineStep::Insert
+        ));
+        assert!(result.status.pipeline[3]
+            .detail
+            .as_deref()
+            .unwrap_or_default()
+            .contains("fallback"));
+        assert_eq!(result.status.runtime_contract.provider, "groq");
+        assert_eq!(result.transcript.provider_mode, "cloud-fast");
+    }
+
+    #[test]
+    fn runtime_contract_surfaces_local_preview_settings() {
+        let config = AppConfig {
+            provider: LOCAL_PREVIEW_PROVIDER_ID.to_string(),
+            local_model: "large-v3-q5_0".to_string(),
+            local_profile: "local-preview-large-v3-q5_0-quality".to_string(),
+            local_prompt_strength: "profile_and_terms".to_string(),
+            local_prompt_carry: true,
+            local_beam_size: 7,
+            local_best_of: 6,
+            ..AppConfig::default()
+        };
+
+        let runtime_contract = runtime_contract_from_sources(
+            &config,
+            Some(NativeCaptureStatus {
+                is_recording: true,
+                muted: false,
+                paused: false,
+                device_name: Some("Studio Mic".to_string()),
+                sample_rate: Some(16_000),
+                channels: Some(1),
+                sample_format: Some("i16".to_string()),
+                active_capture_id: Some("capture-1".to_string()),
+                silence_seconds: 0.4,
+            }),
+            Some(Ok(ProviderStatus {
+                provider: LOCAL_PREVIEW_PROVIDER_ID.to_string(),
+                default_profile: "local-preview-base-fast".to_string(),
+                credential: crate::core::providers::ProviderCredentialStatus {
+                    provider: LOCAL_PREVIEW_PROVIDER_ID.to_string(),
+                    configured: true,
+                    storage: "Local runtime".to_string(),
+                    key_preview: Some("/usr/bin/whisper-cli · ggml-large-v3-q5_0.bin".to_string()),
+                },
+                profiles: Vec::new(),
+                capabilities: crate::core::providers::ProviderCapabilities {
+                    transcription: true,
+                    chat_completion: false,
+                    local: true,
+                    requires_api_key: false,
+                    supports_prompt_bias: true,
+                    supports_language: true,
+                    supports_segments: false,
+                    model_management: true,
+                },
+                local_setup: Some(LocalProviderSetupStatus {
+                    readiness: LocalProviderReadiness::Ready,
+                    runner_ready: true,
+                    model_ready: true,
+                    issue_code: None,
+                    resolved_runner: Some("/usr/bin/whisper-cli".to_string()),
+                    resolved_model: Some("/models/ggml-large-v3-q5_0.bin".to_string()),
+                    guidance: "Local preview is ready.".to_string(),
+                }),
+            })),
+        );
+
+        assert_eq!(runtime_contract.provider, LOCAL_PREVIEW_PROVIDER_ID);
+        assert_eq!(runtime_contract.model, "large-v3-q5_0");
+        assert_eq!(runtime_provider_mode(&runtime_contract), "local-preview-large-v3-q5_0-quality");
+        assert!(runtime_contract.provider_status.ready);
+        assert_eq!(
+            runtime_contract
+                .provider_status
+                .local_setup
+                .as_ref()
+                .and_then(|setup| setup.resolved_runner.as_deref()),
+            Some("/usr/bin/whisper-cli")
+        );
+        assert_eq!(runtime_contract.capture_status.device_name.as_deref(), Some("Studio Mic"));
+        assert_eq!(
+            runtime_contract
+                .local_preview
+                .as_ref()
+                .map(|contract| contract.provider_profile.as_str()),
+            Some("local-preview-large-v3-q5_0-quality")
+        );
+        assert_eq!(
+            runtime_contract
+                .local_preview
+                .as_ref()
+                .map(|contract| contract.prompt_strength.as_str()),
+            Some("profile_and_terms")
+        );
+        assert_eq!(
+            runtime_contract
+                .local_preview
+                .as_ref()
+                .map(|contract| contract.beam_size),
+            Some(7)
+        );
+        assert_eq!(
+            runtime_contract
+                .local_preview
+                .as_ref()
+                .map(|contract| contract.best_of),
+            Some(6)
+        );
+    }
+
+    #[test]
+    fn empty_raw_text_sets_pipeline_error_code_and_skips_remaining_steps() {
+        let mut state = V1SliceState::default();
+        state
+            .start_capture(StartCaptureRequest {
+                trigger: "diagnostic_demo".to_string(),
+            })
+            .expect("start capture");
+
+        let result = state.complete_capture(CompleteCaptureRequest {
+            raw_text: "   ".to_string(),
+            insert_target: "editor_preview".to_string(),
+            profile: "developer".to_string(),
+        });
+
+        assert!(result.is_err());
+
+        let status = state.status();
+        assert!(matches!(status.stage, SliceStage::Error));
+        assert_eq!(
+            status.pipeline[1].error_code.as_deref(),
+            Some("empty_raw_text")
+        );
+        assert!(matches!(
+            status.pipeline[2].state,
+            SlicePipelineState::Skipped
+        ));
+        assert!(matches!(
+            status.pipeline[3].state,
+            SlicePipelineState::Skipped
+        ));
+    }
+
+    #[test]
+    fn reset_returns_slice_to_idle_state() {
+        let mut state = V1SliceState::default();
+        state
+            .start_capture(StartCaptureRequest {
+                trigger: "diagnostic_demo".to_string(),
+            })
+            .expect("start capture");
+
+        let status = state.reset();
+
+        assert!(matches!(status.stage, SliceStage::Idle));
+        assert!(status.session_id.is_none());
+        assert!(status.pipeline.iter().all(|step| matches!(step.state, SlicePipelineState::Idle)));
     }
 }

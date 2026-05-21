@@ -193,10 +193,19 @@ pub enum NativeSupportTier {
     Experimental,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeInsertReadiness {
+    Ready,
+    RecoveryOnly,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct NativeInsertionPlatformStatus {
     pub platform_label: String,
     pub support_tier: NativeSupportTier,
+    pub readiness: NativeInsertReadiness,
+    pub readiness_message: String,
     pub insert_strategy: NativeInsertMode,
     pub active_driver: NativeInsertDriver,
     pub support_message: String,
@@ -896,11 +905,14 @@ fn platform_status(auto_paste: bool) -> NativeInsertionPlatformStatus {
 fn platform_status_from_context(platform: NativeInsertPlatformContext) -> NativeInsertionPlatformStatus {
     let active_driver = preferred_active_driver(&platform);
     let driver_chain = build_driver_chain(&platform, active_driver);
+    let (readiness, readiness_message) = platform_readiness(&platform);
 
     if cfg!(target_os = "windows") {
         NativeInsertionPlatformStatus {
             platform_label: "Windows".to_string(),
             support_tier: NativeSupportTier::Tier1,
+            readiness,
+            readiness_message,
             insert_strategy: if platform.auto_paste {
                 NativeInsertMode::DirectPaste
             } else {
@@ -925,6 +937,8 @@ fn platform_status_from_context(platform: NativeInsertPlatformContext) -> Native
         NativeInsertionPlatformStatus {
             platform_label: "macOS".to_string(),
             support_tier: NativeSupportTier::Tier1,
+            readiness,
+            readiness_message,
             insert_strategy: if platform.auto_paste {
                 NativeInsertMode::DirectPaste
             } else {
@@ -951,6 +965,8 @@ fn platform_status_from_context(platform: NativeInsertPlatformContext) -> Native
         NativeInsertionPlatformStatus {
             platform_label: "Linux Wayland".to_string(),
             support_tier: NativeSupportTier::Experimental,
+            readiness,
+            readiness_message,
             insert_strategy: if platform.auto_paste {
                 NativeInsertMode::ClipboardFallback
             } else {
@@ -984,6 +1000,8 @@ fn platform_status_from_context(platform: NativeInsertPlatformContext) -> Native
         NativeInsertionPlatformStatus {
             platform_label: "Linux X11".to_string(),
             support_tier: NativeSupportTier::Preview,
+            readiness,
+            readiness_message,
             insert_strategy: if platform.auto_paste {
                 NativeInsertMode::DirectPaste
             } else {
@@ -1014,6 +1032,106 @@ fn platform_status_from_context(platform: NativeInsertPlatformContext) -> Native
             ],
         }
     }
+}
+
+fn platform_readiness(platform: &NativeInsertPlatformContext) -> (NativeInsertReadiness, String) {
+    if cfg!(target_os = "windows") {
+        return if platform.auto_paste {
+            (
+                NativeInsertReadiness::Ready,
+                "Direct insert is ready on the current Windows lane before the first dictation."
+                    .to_string(),
+            )
+        } else {
+            (
+                NativeInsertReadiness::Ready,
+                "Clipboard handoff is ready. WordScript will wait for manual paste on Windows."
+                    .to_string(),
+            )
+        };
+    }
+
+    if cfg!(target_os = "macos") {
+        return if platform.auto_paste {
+            (
+                NativeInsertReadiness::Ready,
+                "Direct insert is available once the required macOS permissions are granted for the active launcher."
+                    .to_string(),
+            )
+        } else {
+            (
+                NativeInsertReadiness::Ready,
+                "Clipboard handoff is ready. WordScript will wait for manual paste on macOS."
+                    .to_string(),
+            )
+        };
+    }
+
+    if platform.is_wayland {
+        if !platform.auto_paste {
+            return (
+                NativeInsertReadiness::Ready,
+                "Clipboard handoff is ready. WordScript will wait for manual paste on this Wayland lane."
+                    .to_string(),
+            );
+        }
+
+        if platform.has_x11_display && platform.has_xdotool {
+            return (
+                NativeInsertReadiness::Ready,
+                "XWayland and xdotool are available, so WordScript can attempt direct paste before recovery fallback."
+                    .to_string(),
+            );
+        }
+
+        let mut missing_helpers = Vec::new();
+        if !platform.has_wtype {
+            missing_helpers.push("wtype");
+        }
+        if !platform.has_ydotool {
+            missing_helpers.push("ydotool");
+        }
+
+        let helper_summary = if missing_helpers.is_empty() {
+            "Wayland helper tools are present, but compositor policy can still block synthetic paste."
+                .to_string()
+        } else {
+            format!(
+                "Missing dedicated Wayland paste helpers today: {}.",
+                missing_helpers.join(", ")
+            )
+        };
+
+        return (
+            NativeInsertReadiness::RecoveryOnly,
+            format!(
+                "Clipboard and scratchpad recovery are ready now. Direct paste on pure Wayland is not considered reliable before the first dictation. {}",
+                helper_summary,
+            ),
+        );
+    }
+
+    if !platform.auto_paste {
+        return (
+            NativeInsertReadiness::Ready,
+            "Clipboard handoff is ready. WordScript will wait for manual paste on this X11 lane."
+                .to_string(),
+        );
+    }
+
+    if platform.has_xdotool {
+        return (
+            NativeInsertReadiness::Ready,
+            "xdotool is available, so WordScript can attempt direct paste on the current X11 lane before recovery fallback."
+                .to_string(),
+        );
+    }
+
+    (
+        NativeInsertReadiness::RecoveryOnly,
+        "Clipboard and scratchpad recovery are ready now. xdotool is missing, so direct paste falls back to the generic helper on this X11 lane."
+            .to_string(),
+    )
 }
 
 fn preferred_active_driver(platform: &NativeInsertPlatformContext) -> NativeInsertDriver {
@@ -1492,6 +1610,10 @@ mod tests {
 
         assert_eq!(status.platform_label, "Linux Wayland");
         assert_eq!(status.active_driver, NativeInsertDriver::Arboard);
+        assert_eq!(status.readiness, NativeInsertReadiness::RecoveryOnly);
+        assert!(status
+            .readiness_message
+            .contains("not considered reliable before the first dictation"));
         assert!(status
             .driver_chain
             .iter()
@@ -1503,6 +1625,23 @@ mod tests {
     }
 
     #[test]
+    fn x11_platform_status_marks_missing_xdotool_as_recovery_only() {
+        let status = platform_status_from_context(NativeInsertPlatformContext {
+            auto_paste: true,
+            is_wayland: false,
+            has_x11_display: true,
+            has_wl_copy: false,
+            has_xdotool: false,
+            has_wtype: false,
+            has_ydotool: false,
+        });
+
+        assert_eq!(status.platform_label, "Linux X11");
+        assert_eq!(status.readiness, NativeInsertReadiness::RecoveryOnly);
+        assert!(status.readiness_message.contains("xdotool is missing"));
+    }
+
+    #[test]
     fn macos_platform_status_exposes_permission_diagnostics() {
         if !cfg!(target_os = "macos") {
             return;
@@ -1511,6 +1650,7 @@ mod tests {
         let status = platform_status(true);
 
         assert_eq!(status.platform_label, "macOS");
+        assert_eq!(status.readiness, NativeInsertReadiness::Ready);
         assert!(status
             .prerequisites
             .iter()

@@ -61,6 +61,16 @@ Jeder Tab braucht einen klaren owning purpose. Globale Banner oder doppelte Erkl
 
 Die naechste geplante Vertiefung dieser Shell ist, Profile als sichtbare Arbeitsmodi mit spaeteren Defaults fuer Rewrite, Insert und Recovery zu fuehren. Solange das nicht aktiv ist, bleibt die echte Profilrealitaet bei lokalem Context, Dictionary und Snippets.
 Provider & Models muss Provider-Faehigkeiten, STT-only-Grenzen und Recovery-Aktionen aus dem nativen Provider-Status anzeigen. Der Tab darf nicht aus Modellnamen raten, ob Cleanup, Prompt-Bias, Segments oder Local-Setup verfuegbar sind.
+Fuer `local_preview` muessen Runner-, Modell- und Combined-Setup-Probleme ueber den nativen `local_setup`-Vertrag sichtbar werden. Labels wie `Runner path invalid`, `Runner probe failed` oder `Model not found` sind Produkttext, keine UI-Erfindungen.
+Der lokale Profilpicker muss auf nativen Provider-Profilen basieren. Wenn ein Nutzer ein anderes lokales Profil waehlt, muss dieselbe Selektion sofort die angezeigte Readiness, Warnungen, Modellauflosung und Fast-vs-Quality-Semantik steuern.
+Wenn `local_preview` Prompt-Bias meldet, muss der Tab das als echte Runtime-Faehigkeit zeigen: der aktive Text-Profile-Context geht lokal als initialer `whisper-cli`-Prompt hinein, und die Regler fuer `off`, `profile`, `profile + terms` sowie `carry initial prompt` muessen sichtbar als echte Config-Zustaende auftreten.
+Diese lokalen Prompt-Regler muessen profilgebunden arbeiten wie die Decode-Regler. Wechselt der Nutzer das lokale Profil, muss dieselbe Auswahl die fuer dieses Profil gespeicherte Bias-Staerke und Carry-Entscheidung laden statt einen globalen Restwert zu spiegeln.
+Der lokale Mode-Label darf nicht generisch `local` bleiben, wenn das native Profil bereits `fast` oder `quality` liefert. Die Shell muss dieselbe Preset-Semantik auch fuer lokale Modelle spiegeln und darf den ausgewaehlten Profilmodus nicht aus dem Modellnamen neu ableiten.
+Diagnostics braucht fuer `local_preview` eine sichtbare Local-STT-Kontraktflaeche, die Provider-Profil, Prompt-Bias-Staerke, Carry-Flag, Beam Size und Best Of zusammen zeigt. Diese Werte duerfen nicht nur im Provider-Tab existieren.
+Diese Diagnostics-Flaeche muss jetzt ausserdem echte Live-Setup-Wahrheit zeigen: Provider-Readiness, aufgeloester Runnerpfad, aufgeloester Modellpfad und aktueller nativer Capture-State gehoeren in denselben Snapshot statt in getrennte UI-Heuristiken.
+Transcription-History-Karten muessen dieselben Local-Metadaten in der Karten-Chip-Reihe zeigen, damit ein lokaler Run nicht nur als `local_preview` plus Modell sichtbar bleibt, sondern als vollstaendiger Decode- und Prompt-Zustand gelesen werden kann.
+Wenn das Settings-Fenster unsaved lokale Aenderungen traegt, muss Diagnostics die Abweichung zwischen Draft und nativer Runtime explizit als Warning zeigen. Ein einzelner Kartenblock fuer den Fensterzustand reicht nicht mehr.
+Der Provider-Tab muss lokale Decode-Regler profilgebunden behandeln. Wechselt der Nutzer zwischen `...-fast` und `...-quality`, muessen die fuer dieses Profil gespeicherten Decoderwerte erscheinen statt eines zuletzt global geaenderten lokalen Werts.
 
 ### Diagnostics
 
@@ -68,6 +78,8 @@ Diagnostics ist eine technische Flaeche innerhalb der Settings-Shell. Sie darf d
 Durable History und fluechtige Runtime-Logs muessen dort sichtbar getrennt sein, auch wenn beide aus demselben nativen Pfad gelesen werden. History braucht dort echte Filter-, Export- und Policy-Oberflaechen statt statischer Log-Karten.
 Recovery-Scratchpad aus Input, diagnostische Preview-Transkripte und durable History duerfen sprachlich und visuell nicht mehr ineinanderlaufen.
 Recovery-Copy soll die native Recovery-Aktion und den Clipboard-Restore-Status erklaeren. Freitext-Fehler wie `fallback_reason` duerfen Details liefern, aber nicht die primaere Nutzerfuehrung ersetzen.
+History-Karten in Diagnostics sollen dieselbe Recovery-Semantik als Chips und Copy zeigen, damit Retry-, Export- und Recovery-Pfade ueber denselben Wortschatz erklaert werden.
+Pipeline-Karten in Diagnostics sollen pro Schritt denselben nativen Wortschatz zeigen: `capture`, `provider`, `transform`, `insert` plus klarer `state`, sichtbare `duration_ms` und ein stabiler `error_code`, falls ein Schritt scheitert.
 
 ## Layout-Regeln
 
@@ -139,11 +151,11 @@ Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 ## Credential- und Privacy-UI
 
 - Groq bleibt BYOK
-- die aktive UI bleibt cloud-first, zeigt aber die `local_preview`-Lane als STT-only Preview mit externem Helper explizit daneben
+- die aktive UI bleibt cloud-first, zeigt aber die `local_preview`-Lane als STT-only Local Lane mit externem Helper, nativer Modell-Discovery und ehrlicher Runner-Gesundheit explizit daneben
 - UI-Copy sagt `Save locally` und `OS secret store`, nicht implizit Cloud-Speicherung
 - der volle API-Key wird nach dem Speichern nicht zurueck in den Renderer geholt
 - Key-Praesenz ist neutral; gruene Signale gibt es erst nach echter Validierung
-- lokale Preview zeigt Runner-/Model-Status statt Auth-Sprache und muss die noetigen Env-Variablen erklaeren
+- lokale Preview zeigt Runner-/Model-Status statt Auth-Sprache, muss die noetigen Env-Variablen erklaeren und darf Runner-Gesundheit nicht aus blossen Pfaden oder Dateiexistenz ableiten
 
 ## Motion und Plattformgrenzen
 

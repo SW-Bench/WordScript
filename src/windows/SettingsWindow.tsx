@@ -81,17 +81,23 @@ export default function SettingsWindow() {
   const selectedProvider: ProviderId = (form?.provider ?? state.config?.provider) === "local_preview"
     ? "local_preview"
     : "groq";
-  const { status: providerStatus } = useProvider(selectedProvider);
+  const selectedLocalModel = selectedProvider === "local_preview"
+    ? (form?.local_model ?? state.config?.local_model ?? "base")
+    : null;
+  const { status: providerStatus } = useProvider(selectedProvider, selectedLocalModel);
+  const providerReady = selectedProvider === "local_preview"
+    ? providerStatus?.local_setup?.readiness === "ready"
+    : providerStatus?.credential.configured;
 
   // Populate form when the runtime provides config
   useEffect(() => {
     if (state.config && !form) {
       setForm({ ...state.config });
-      if (!providerStatus?.credential.configured) {
+      if (!providerReady) {
         setActive("Provider & Models");
       }
     }
-  }, [state.config, form, providerStatus]);
+  }, [state.config, form, providerReady]);
 
   // Keep form in sync if config reloads externally
   useEffect(() => {
@@ -108,18 +114,18 @@ export default function SettingsWindow() {
       ? { label: "Processing", title: "WordScript is currently transcribing the last capture.", ok: true }
       : state.status === "recording"
         ? { label: state.paused ? "Paused" : "Recording", title: state.paused ? "Recording is paused." : "Recording is active.", ok: true }
-        : providerStatus?.credential.configured
+          : providerReady
           ? {
               label: selectedProvider === "local_preview" ? "Preview ready" : "Ready",
               title: selectedProvider === "local_preview"
-                ? "Local preview helper and model are configured for the native runtime."
+                  ? providerStatus?.local_setup?.guidance ?? "Local preview helper and model are configured for the native runtime."
                 : "Groq key is present and the native runtime is configured.",
               ok: true,
             }
           : {
               label: selectedProvider === "local_preview" ? "Needs helper" : "Needs key",
               title: selectedProvider === "local_preview"
-                ? "Configure whisper-cli and a local model before the preview lane can run."
+                  ? providerStatus?.local_setup?.guidance ?? "Configure whisper-cli and a local model before the preview lane can run."
                 : "Add a Groq key before transcription can run.",
               ok: false,
             };

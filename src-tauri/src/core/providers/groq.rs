@@ -78,6 +78,7 @@ pub fn provider_status() -> Result<GroqProviderStatus, ProviderCommandError> {
         credential: credential_status().map_err(ProviderCommandError::from)?,
         profiles: provider_profiles(),
         capabilities: provider_capabilities(),
+        local_setup: None,
     })
 }
 

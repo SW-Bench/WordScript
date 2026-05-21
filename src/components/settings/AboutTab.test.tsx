@@ -27,6 +27,8 @@ const insertionState = {
     platform: {
       platform_label: "Linux Wayland",
       support_tier: "experimental" as const,
+      readiness: "recovery_only" as const,
+      readiness_message: "Clipboard and scratchpad recovery are ready now. Direct paste on pure Wayland is not considered reliable before the first dictation. Missing dedicated Wayland paste helpers today: wtype, ydotool.",
       insert_strategy: "clipboard_fallback" as const,
       active_driver: "wl_copy" as const,
       support_message: "Experimental path: WordScript tries direct paste through available Wayland/X11 helpers, then keeps clipboard and scratchpad recovery if the desktop blocks insertion.",
@@ -126,7 +128,9 @@ describe("AboutTab", () => {
     expect(screen.getByText(/today you use wordscript as a developer build from source/i)).toBeInTheDocument();
     expect(screen.getByText("Linux Wayland")).toBeInTheDocument();
     expect(screen.getByText("Experimental")).toBeInTheDocument();
+    expect(screen.getAllByText(/recovery only/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/clipboard fallback/i)).toBeInTheDocument();
+    expect(screen.getByText(/direct paste on pure wayland is not considered reliable before the first dictation/i)).toBeInTheDocument();
     expect(screen.getAllByText(/active driver/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/wl-copy/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/wtype is not available in path/i)).toBeInTheDocument();

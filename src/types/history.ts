@@ -1,4 +1,9 @@
-import type { NativeInsertDriver, NativeInsertMode } from "./nativeInsertion";
+import type {
+  NativeClipboardRestoreStatus,
+  NativeInsertDriver,
+  NativeInsertMode,
+  NativeInsertRecoveryAction,
+} from "./nativeInsertion";
 
 export type TranscriptionHistoryStatus = "completed" | "empty" | "failed";
 export type TranscriptionHistorySource = "native_pipeline" | "retry";
@@ -32,6 +37,11 @@ export interface TranscriptionHistoryEntry {
   model: string | null;
   language: string | null;
   active_profile: string | null;
+  provider_profile: string | null;
+  local_prompt_strength: string | null;
+  local_prompt_carry: boolean | null;
+  local_beam_size: number | null;
+  local_best_of: number | null;
   raw_transcript: string | null;
   transformed_transcript: string | null;
   corrected: boolean;
@@ -42,5 +52,8 @@ export interface TranscriptionHistoryEntry {
   pasted: boolean | null;
   fallback_available: boolean | null;
   fallback_reason: string | null;
+  recovery_action: NativeInsertRecoveryAction | null;
+  recovery_message: string | null;
+  clipboard_restore: NativeClipboardRestoreStatus | null;
   error: string | null;
 }

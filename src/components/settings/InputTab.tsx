@@ -3,7 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { useNativeInsertion } from "../../hooks/useNativeInsertion";
 import { HOTKEY_SEPARATOR_HINT, getHotkeyValidationMessage, normalizeManualHotkey } from "../../lib/hotkeys";
 import type { AppConfig } from "../../types/ipc";
-import type { NativeClipboardRestoreStatus, NativeInsertDriver, NativeInsertRecoveryAction } from "../../types/nativeInsertion";
+import type {
+  NativeClipboardRestoreStatus,
+  NativeInsertDriver,
+  NativeInsertReadiness,
+  NativeInsertRecoveryAction,
+} from "../../types/nativeInsertion";
 import { HotkeyRecorder } from "./HotkeyRecorder";
 
 type ShortcutField = "hotkey" | "pause_hotkey" | "abort_hotkey";
@@ -121,6 +126,17 @@ function clipboardRestoreLabel(value: NativeClipboardRestoreStatus | null | unde
   }
 }
 
+function insertReadinessLabel(value: NativeInsertReadiness | null | undefined) {
+  switch (value) {
+    case "ready":
+      return "Ready";
+    case "recovery_only":
+      return "Recovery only";
+    default:
+      return "Checking preflight";
+  }
+}
+
 export function InputTab({ config, onChange }: Props) {
   const insertion = useNativeInsertion();
   const platformStatus = insertion.status?.platform ?? null;
@@ -198,6 +214,7 @@ export function InputTab({ config, onChange }: Props) {
     ? driverChain.map((item) => item.label).join(" -> ")
     : "Detecting current insert chain.";
   const activeDriverLabel = insertDriverLabel(platformStatus?.active_driver);
+  const insertPreflightLabel = insertReadinessLabel(platformStatus?.readiness);
   const audioStatusMessage = audioError
     ? audioError
     : captureStatus?.is_recording && captureStatus.device_name
@@ -212,7 +229,7 @@ export function InputTab({ config, onChange }: Props) {
     ? "Native sound cues are on for start, stop, abort and runtime errors."
     : "Native sound cues are off.";
   const deliveryDriverSummary = platformStatus
-    ? `Current driver: ${activeDriverLabel}. ${platformStatus.platform_label} reports ${driverChainSummary}.`
+    ? `${insertPreflightLabel}: ${platformStatus.readiness_message} Current driver: ${activeDriverLabel}. ${platformStatus.platform_label} reports ${driverChainSummary}.`
     : "WordScript is checking the current native insert chain.";
   const latestFallbackReason = insertion.lastRestore?.fallback_reason
     ?? insertion.status?.last_transcript?.fallback_reason
@@ -270,6 +287,11 @@ export function InputTab({ config, onChange }: Props) {
             <span className="settings__provider-meta-label">Insert driver</span>
             <span>{activeDriverLabel}</span>
             <code>{platformStatus?.insert_strategy ?? "detecting"}</code>
+          </div>
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Insert preflight</span>
+            <span>{insertPreflightLabel}</span>
+            <code>{platformStatus?.support_tier ?? "detecting"}</code>
           </div>
           <div className="settings__provider-meta-item">
             <span className="settings__provider-meta-label">Recovery path</span>
@@ -420,10 +442,10 @@ export function InputTab({ config, onChange }: Props) {
       <div className="form-row">
         <label>Native insert chain</label>
         <div className="provider-status provider-status--stacked">
-          <span className={`provider-status__dot${platformStatus ? " provider-status__dot--ok" : ""}`} />
+          <span className={`provider-status__dot${platformStatus?.readiness === "ready" ? " provider-status__dot--ok" : ""}`} />
           <div>
             <strong>{activeDriverLabel}</strong>
-            <span>{driverChainSummary}</span>
+            <span>{platformStatus?.readiness_message ?? driverChainSummary}</span>
           </div>
         </div>
       </div>

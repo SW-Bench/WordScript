@@ -36,11 +36,11 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - native microphone capture with waveform, silence timeout and max-duration stop
 - guarded native session finalization, so late provider, transform or insertion results cannot overwrite the current runtime state after aborts or newer captures
 - Groq BYOK transcription with OS secret-store storage
-- first generic provider contract in Rust and Tauri, with typed provider modes, capabilities and recovery actions; Groq remains the cloud-first production lane and `local_preview` remains an external-helper STT preview lane
+- first generic provider contract in Rust and Tauri, with typed provider modes, capabilities, recovery actions and local-setup readiness; Groq remains the cloud-first production lane and `local_preview` is the local STT lane with native model discovery, selected-model setup truth, prompt-bias support and probe-based runner diagnostics
 - transform pipeline with hallucination guardrails, optional AI cleanup, local text profiles, curated starter templates, dictionary and snippets
 - native insertion with direct paste, clipboard fallback, typed recovery actions, clipboard-restore status, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
-- native transcription history with retention policy, server-side filters, JSON export, retry and a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
-- platform diagnostics and runtime logs
+- native transcription history with retention policy, server-side filters, JSON export, retry and persisted insert-recovery semantics, plus a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
+- platform diagnostics and runtime logs, including a stage timeline for capture, provider, transform and insert with per-step state, duration and stable error-code truth
 - active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a persistent sidebar profile dock for manual profile switching and a sequenced Text Rules workspace with a compact process summary, starter/setup deck, pinned stage navigation and one dominant working canvas at a time
 - a calmer utility-style Settings shell with visible section hierarchy, denser Provider/Input summaries and a more legible overlay state treatment
 - manual release build-up lanes for Linux, macOS and Windows
@@ -155,7 +155,7 @@ The default repo path remains source-first. `npm run tauri build` and `.github/w
 WordScript currently ships with two runtime lanes behind the same provider contract:
 
 - Groq as the cloud-first production lane with BYOK stored in the OS secret store
-- `local_preview` as an STT-only preview lane that runs through an external `whisper-cli` helper and a local ggml model
+- `local_preview` as an STT-only local lane that runs through an external `whisper-cli` helper and local ggml models, with typed setup truth for the selected model, active runner probes, discovered local profiles, fast-vs-quality preset labels and stable issue codes in Settings
 
 Runtime credentials stay with the user:
 
@@ -167,6 +167,14 @@ Local preview prerequisites today:
 
 - install `whisper-cli` in `PATH` or point `WORDSCRIPT_LOCAL_WHISPER_CLI` at the binary
 - set `WORDSCRIPT_LOCAL_MODEL_PATH` to one ggml model file or `WORDSCRIPT_LOCAL_MODEL_DIR` to a directory that contains `ggml-<model>.bin` or common variant files such as quantized or `.en` model builds
+- expect the Settings profile picker to come from native profile discovery; each local model now exposes explicit `fast` and `quality` profiles, and local readiness still follows the resolved model behind the selected profile
+- expect the active text-profile prompt to feed local STT bias through `whisper-cli --prompt`, with explicit Settings controls for `off`, `profile`, `profile + terms`, and optional `carry initial prompt`
+- expect explicit local decode controls for `beam size` and `best of`; the selected profile sets the starting defaults, but the decoder search depth is now a persisted runtime choice instead of a hidden preset side effect
+- expect Diagnostics and transcription history to record the active local provider profile together with prompt-bias and decode settings, so local regression triage can see more than just provider and model
+- expect those local decode controls to persist per local provider profile, not as one global local pair; switching between `fast` and `quality` profiles now restores the saved decoder settings of that specific profile
+- expect the local prompt-bias controls to persist per local provider profile too; switching between `fast` and `quality` now restores the saved `off`/`profile`/`profile + terms` and `carry initial prompt` state of that exact profile
+- expect Rebuild Lab to show the native runtime contract separately from unsaved Settings edits, so you can see when local preview changes in the window have not been saved into the running runtime yet
+- expect Rebuild Lab to include live provider readiness, resolved runner/model paths and current native capture device/state in that runtime contract, not just the last saved provider/model config
 - expect speech-to-text only; AI cleanup stays cloud-first and falls back to the raw transcript when local preview is active
 
 Distribution credentials and signing remain part of the release build-up. They are intentionally not described as active user delivery while no published releases exist.

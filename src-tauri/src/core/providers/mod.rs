@@ -142,6 +142,38 @@ pub struct ProviderCapabilities {
 	pub model_management: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalProviderReadiness {
+	Ready,
+	SetupRequired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalProviderIssueCode {
+	MissingRunner,
+	InvalidRunnerPath,
+	RunnerProbeFailed,
+	RunnerProbeTimedOut,
+	MissingModel,
+	InvalidModelPath,
+	UnreadableModelDirectory,
+	ModelNotFound,
+	MissingRunnerAndModel,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalProviderSetupStatus {
+	pub readiness: LocalProviderReadiness,
+	pub runner_ready: bool,
+	pub model_ready: bool,
+	pub issue_code: Option<LocalProviderIssueCode>,
+	pub resolved_runner: Option<String>,
+	pub resolved_model: Option<String>,
+	pub guidance: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderStatus {
 	pub provider: String,
@@ -149,11 +181,13 @@ pub struct ProviderStatus {
 	pub credential: ProviderCredentialStatus,
 	pub profiles: Vec<ProviderProfile>,
 	pub capabilities: ProviderCapabilities,
+	pub local_setup: Option<LocalProviderSetupStatus>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderStatusRequest {
 	pub provider: String,
+	pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -185,8 +219,12 @@ pub struct TranscribeAudioFileRequest {
 	pub provider: String,
 	pub audio_path: String,
 	pub model: Option<String>,
+	pub profile: Option<String>,
 	pub language: Option<String>,
 	pub prompt: Option<String>,
+	pub carry_initial_prompt: Option<bool>,
+	pub beam_size: Option<u8>,
+	pub best_of: Option<u8>,
 	pub response_format: Option<String>,
 	pub timeout_ms: Option<u64>,
 	pub max_retries: Option<u8>,
@@ -262,6 +300,7 @@ pub fn provider_credentials_configured(
 ) -> Result<bool, ProviderCommandError> {
 	Ok(provider_status(ProviderStatusRequest {
 		provider: provider.to_string(),
+		model: None,
 	})?
 	.credential
 	.configured)
@@ -283,7 +322,7 @@ pub fn provider_status(
 ) -> Result<ProviderStatus, ProviderCommandError> {
 	match resolve_provider_id(&request.provider)? {
 		ProviderId::Groq => groq::provider_status(),
-		ProviderId::LocalPreview => local_preview::provider_status(),
+		ProviderId::LocalPreview => local_preview::provider_status(request.model.as_deref()),
 	}
 }
 

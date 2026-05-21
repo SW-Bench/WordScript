@@ -71,7 +71,18 @@ Wichtiger Plattformhinweis fuer echte Insert-Checks:
 Optionaler lokaler Preview-Pfad:
 
 - `local_preview` braucht `whisper-cli` in `PATH` oder `WORDSCRIPT_LOCAL_WHISPER_CLI`
+- ein nichtleerer `WORDSCRIPT_LOCAL_WHISPER_CLI`-Wert reicht nicht als Readiness-Signal; der native Provider-Status muss den Runnerpfad aktiv probe-pruefen und lokale Setup-Probleme als typed `issue_code` melden
 - dazu `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin`
+- der native Provider-Status bewertet die Lane gegen das aktuell ausgewaehlte lokale Modell und liefert die Modellliste aus nativer Discovery statt aus einer statischen UI-Annahme
+- dieselbe Lane reicht den aktiven Transkriptions-Context als `whisper-cli --prompt` durch; `local_prompt_strength` und `local_prompt_carry` leben jetzt explizit in Config und muessen als nativer Request-Vertrag behandelt werden
+- lokale Profile werden als echte `...-fast`- und `...-quality`-IDs gespeichert und im Provider-Request weitergereicht; Decode-Presets duerfen nicht mehr implizit nur aus dem Modellnamen rekonstruiert werden
+- `local_beam_size` und `local_best_of` sind jetzt ebenfalls persistierte Runtime-Werte; wer lokale Decode-Semantik aendert, muss Config-Normalisierung, Request-Building, whisper-cli-Args und Settings gemeinsam aktualisieren
+- dieselbe Regel gilt jetzt fuer `local_prompt_strength` und `local_prompt_carry`, aber profilgebunden: wer lokale Prompt-Bias-Semantik aendert, muss die Profilsammlung pflegen und darf die aktiven Mirror-Felder nicht mehr als einzige Persistenz behandeln
+- History- und Diagnostics-Aenderungen fuer lokale Runs muessen dieselben Werte sichtbar halten. Ein lokaler Fehlerfall ohne `provider_profile`, Prompt-Bias oder Decode-Metadaten ist jetzt ein Vertragsbruch, kein UI-Detail
+- die echte Persistenz fuer lokale Decode-Werte liegt jetzt in profilgebundenen Settings-Eintraegen. Wenn UI oder Migration nur `local_beam_size` und `local_best_of` schreiben, aber die Profilsammlung nicht aktualisieren, kommt beim naechsten Profilwechsel alter oder falscher Decoderzustand zurueck
+- dasselbe gilt fuer lokale Prompt-Bias-Werte: Wenn UI oder Migration nur `local_prompt_strength` und `local_prompt_carry` schreiben, aber die profilgebundene Sammlung nicht aktualisieren, springt beim naechsten Profilwechsel wieder ein alter Bias-Zustand ein
+- `v1_slice_status` ist jetzt eine native Snapshot-Oberflaeche fuer den laufenden Runtime-Vertrag. Diagnostics muss lokale Vertragswerte aus diesem Snapshot lesen und eventuelle Fenster-Drafts explizit als unsaved Drift markieren
+- dieser Snapshot muss jetzt nicht nur Config, sondern echte Live-Statusquellen einziehen: Local-Provider-Readiness inkl. aufgeloester Runner-/Modellpfade und nativer Capture-Status gehoeren in den Snapshot, statt im UI neu zusammengesetzt zu werden
 - die Lane ist aktuell STT-only; AI cleanup bleibt Groq-first und faellt sonst auf das rohe Transkript zurueck
 
 ## Arbeitsregeln
@@ -102,6 +113,8 @@ React darf diese Dinge anzeigen, konfigurieren und diagnostisch erklaeren, aber 
 Async Runtime-Ergebnisse aus Provider, Transform und Insert muessen ueber die aktive `processing`-Session-ID guardiert werden. Ein spaeter Provider- oder Insert-Fehler darf nach Abort, neuer Aufnahme oder bereits finalisierter Session keinen UI-State mehr ueberschreiben.
 Provider-Capabilities und Provider-Modi kommen aus dem nativen Provider-Vertrag. Settings duerfen sie als Status- und Auswahlhilfe nutzen, aber nicht aus Modellnamen oder UI-Heuristiken ableiten.
 Insert-Recovery muss ueber den nativen Insert-Outcome laufen. Neue UI darf `recovery_action`, `recovery_message` und `clipboard_restore` anzeigen, aber nicht aus `fallback_reason` eigene Recovery-States ableiten.
+Dasselbe gilt fuer durable History und Export: `TranscriptionHistoryEntry` ist eine Weitergabe des nativen Recovery-Vertrags und keine zweite, vereinfachte Recovery-Projektion.
+Dasselbe gilt fuer Diagnostics-Stage-Telemetrie: Wenn Rebuild Lab Capture-, Provider-, Transform- oder Insert-Fortschritt anzeigt, muessen `state`, `duration_ms` und `error_code` aus dem nativen Slice-Vertrag kommen und nicht aus UI-Timern, Log-Parsing oder Text-Heuristiken rekonstruiert werden.
 
 ### 3. Kleine, pruefbare Slices bauen
 
@@ -196,7 +209,8 @@ Wichtig fuer den aktuellen Stand:
 - `src-tauri/src/core/trigger.rs`: Start/Stop, Pause/Resume, Abort
 - `src-tauri/src/core/capture.rs`: Mikrofon-Capture, Levels, WAV und Auto-Stop
 - `src-tauri/src/core/providers/groq.rs`: Groq-BYOK und Provider-Fehler
-- `src-tauri/src/core/providers/local_preview.rs`: externe `whisper-cli`-Preview-Lane und lokale Model-Aufloesung
+- `src-tauri/src/core/providers/local_preview.rs`: lokale `whisper-cli`-Lane mit Runner-Probe, selected-model-Readiness und nativer Model-Discovery
+- `src-tauri/src/core/providers/mod.rs`: gemeinsamer Provider-Vertrag inklusive typed `local_setup`-Status fuer die lokale Preview-Lane
 - `src-tauri/src/core/transform.rs`: Cleanup, aktive Profile, Dictionary und Snippets
 - `src-tauri/src/core/insertion.rs`: Paste-Modi, Clipboard-Restore, Scratchpad und Recovery
 - `src-tauri/src/core/updates.rs`: ehrlicher GitHub-Release-Status fuer die About-Flaeche und den Release-Aufbaupfad
@@ -225,7 +239,7 @@ Die naechste Arbeit ist nicht weiterer Scope-Ausbau, sondern V1-Konsolidierung:
 3. lokale Textprofile zu sichtbaren Arbeitsmodi fuer Context, Dictionary, Snippets, spaetere Rewrite-Defaults, Insert-Verhalten und Recovery-Verhalten weiterziehen
 4. Overlay und Settings auf einen Live-Preview- und kontrollierten Commit-Pfad vorbereiten, damit Nutzer `raw transcript`, bereinigten Text, aktiven Modus und schnelle Recovery-Aktionen sehen koennen
 5. den Provider-Stack von Groq als erstem Adapter zu einem produktfaehigen Modellsystem mit mindestens einem zweiten Produktionsprovider und klaren Modi wie `fast`, `quality`, `local` und `self_hosted` ausbauen
-6. `local_preview` zu einer first-class Local Lane mit Modellmanagement, ehrlichen Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets ausbauen
+6. `local_preview` weiter ueber die jetzt vorhandenen Bausteine fuer Modellmanagement, initiales Prompt-Bias, Fast/Quality-Presets und ehrliche Health-Diagnostics hinaus mit tieferen Prompt-Reglern und expliziten Quality-vs-Latency-Controls zu einer volleren Local Lane ausbauen
 7. Setup, Permissions und Packaging als gefuehrten Produktpfad ohne falsche Verfuegbarkeitssignale sauber mitfuehren
 
 Lokale Profile sind jetzt implementiert. Shell und Text-Rules-Editor teilen sich dafuer denselben Profil-Patch-Pfad, und die Text-Rules-Flaeche bringt eine lokale Starter-Library fuer zentrale ICPs mit. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung und spaetere Rewrite-Defaults ueber den aktiven Profilzustand hinaus.

@@ -99,7 +99,7 @@ Der aktive Produktkern sitzt in `src-tauri/src/core/`.
 
 - `providers/mod.rs`: gemeinsamer Provider-Vertrag, Dispatch und generische Command-Oberflaechen
 - `providers/groq.rs`: erste produktive Cloud-Implementierung fuer BYOK, Secret Store und Groq-spezifische HTTP-Fehler
-- `providers/local_preview.rs`: externe `whisper-cli`-Preview-Lane fuer lokales STT ueber denselben Antwortvertrag
+- `providers/local_preview.rs`: lokale `whisper-cli`-STT-Lane mit nativer Modell-Discovery, probe-basierter Runner-Gesundheit und selected-model-Setup-Wahrheit ueber denselben Antwortvertrag
 - `transform.rs`: Halluzinationsfilter, optionale Nachkorrektur, Dictionary- und Snippet-Aufloesung
 - `text_rules.rs`: Analyse, Preview, Import/Export und Konfliktbehandlung der Text Rules
 
@@ -120,6 +120,8 @@ Der aktive Fluss sieht so aus:
 4. Audio wird als 16 kHz Mono-WAV fuer den Provider vorbereitet.
 5. `providers/mod.rs` loest den aktiven Provider auf und delegiert heute an `providers/groq.rs` oder `providers/local_preview.rs`.
 6. `transform.rs` prueft und bereinigt den Transkriptionsoutput und nutzt denselben Provider-Vertrag fuer AI cleanup.
+
+Fuer Diagnostics reicht persistierte Config hier nicht mehr als Wahrheitsquelle. `v1_slice_status` muss den persistierten Provider-/Profilvertrag mit echten Runtime-Statusquellen kombinieren: `provider_status` fuer Local-Setup-Readiness und aufgeloeste Runner-/Modellpfade sowie `native_capture_status` fuer laufenden Capture-Zustand und aktives Device.
 7. `insertion.rs` waehlt den Insert-Modus und fuehrt ihn aus.
 8. `history.rs` schreibt raw vs transformed transcript, aktives Textprofil, Insert-Outcome und Fehler in den nativen Verlauf.
 9. `sessions.rs` finalisiert danach genau einmal `completed`, `aborted` oder `error` und akzeptiert async Pipeline-Ergebnisse nur fuer die aktive `processing`-Session-ID.
@@ -177,9 +179,11 @@ Wichtige Architekturregeln dieses Pfads:
 - erfolgreicher Direct Insert stellt den vorherigen Clipboard-Inhalt best effort wieder her
 - Scratchpad und Last-Transcript-Restore sind Teil des Produktpfads
 - jeder Insert-Outcome traegt eine maschinenlesbare Recovery-Aktion, eine Recovery-Message und den Clipboard-Restore-Status; UI und History duerfen Recovery nicht aus Freitext-Fallbacks erraten
+- dieselbe Recovery-Semantik wird in persistierter History, History-Export und Diagnostics-Karten weitergereicht; diese Flaechen duerfen keine zweite Recovery-Wahrheit bilden
 - Overlay, Input und About nutzen denselben nativen Plattformstatus als Quelle
 - About zeigt Voraussetzungen und Grenzen aus diesem nativen Vertrag, statt pro Plattform neue UI-Nebenwahrheiten zu erfinden
 - Linux/X11/Wayland werden als explizite Driver-Ketten modelliert; `wl-copy`, `xdotool`, `wtype`, `ydotool`, `enigo` und Scratchpad stehen im Status nicht mehr nur implizit im Code
+- Rebuild-Lab-Diagnostics zeigt fuer die V1-Slice nicht nur `stage`, sondern eine native Step-Timeline fuer `capture`, `provider`, `transform` und `insert` inklusive `state`, `duration_ms` und stabilem `error_code`
 
 ## Plattformmodell
 
@@ -206,6 +210,15 @@ Architekturregeln dafuer:
 - `ProviderStatus` liefert neben Profilen auch typisierte Modi (`fast`, `quality`, `local`, spaeter `self_hosted`) und Capabilities wie Transcription, Chat-Cleanup, Prompt-Bias, Segments, Local und API-Key-Pflicht
 - `ProviderCommandError` traegt Fehlerart, Status, Retry-After, `retryable` und eine `user_action`, damit Runtime-Events und Settings dieselbe Recovery-Semantik verwenden
 - `local_preview` nutzt keine API-Keys, sondern sichtbare Helper-/Model-Voraussetzungen in Settings und Diagnostics
+- diese Helper-/Model-Voraussetzungen laufen jetzt ueber einen typed `local_setup`-Vertrag mit `readiness`, stabilem `issue_code` sowie aufgeloestem Runner- und Modellpfad; der Vertrag wird gegen das aktuell gewaehlte lokale Modell ausgewertet und darf lokale Readiness nicht aus `credential.configured` oder Copy rekonstruieren
+- `local_preview` prueft den Runner nicht nur ueber Dateisystem-Praesenz, sondern ueber einen aktiven nativen Probe-Spawn; Fehlercodes wie `runner_probe_failed` oder `runner_probe_timed_out` sind Teil derselben Produktwahrheit
+- lokale Modellprofile kommen nativ aus `WORDSCRIPT_LOCAL_MODEL_PATH` oder `WORDSCRIPT_LOCAL_MODEL_DIR`; die UI darf fuer die Local Lane keine statische Modellliste als Source of Truth behandeln
+- `local_preview` reicht den aktiven STT-Prompt als initialen `whisper-cli --prompt` durch und meldet Prompt-Bias deshalb als echte Capability statt als UI-only Wunsch; die Staerke dieses Bias lebt jetzt explizit in `off`, `profile`, `profile_and_terms` plus optionalem `carry_initial_prompt`
+- lokale `local_preview`-Profile sind jetzt echte Provider-Profile mit eigener ID pro Modell und Preset (`...-fast`, `...-quality`); dieselbe Auswahl lebt in Config, Settings und dem nativen Provider-Request statt in einer Modellfamilien-Heuristik
+- dieselbe lokale Runtime-Konfiguration traegt jetzt zusaetzlich explizite Decode-Regler (`beam_size`, `best_of`); Fast/Quality liefern nur noch Defaults, die eigentliche Decoder-Suchtiefe ist Teil des persistierten AppConfig- und Provider-Request-Vertrags
+- native Diagnostics und Transcription History muessen fuer `local_preview` nicht nur Provider und Modell, sondern auch `provider_profile`, Prompt-Bias-Staerke, Carry-Flag und Decode-Werte zeigen; diese Metadaten gehoeren zur Runtime-Wahrheit eines lokalen Runs
+- diese Decode-Regler leben jetzt profilgebunden in AppConfig. `local_beam_size` und `local_best_of` bleiben nur der aktive Mirror des aktuell gewaehlten Profils, waehrend die eigentliche Persistenz pro `local_profile` erfolgt
+- Rebuild-Lab-Diagnostics darf den Local-STT-Vertrag nicht mehr aus dem Fenster-Draft ableiten. Der Snapshot kommt nativ aus der aktuell geladenen Runtime-Config, und die UI vergleicht ihn gegen unsaved Settings-Aenderungen statt beides zu vermischen
 - `local_preview` ist bewusst kein zweiter Full-Feature-Produktpfad; Capture, Insertion und Recovery bleiben gleich, AI cleanup bleibt cloud-first
 - ein eigener WordScript-Proxy oder Hosted Mode existiert nicht
 

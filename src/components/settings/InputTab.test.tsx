@@ -55,6 +55,8 @@ describe("InputTab", () => {
         platform: {
           platform_label: "Linux Wayland",
           support_tier: "experimental",
+          readiness: "recovery_only",
+          readiness_message: "Clipboard and scratchpad recovery are ready now. Direct paste on pure Wayland is not considered reliable before the first dictation. Missing dedicated Wayland paste helpers today: wtype, ydotool.",
           insert_strategy: "clipboard_fallback",
           active_driver: "wl_copy",
           support_message: "Experimental path: WordScript tries direct paste through available Wayland/X11 helpers, then keeps clipboard and scratchpad recovery if the desktop blocks insertion.",
@@ -121,8 +123,10 @@ describe("InputTab", () => {
     expect(screen.getByText(/manual format: use \+ between keys/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /input device/i })).toBeInTheDocument();
     expect(screen.getByText(/next capture will use built-in microphone/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/recovery only/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/current driver: wl-copy/i)).toBeInTheDocument();
     expect(screen.getAllByText(/wl-copy -> wtype/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/direct paste on pure wayland is not considered reliable before the first dictation/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/use recovery when direct insert failed/i)).toBeInTheDocument();
     expect(screen.getByText(/last recoverable transcript/i)).toBeInTheDocument();
     expect(screen.getByText(/clipboard_fallback · manual paste/i)).toBeInTheDocument();

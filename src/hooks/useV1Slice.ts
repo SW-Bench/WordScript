@@ -49,6 +49,7 @@ export function useV1Slice() {
       });
       return next;
     } catch (cause) {
+      await refresh();
       setError(String(cause));
       return null;
     }

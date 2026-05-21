@@ -10,7 +10,14 @@ import type {
   TranscriptionHistorySource,
   TranscriptionHistoryStatus,
 } from "../../types/history";
-import type { SliceStage } from "../../types/v1Slice";
+import type { NativeClipboardRestoreStatus, NativeInsertRecoveryAction } from "../../types/nativeInsertion";
+import type {
+  SlicePipelineState,
+  SlicePipelineStep,
+  SlicePipelineStepStatus,
+  SliceRuntimeContract,
+  SliceStage,
+} from "../../types/v1Slice";
 
 const DEFAULT_TEXT = "wir shippen morgen die neue WordScript Version und brauchen klare release notes ohne Halluzinationen oder Fallback Chaos";
 
@@ -75,6 +82,46 @@ function stageLabel(stage: SliceStage | undefined) {
     default:
       return "Unknown";
   }
+}
+
+function pipelineStepLabel(step: SlicePipelineStep) {
+  switch (step) {
+    case "capture":
+      return "Capture";
+    case "provider":
+      return "Provider";
+    case "transform":
+      return "Transform";
+    case "insert":
+      return "Insert";
+    default:
+      return "Pipeline step";
+  }
+}
+
+function pipelineStateLabel(state: SlicePipelineState) {
+  switch (state) {
+    case "idle":
+      return "Idle";
+    case "running":
+      return "Running";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    case "skipped":
+      return "Skipped";
+    default:
+      return "Unknown";
+  }
+}
+
+function pipelineDurationLabel(durationMs: number | null) {
+  return durationMs === null ? "Duration pending" : `${durationMs} ms`;
+}
+
+function pipelineTone(step: SlicePipelineStepStatus) {
+  return step.state === "failed" ? " settings__rule-issue--warning" : "";
 }
 
 function humanizeValue(value: string | null | undefined, fallback: string) {
@@ -251,6 +298,131 @@ function historySourceLabel(source: TranscriptionHistorySource) {
   }
 }
 
+function historyRecoveryActionLabel(action: NativeInsertRecoveryAction | null | undefined) {
+  switch (action) {
+    case "none":
+      return "No recovery action needed";
+    case "manual_paste":
+      return "Manual paste";
+    case "use_scratchpad":
+      return "Use scratchpad";
+    default:
+      return null;
+  }
+}
+
+function historyClipboardRestoreLabel(status: NativeClipboardRestoreStatus | null | undefined) {
+  switch (status) {
+    case "scheduled":
+      return "Previous clipboard restore scheduled";
+    case "skipped_no_previous_clipboard":
+      return "No previous clipboard to restore";
+    case "not_attempted":
+      return "Clipboard restore not attempted";
+    default:
+      return null;
+  }
+}
+
+function localPromptStrengthLabel(value: string | null | undefined) {
+  switch (value) {
+    case "off":
+      return "Prompt bias off";
+    case "profile":
+      return "Prompt bias profile";
+    case "profile_and_terms":
+      return "Prompt bias profile + terms";
+    default:
+      return null;
+  }
+}
+
+function runtimeProviderLabel(runtimeContract: SliceRuntimeContract | null | undefined, fallback: string | null | undefined) {
+  if (runtimeContract?.local_preview?.provider_profile) {
+    return humanizeValue(runtimeContract.local_preview.provider_profile, "Local preview");
+  }
+
+  return humanizeValue(fallback, "Cloud Fast");
+}
+
+function providerReadinessLabel(runtimeContract: SliceRuntimeContract | null | undefined) {
+  if (!runtimeContract) {
+    return "Unknown";
+  }
+
+  return runtimeContract.provider_status.ready ? "Ready" : "Needs attention";
+}
+
+function captureRuntimeLabel(runtimeContract: SliceRuntimeContract | null | undefined) {
+  const capture = runtimeContract?.capture_status;
+
+  if (!capture) {
+    return "Unknown";
+  }
+  if (capture.is_recording && capture.paused) {
+    return "Recording paused";
+  }
+  if (capture.is_recording) {
+    return capture.muted ? "Recording muted" : "Recording live";
+  }
+
+  return "Idle";
+}
+
+function localSetupReadinessLabel(readiness: string | null | undefined) {
+  switch (readiness) {
+    case "ready":
+      return "Local setup ready";
+    case "setup_required":
+      return "Local setup required";
+    default:
+      return "Local setup unknown";
+  }
+}
+
+function describeRuntimeDraftDifferences(
+  runtimeContract: SliceRuntimeContract | null | undefined,
+  config: AppConfig,
+): string[] {
+  if (!runtimeContract) {
+    return [];
+  }
+
+  const differences: string[] = [];
+  if (runtimeContract.provider !== config.provider) {
+    differences.push(
+      `Provider runtime ${humanizeValue(runtimeContract.provider, "unknown")} differs from unsaved draft ${humanizeValue(config.provider, "unknown")}.`,
+    );
+  }
+
+  const runtimeLocal = runtimeContract.local_preview;
+  if (!runtimeLocal || config.provider !== "local_preview") {
+    return differences;
+  }
+
+  if (runtimeLocal.provider_profile !== config.local_profile) {
+    differences.push(`Profile runtime ${runtimeLocal.provider_profile} differs from unsaved draft ${config.local_profile}.`);
+  }
+  if (runtimeLocal.prompt_strength !== config.local_prompt_strength) {
+    differences.push(
+      `Prompt bias runtime ${localPromptStrengthLabel(runtimeLocal.prompt_strength) ?? runtimeLocal.prompt_strength} differs from unsaved draft ${localPromptStrengthLabel(config.local_prompt_strength) ?? config.local_prompt_strength}.`,
+    );
+  }
+  if (runtimeLocal.prompt_carry !== config.local_prompt_carry) {
+    differences.push(
+      `Prompt carry runtime ${runtimeLocal.prompt_carry ? "enabled" : "disabled"} differs from unsaved draft ${config.local_prompt_carry ? "enabled" : "disabled"}.`,
+    );
+  }
+  if (runtimeLocal.beam_size !== config.local_beam_size) {
+    differences.push(`Beam size runtime ${runtimeLocal.beam_size} differs from unsaved draft ${config.local_beam_size}.`);
+  }
+  if (runtimeLocal.best_of !== config.local_best_of) {
+    differences.push(`Best of runtime ${runtimeLocal.best_of} differs from unsaved draft ${config.local_best_of}.`);
+  }
+
+  return differences;
+}
+
 function formatHistoryTimestamp(createdAtMs: number) {
   return new Date(createdAtMs).toISOString().slice(0, 16).replace("T", " ");
 }
@@ -342,6 +514,12 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
   const visibleHistoryEntries = transcriptionHistory.entries;
   const retentionLabel = HISTORY_RETENTION_OPTIONS.find((option) => option.value === config.history_retention_days)?.label
     ?? `${config.history_retention_days} days`;
+  const runtimeContract = status?.runtime_contract ?? null;
+  const runtimeLocalPreview = runtimeContract?.local_preview ?? null;
+  const runtimeProviderStatus = runtimeContract?.provider_status ?? null;
+  const runtimeCaptureStatus = runtimeContract?.capture_status ?? null;
+  const runtimeLocalSetup = runtimeProviderStatus?.local_setup ?? null;
+  const runtimeDraftDifferences = describeRuntimeDraftDifferences(runtimeContract, config);
 
   const stage = status?.stage;
   const runtimeLogText = runtimeLogs.entries.length
@@ -454,13 +632,121 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
       </div>
       <div className="form-row">
         <label>Transcription path</label>
-        <div className="provider-status"><span>{humanizeValue(status?.preferred_provider, "Cloud Fast")}</span></div>
+        <div className="provider-status"><span>{runtimeProviderLabel(runtimeContract, status?.preferred_provider)}</span></div>
+      </div>
+      <div className="form-row">
+        <label>Runtime model</label>
+        <div className="provider-status"><span>{runtimeContract?.model ?? "No runtime model loaded"}</span></div>
+      </div>
+      <div className="form-row">
+        <label>Provider readiness</label>
+        <div className="provider-status"><span>{providerReadinessLabel(runtimeContract)}</span></div>
+      </div>
+      <div className="form-row">
+        <label>Capture runtime</label>
+        <div className="provider-status"><span>{captureRuntimeLabel(runtimeContract)}</span></div>
+      </div>
+      <div className="form-row">
+        <label>Capture device</label>
+        <div className="provider-status"><span>{runtimeCaptureStatus?.device_name ?? "No active device"}</span></div>
       </div>
       <div className="form-row">
         <label>Pipeline</label>
         <div className="provider-status"><span>{humanizeValue(status?.architecture_mode, "Native Runtime Slice")}</span></div>
       </div>
+      {!!status?.pipeline.length && (
+        <div className="settings__rule-issues" style={{ marginTop: 14 }}>
+          {status.pipeline.map((step) => (
+            <div key={step.step} className={`settings__rule-issue${pipelineTone(step)}`}>
+              <strong>{`${pipelineStepLabel(step.step)} · ${pipelineStateLabel(step.state)}`}</strong>
+              <span>{pipelineDurationLabel(step.duration_ms)}</span>
+              {step.error_code && <span>{`Error code: ${step.error_code}`}</span>}
+              {step.detail && <span>{step.detail}</span>}
+            </div>
+          ))}
+        </div>
+      )}
       {isPending && <p className="form-dim">Refreshing native runtime status…</p>}
+
+      {(runtimeLocalPreview || config.provider === "local_preview") && (
+        <>
+          <div className="form-section">Local STT Contract</div>
+          <div className="settings__about-card">
+            <p className="form-dim" style={{ marginTop: 0 }}>
+              This contract comes from the native runtime snapshot. Unsaved changes in this window do not change the running contract until you save settings.
+            </p>
+            {runtimeLocalPreview ? (
+              <>
+                <div className="settings__rule-chip-row">
+                  <span className="settings__rule-chip">{runtimeLocalPreview.provider_profile}</span>
+                  <span className="settings__rule-chip">{localPromptStrengthLabel(runtimeLocalPreview.prompt_strength) ?? "Prompt bias unknown"}</span>
+                  <span className="settings__rule-chip">{runtimeLocalPreview.prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}</span>
+                  <span className="settings__rule-chip">{`Beam ${runtimeLocalPreview.beam_size}`}</span>
+                  <span className="settings__rule-chip">{`Best of ${runtimeLocalPreview.best_of}`}</span>
+                </div>
+                <p className="form-dim" style={{ marginBottom: runtimeDraftDifferences.length ? 12 : 0 }}>
+                  These values are currently active in the native runtime and flow into local preview requests and transcription history.
+                </p>
+                {runtimeLocalSetup && (
+                  <>
+                    <div className="settings__rule-chip-row">
+                      <span className="settings__rule-chip">{localSetupReadinessLabel(runtimeLocalSetup.readiness)}</span>
+                      <span className="settings__rule-chip">{runtimeLocalSetup.runner_ready ? "Runner ready" : "Runner missing"}</span>
+                      <span className="settings__rule-chip">{runtimeLocalSetup.model_ready ? "Model ready" : "Model missing"}</span>
+                    </div>
+                    <div className="settings__rule-issues" style={{ marginTop: 12 }}>
+                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
+                        <strong>Resolved runner</strong>
+                        <span>{runtimeLocalSetup.resolved_runner ?? "Not resolved"}</span>
+                      </div>
+                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
+                        <strong>Resolved model</strong>
+                        <span>{runtimeLocalSetup.resolved_model ?? "Not resolved"}</span>
+                      </div>
+                      {runtimeLocalSetup.issue_code && (
+                        <div className="settings__rule-issue settings__rule-issue--warning">
+                          <strong>Provider issue</strong>
+                          <span>{humanizeValue(runtimeLocalSetup.issue_code, runtimeLocalSetup.issue_code)}</span>
+                        </div>
+                      )}
+                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
+                        <strong>Setup guidance</strong>
+                        <span>{runtimeLocalSetup.guidance}</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <p className="form-dim" style={{ marginBottom: runtimeDraftDifferences.length ? 12 : 0 }}>
+                The native runtime is not currently using local preview.
+              </p>
+            )}
+            {runtimeDraftDifferences.length > 0 && (
+              <div className="settings__rule-issues">
+                {runtimeDraftDifferences.map((difference) => (
+                  <div key={difference} className="settings__rule-issue settings__rule-issue--warning">
+                    <strong>Unsaved draft differs from runtime</strong>
+                    <span>{difference}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {config.provider === "local_preview" && (
+              <>
+                <strong className="settings__about-title" style={{ display: "block", marginTop: 12 }}>Draft in this window</strong>
+                <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
+                  <span className="settings__rule-chip">{config.local_profile}</span>
+                  <span className="settings__rule-chip">{localPromptStrengthLabel(config.local_prompt_strength) ?? "Prompt bias unknown"}</span>
+                  <span className="settings__rule-chip">{config.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}</span>
+                  <span className="settings__rule-chip">{`Beam ${config.local_beam_size}`}</span>
+                  <span className="settings__rule-chip">{`Best of ${config.local_best_of}`}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="form-section">Coverage</div>
       <div className="settings__about-card">
@@ -639,7 +925,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
             aria-label="Search history"
             type="search"
             value={historySearch}
-            placeholder="Find transcript text, errors or models"
+            placeholder="Find transcript text, recovery notes, errors or models"
             onChange={(event) => setHistorySearch(event.target.value)}
           />
         </div>
@@ -703,8 +989,27 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
                 </p>
                 <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
                   <span className="settings__rule-chip">{entry.model ?? "default model"}</span>
+                  {entry.provider_profile && <span className="settings__rule-chip">{entry.provider_profile}</span>}
+                  {entry.local_prompt_strength && (
+                    <span className="settings__rule-chip">
+                      {localPromptStrengthLabel(entry.local_prompt_strength) ?? entry.local_prompt_strength}
+                    </span>
+                  )}
+                  {entry.local_prompt_carry !== null && entry.local_prompt_carry !== undefined && (
+                    <span className="settings__rule-chip">
+                      {entry.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}
+                    </span>
+                  )}
+                  {entry.local_beam_size !== null && entry.local_beam_size !== undefined && (
+                    <span className="settings__rule-chip">{`Beam ${entry.local_beam_size}`}</span>
+                  )}
+                  {entry.local_best_of !== null && entry.local_best_of !== undefined && (
+                    <span className="settings__rule-chip">{`Best of ${entry.local_best_of}`}</span>
+                  )}
                   {entry.insert_mode && <span className="settings__rule-chip">{humanizeValue(entry.insert_mode, "Insert mode")}</span>}
                   {entry.active_driver && <span className="settings__rule-chip">{humanizeValue(entry.active_driver, "Driver")}</span>}
+                  {entry.recovery_action && <span className="settings__rule-chip">{historyRecoveryActionLabel(entry.recovery_action)}</span>}
+                  {entry.clipboard_restore && <span className="settings__rule-chip">{historyClipboardRestoreLabel(entry.clipboard_restore)}</span>}
                   <span className="settings__rule-chip">{entry.active_profile ?? "Global rules"}</span>
                 </div>
                 <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
@@ -720,6 +1025,19 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
                       {entry.transformed_transcript ?? entry.error ?? "No transformed transcript stored."}
                     </p>
                   </div>
+                  {(entry.recovery_message || entry.fallback_reason || entry.clipboard_restore) && (
+                    <div>
+                      <strong>Recovery</strong>
+                      <p className="form-dim" style={{ margin: "4px 0 0" }}>
+                        {entry.recovery_message ?? entry.fallback_reason ?? "No recovery guidance stored."}
+                      </p>
+                      {entry.clipboard_restore && (
+                        <p className="form-dim" style={{ margin: "4px 0 0" }}>
+                          {historyClipboardRestoreLabel(entry.clipboard_restore)}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="settings__provider-actions settings__provider-actions--compact">
                   <button

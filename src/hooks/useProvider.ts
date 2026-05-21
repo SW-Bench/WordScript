@@ -41,7 +41,7 @@ export function providerErrorActionLabel(action: ProviderErrorAction) {
   }
 }
 
-export function useProvider(providerId: ProviderId = "groq") {
+export function useProvider(providerId: ProviderId = "groq", model?: string | null) {
   const [status, setStatus] = useState<ProviderStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +52,10 @@ export function useProvider(providerId: ProviderId = "groq") {
     setIsLoading(true);
     try {
       const next = await invoke<ProviderStatus>("provider_status", {
-        request: { provider: providerId },
+        request: {
+          provider: providerId,
+          model: model?.trim() ? model.trim() : null,
+        },
       });
       setStatus(next);
       setError(null);
@@ -65,7 +68,7 @@ export function useProvider(providerId: ProviderId = "groq") {
     } finally {
       setIsLoading(false);
     }
-  }, [providerId]);
+  }, [model, providerId]);
 
   const saveApiKey = useCallback(async (apiKey: string) => {
     setIsLoading(true);

@@ -10,7 +10,7 @@ import {
   APP_SITE_URL,
   APP_VERSION,
 } from "../../lib/appMeta";
-import type { NativeInsertDriver } from "../../types/nativeInsertion";
+import type { NativeInsertDriver, NativeInsertReadiness } from "../../types/nativeInsertion";
 import type { AppUpdateStatus, AppUpdateStatusKind, ReleaseBuildState } from "../../types/updates";
 
 interface AboutTabProps {
@@ -66,6 +66,17 @@ function insertDriverLabel(value: NativeInsertDriver | undefined) {
   }
 }
 
+function insertReadinessLabel(value: NativeInsertReadiness | undefined) {
+  switch (value) {
+    case "ready":
+      return "Ready";
+    case "recovery_only":
+      return "Recovery only";
+    default:
+      return "Checking preflight";
+  }
+}
+
 function releaseStatusLabel(value: AppUpdateStatusKind | undefined) {
   switch (value) {
     case "update_available":
@@ -116,6 +127,7 @@ export function AboutTab({ isActive }: AboutTabProps) {
   const driverChain = platformStatus?.driver_chain ?? [];
   const platformChecks = platformStatus?.prerequisites ?? [];
   const platformCaveats = platformStatus?.caveats ?? [];
+  const platformReadinessLabel = insertReadinessLabel(platformStatus?.readiness);
 
   useEffect(() => {
     if (!isActive) {
@@ -269,10 +281,24 @@ export function AboutTab({ isActive }: AboutTabProps) {
           {insertion.error ?? platformStatus?.support_message ?? "WordScript is checking the active insert path for this machine."}
         </p>
 
+        {platformStatus?.readiness_message && (
+          <div className={`settings__rule-issue${platformStatus.readiness === "ready" ? "" : " settings__rule-issue--warning"}`} style={{ marginTop: 14 }}>
+            <strong>Insert preflight</strong>
+            <div className="settings__rule-issue-copy">
+              <span>{platformReadinessLabel}</span>
+              <span>{platformStatus.readiness_message}</span>
+            </div>
+          </div>
+        )}
+
         <div className="settings__provider-meta-grid">
           <div className="settings__provider-meta-item">
             <span className="settings__provider-meta-label">Insert path</span>
             <span>{insertPathLabel(platformStatus?.insert_strategy)}</span>
+          </div>
+          <div className="settings__provider-meta-item">
+            <span className="settings__provider-meta-label">Preflight</span>
+            <span>{platformReadinessLabel}</span>
           </div>
           <div className="settings__provider-meta-item">
             <span className="settings__provider-meta-label">Active driver</span>

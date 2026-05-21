@@ -1,6 +1,7 @@
 export type NativeInsertMode = "direct_paste" | "clipboard_only" | "clipboard_fallback" | "scratchpad_fallback";
 export type NativeInsertDriver = "wl_copy" | "arboard" | "xdotool" | "wtype" | "ydotool" | "enigo" | "scratchpad";
 export type NativeSupportTier = "tier1" | "preview" | "experimental";
+export type NativeInsertReadiness = "ready" | "recovery_only";
 export type NativeInsertRecoveryAction = "none" | "manual_paste" | "use_scratchpad";
 export type NativeClipboardRestoreStatus = "not_attempted" | "scheduled" | "skipped_no_previous_clipboard";
 
@@ -16,6 +17,8 @@ export interface NativeInsertDriverStatus {
 export interface NativeInsertionPlatformStatus {
   platform_label: string;
   support_tier: NativeSupportTier;
+  readiness: NativeInsertReadiness;
+  readiness_message: string;
   insert_strategy: NativeInsertMode;
   active_driver: NativeInsertDriver;
   support_message: string;

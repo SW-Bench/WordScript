@@ -7,7 +7,8 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 use super::config::AppConfig;
 use super::insertion::{
-    insert_transcription_from_legacy, NativeInsertDriver, NativeInsertMode, NativeInsertResult,
+    insert_transcription_from_legacy, NativeClipboardRestoreStatus, NativeInsertDriver,
+    NativeInsertMode, NativeInsertRecoveryAction, NativeInsertResult,
 };
 use super::paths::history_file_path;
 use super::runtime_log;
@@ -43,6 +44,11 @@ pub struct TranscriptionHistoryEntry {
     pub model: Option<String>,
     pub language: Option<String>,
     pub active_profile: Option<String>,
+    pub provider_profile: Option<String>,
+    pub local_prompt_strength: Option<String>,
+    pub local_prompt_carry: Option<bool>,
+    pub local_beam_size: Option<u8>,
+    pub local_best_of: Option<u8>,
     pub raw_transcript: Option<String>,
     pub transformed_transcript: Option<String>,
     pub corrected: bool,
@@ -53,6 +59,9 @@ pub struct TranscriptionHistoryEntry {
     pub pasted: Option<bool>,
     pub fallback_available: Option<bool>,
     pub fallback_reason: Option<String>,
+    pub recovery_action: Option<NativeInsertRecoveryAction>,
+    pub recovery_message: Option<String>,
+    pub clipboard_restore: Option<NativeClipboardRestoreStatus>,
     pub error: Option<String>,
 }
 
@@ -65,6 +74,11 @@ pub struct RecordHistoryEntryRequest {
     pub model: Option<String>,
     pub language: Option<String>,
     pub active_profile: Option<String>,
+    pub provider_profile: Option<String>,
+    pub local_prompt_strength: Option<String>,
+    pub local_prompt_carry: Option<bool>,
+    pub local_beam_size: Option<u8>,
+    pub local_best_of: Option<u8>,
     pub raw_transcript: Option<String>,
     pub transformed_transcript: Option<String>,
     pub corrected: bool,
@@ -75,6 +89,9 @@ pub struct RecordHistoryEntryRequest {
     pub pasted: Option<bool>,
     pub fallback_available: Option<bool>,
     pub fallback_reason: Option<String>,
+    pub recovery_action: Option<NativeInsertRecoveryAction>,
+    pub recovery_message: Option<String>,
+    pub clipboard_restore: Option<NativeClipboardRestoreStatus>,
     pub error: Option<String>,
 }
 
@@ -125,6 +142,15 @@ struct TranscriptionHistoryExportDocument {
     history_retention_days: u32,
     count: usize,
     entries: Vec<TranscriptionHistoryEntry>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct LocalHistoryContext {
+    provider_profile: Option<String>,
+    local_prompt_strength: Option<String>,
+    local_prompt_carry: Option<bool>,
+    local_beam_size: Option<u8>,
+    local_best_of: Option<u8>,
 }
 
 #[derive(Debug, Default)]
@@ -213,6 +239,11 @@ pub fn record_entry(request: RecordHistoryEntryRequest) -> Result<TranscriptionH
         model: request.model,
         language: request.language,
         active_profile: request.active_profile,
+        provider_profile: request.provider_profile,
+        local_prompt_strength: request.local_prompt_strength,
+        local_prompt_carry: request.local_prompt_carry,
+        local_beam_size: request.local_beam_size,
+        local_best_of: request.local_best_of,
         raw_transcript: request.raw_transcript,
         transformed_transcript: request.transformed_transcript,
         corrected: request.corrected,
@@ -223,6 +254,9 @@ pub fn record_entry(request: RecordHistoryEntryRequest) -> Result<TranscriptionH
         pasted: request.pasted,
         fallback_available: request.fallback_available,
         fallback_reason: request.fallback_reason,
+        recovery_action: request.recovery_action,
+        recovery_message: request.recovery_message,
+        clipboard_restore: request.clipboard_restore,
         error: request.error,
     };
 
@@ -327,6 +361,7 @@ pub async fn retry_transcription_history_entry<R: Runtime>(
 
     let app_config = AppConfig::load_from_disk();
     let transform_config = transform_config_from_app_config(&app_config);
+    let local_history = local_history_context(&app_config);
 
     runtime_log::record(format!(
         "[WordScript] History retry start entry_id={} provider={} post_process={}",
@@ -347,6 +382,11 @@ pub async fn retry_transcription_history_entry<R: Runtime>(
             model: Some(active_model_for_provider(&app_config)),
             language: optional_non_empty(&app_config.language),
             active_profile: app_config.active_text_profile_label(),
+            provider_profile: local_history.provider_profile,
+            local_prompt_strength: local_history.local_prompt_strength,
+            local_prompt_carry: local_history.local_prompt_carry,
+            local_beam_size: local_history.local_beam_size,
+            local_best_of: local_history.local_best_of,
             raw_transcript: Some(raw_transcript),
             transformed_transcript: None,
             corrected: transformed.corrected,
@@ -357,6 +397,9 @@ pub async fn retry_transcription_history_entry<R: Runtime>(
             pasted: None,
             fallback_available: None,
             fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
             error: Some("Retry produced no usable transcript.".to_string()),
         })?
     } else {
@@ -408,6 +451,8 @@ pub fn history_entry_from_insert_result(
     transformed: NativeTransformResult,
     insert_result: &NativeInsertResult,
 ) -> Result<TranscriptionHistoryEntry, String> {
+    let local_history = local_history_context(app_config);
+
     record_entry(RecordHistoryEntryRequest {
         status: if insert_result.ok {
             TranscriptionHistoryStatus::Completed
@@ -424,6 +469,11 @@ pub fn history_entry_from_insert_result(
         model: Some(active_model_for_provider(app_config)),
         language: optional_non_empty(&app_config.language),
         active_profile: app_config.active_text_profile_label(),
+        provider_profile: local_history.provider_profile,
+        local_prompt_strength: local_history.local_prompt_strength,
+        local_prompt_carry: local_history.local_prompt_carry,
+        local_beam_size: local_history.local_beam_size,
+        local_best_of: local_history.local_best_of,
         raw_transcript,
         transformed_transcript: Some(insert_result.text.clone()),
         corrected: transformed.corrected,
@@ -434,7 +484,49 @@ pub fn history_entry_from_insert_result(
         pasted: Some(insert_result.pasted),
         fallback_available: Some(insert_result.fallback_available),
         fallback_reason: insert_result.fallback_reason.clone(),
+        recovery_action: Some(insert_result.recovery_action),
+        recovery_message: Some(insert_result.recovery_message.clone()),
+        clipboard_restore: Some(insert_result.clipboard_restore),
         error: insert_result.error.clone(),
+    })
+}
+
+pub fn record_insert_failure(
+    app_config: &AppConfig,
+    raw_transcript: String,
+    transformed_text: String,
+    transformed: NativeTransformResult,
+    error: String,
+) -> Result<TranscriptionHistoryEntry, String> {
+    let local_history = local_history_context(app_config);
+
+    record_entry(RecordHistoryEntryRequest {
+        status: TranscriptionHistoryStatus::Failed,
+        source: TranscriptionHistorySource::NativePipeline,
+        retry_of: None,
+        provider: app_config.provider.clone(),
+        model: Some(active_model_for_provider(app_config)),
+        language: optional_non_empty(&app_config.language),
+        active_profile: app_config.active_text_profile_label(),
+        provider_profile: local_history.provider_profile,
+        local_prompt_strength: local_history.local_prompt_strength,
+        local_prompt_carry: local_history.local_prompt_carry,
+        local_beam_size: local_history.local_beam_size,
+        local_best_of: local_history.local_best_of,
+        raw_transcript: Some(raw_transcript),
+        transformed_transcript: Some(transformed_text),
+        corrected: transformed.corrected,
+        applied_rules: transformed.applied_rules,
+        transform_warning: transformed.warning,
+        insert_mode: None,
+        active_driver: None,
+        pasted: None,
+        fallback_available: None,
+        fallback_reason: None,
+        recovery_action: None,
+        recovery_message: None,
+        clipboard_restore: None,
+        error: Some(error),
     })
 }
 
@@ -445,6 +537,8 @@ pub fn record_transcription_failure(
     language: Option<String>,
     error: String,
 ) -> Result<TranscriptionHistoryEntry, String> {
+    let local_history = local_history_context(app_config);
+
     record_entry(RecordHistoryEntryRequest {
         status: TranscriptionHistoryStatus::Failed,
         source: TranscriptionHistorySource::NativePipeline,
@@ -453,6 +547,11 @@ pub fn record_transcription_failure(
         model,
         language,
         active_profile: app_config.active_text_profile_label(),
+        provider_profile: local_history.provider_profile,
+        local_prompt_strength: local_history.local_prompt_strength,
+        local_prompt_carry: local_history.local_prompt_carry,
+        local_beam_size: local_history.local_beam_size,
+        local_best_of: local_history.local_best_of,
         raw_transcript: None,
         transformed_transcript: None,
         corrected: false,
@@ -463,6 +562,9 @@ pub fn record_transcription_failure(
         pasted: None,
         fallback_available: None,
         fallback_reason: None,
+        recovery_action: None,
+        recovery_message: None,
+        clipboard_restore: None,
         error: Some(error),
     })
 }
@@ -472,6 +574,8 @@ pub fn record_empty_result(
     raw_transcript: String,
     transformed: NativeTransformResult,
 ) -> Result<TranscriptionHistoryEntry, String> {
+    let local_history = local_history_context(app_config);
+
     record_entry(RecordHistoryEntryRequest {
         status: TranscriptionHistoryStatus::Empty,
         source: TranscriptionHistorySource::NativePipeline,
@@ -480,6 +584,11 @@ pub fn record_empty_result(
         model: Some(active_model_for_provider(app_config)),
         language: optional_non_empty(&app_config.language),
         active_profile: app_config.active_text_profile_label(),
+        provider_profile: local_history.provider_profile,
+        local_prompt_strength: local_history.local_prompt_strength,
+        local_prompt_carry: local_history.local_prompt_carry,
+        local_beam_size: local_history.local_beam_size,
+        local_best_of: local_history.local_best_of,
         raw_transcript: Some(raw_transcript),
         transformed_transcript: None,
         corrected: transformed.corrected,
@@ -490,6 +599,9 @@ pub fn record_empty_result(
         pasted: None,
         fallback_available: None,
         fallback_reason: None,
+        recovery_action: None,
+        recovery_message: None,
+        clipboard_restore: None,
         error: Some("Pipeline produced no usable transcript.".to_string()),
     })
 }
@@ -523,6 +635,20 @@ fn active_model_for_provider(config: &AppConfig) -> String {
         } else {
             trimmed.to_string()
         }
+    }
+}
+
+fn local_history_context(config: &AppConfig) -> LocalHistoryContext {
+    if config.provider != super::providers::LOCAL_PREVIEW_PROVIDER_ID {
+        return LocalHistoryContext::default();
+    }
+
+    LocalHistoryContext {
+        provider_profile: optional_non_empty(&config.local_profile),
+        local_prompt_strength: optional_non_empty(&config.local_prompt_strength),
+        local_prompt_carry: Some(config.local_prompt_carry),
+        local_beam_size: Some(config.local_beam_size),
+        local_best_of: Some(config.local_best_of),
     }
 }
 
@@ -644,10 +770,13 @@ fn history_entry_matches_search(entry: &TranscriptionHistoryEntry, search: &str)
         || contains(entry.model.as_deref())
         || contains(entry.language.as_deref())
         || contains(entry.active_profile.as_deref())
+        || contains(entry.provider_profile.as_deref())
+        || contains(entry.local_prompt_strength.as_deref())
         || contains(entry.raw_transcript.as_deref())
         || contains(entry.transformed_transcript.as_deref())
         || contains(entry.transform_warning.as_deref())
         || contains(entry.fallback_reason.as_deref())
+        || contains(entry.recovery_message.as_deref())
         || contains(entry.error.as_deref())
 }
 
@@ -713,6 +842,11 @@ mod tests {
                 model: Some("whisper-large-v3-turbo".to_string()),
                 language: Some("de".to_string()),
                 active_profile: None,
+                provider_profile: None,
+                local_prompt_strength: None,
+                local_prompt_carry: None,
+                local_beam_size: None,
+                local_best_of: None,
                 raw_transcript: Some(format!("raw-{index}")),
                 transformed_transcript: Some(format!("final-{index}")),
                 corrected: false,
@@ -723,6 +857,9 @@ mod tests {
                 pasted: None,
                 fallback_available: None,
                 fallback_reason: None,
+                recovery_action: None,
+                recovery_message: None,
+                clipboard_restore: None,
                 error: None,
             })
             .expect("record history entry");
@@ -753,6 +890,11 @@ mod tests {
             model: None,
             language: None,
             active_profile: None,
+            provider_profile: None,
+            local_prompt_strength: None,
+            local_prompt_carry: None,
+            local_beam_size: None,
+            local_best_of: None,
             raw_transcript: Some("eins".to_string()),
             transformed_transcript: Some("eins".to_string()),
             corrected: false,
@@ -763,6 +905,9 @@ mod tests {
             pasted: None,
             fallback_available: None,
             fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
             error: None,
         })
         .expect("first history entry");
@@ -774,6 +919,11 @@ mod tests {
             model: None,
             language: None,
             active_profile: None,
+            provider_profile: None,
+            local_prompt_strength: None,
+            local_prompt_carry: None,
+            local_beam_size: None,
+            local_best_of: None,
             raw_transcript: Some("zwei".to_string()),
             transformed_transcript: Some("zwei".to_string()),
             corrected: false,
@@ -784,6 +934,9 @@ mod tests {
             pasted: None,
             fallback_available: None,
             fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
             error: None,
         })
         .expect("second history entry");
@@ -812,6 +965,11 @@ mod tests {
             model: Some("whisper-large-v3-turbo".to_string()),
             language: Some("de".to_string()),
             active_profile: Some("developer".to_string()),
+            provider_profile: None,
+            local_prompt_strength: None,
+            local_prompt_carry: None,
+            local_beam_size: None,
+            local_best_of: None,
             raw_transcript: Some("ship release notes".to_string()),
             transformed_transcript: Some("Ship release notes.".to_string()),
             corrected: true,
@@ -822,6 +980,9 @@ mod tests {
             pasted: None,
             fallback_available: None,
             fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
             error: None,
         })
         .expect("groq history entry");
@@ -834,6 +995,11 @@ mod tests {
             model: Some("base.en".to_string()),
             language: Some("en".to_string()),
             active_profile: Some("support".to_string()),
+            provider_profile: Some("local-preview-base-quality".to_string()),
+            local_prompt_strength: Some("profile_and_terms".to_string()),
+            local_prompt_carry: Some(true),
+            local_beam_size: Some(5),
+            local_best_of: Some(5),
             raw_transcript: Some("follow up".to_string()),
             transformed_transcript: None,
             corrected: false,
@@ -844,6 +1010,9 @@ mod tests {
             pasted: None,
             fallback_available: None,
             fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
             error: Some("Model missing".to_string()),
         })
         .expect("local preview history entry");
@@ -861,6 +1030,7 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].provider, "local_preview");
         assert_eq!(filtered[0].active_profile.as_deref(), Some("support"));
+        assert_eq!(filtered[0].provider_profile.as_deref(), Some("local-preview-base-quality"));
     }
 
     #[test]
@@ -880,6 +1050,11 @@ mod tests {
             model: Some("whisper-large-v3-turbo".to_string()),
             language: Some("de".to_string()),
             active_profile: Some("developer".to_string()),
+            provider_profile: None,
+            local_prompt_strength: None,
+            local_prompt_carry: None,
+            local_beam_size: None,
+            local_best_of: None,
             raw_transcript: Some("eins".to_string()),
             transformed_transcript: Some("eins".to_string()),
             corrected: false,
@@ -890,6 +1065,9 @@ mod tests {
             pasted: None,
             fallback_available: None,
             fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
             error: None,
         })
         .expect("first export history entry");
@@ -901,6 +1079,11 @@ mod tests {
             model: Some("base".to_string()),
             language: Some("en".to_string()),
             active_profile: Some("support".to_string()),
+            provider_profile: Some("local-preview-base-fast".to_string()),
+            local_prompt_strength: Some("profile".to_string()),
+            local_prompt_carry: Some(false),
+            local_beam_size: Some(1),
+            local_best_of: Some(1),
             raw_transcript: Some("zwei".to_string()),
             transformed_transcript: Some("zwei".to_string()),
             corrected: false,
@@ -911,6 +1094,9 @@ mod tests {
             pasted: None,
             fallback_available: None,
             fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
             error: None,
         })
         .expect("second export history entry");
@@ -949,6 +1135,11 @@ mod tests {
                 model: None,
                 language: None,
                 active_profile: None,
+                provider_profile: None,
+                local_prompt_strength: None,
+                local_prompt_carry: None,
+                local_beam_size: None,
+                local_best_of: None,
                 raw_transcript: Some("old".to_string()),
                 transformed_transcript: Some("old".to_string()),
                 corrected: false,
@@ -959,6 +1150,9 @@ mod tests {
                 pasted: None,
                 fallback_available: None,
                 fallback_reason: None,
+                recovery_action: None,
+                recovery_message: None,
+                clipboard_restore: None,
                 error: None,
             },
             TranscriptionHistoryEntry {
@@ -971,6 +1165,11 @@ mod tests {
                 model: None,
                 language: None,
                 active_profile: None,
+                provider_profile: None,
+                local_prompt_strength: None,
+                local_prompt_carry: None,
+                local_beam_size: None,
+                local_best_of: None,
                 raw_transcript: Some("fresh-a".to_string()),
                 transformed_transcript: Some("fresh-a".to_string()),
                 corrected: false,
@@ -981,6 +1180,9 @@ mod tests {
                 pasted: None,
                 fallback_available: None,
                 fallback_reason: None,
+                recovery_action: None,
+                recovery_message: None,
+                clipboard_restore: None,
                 error: None,
             },
             TranscriptionHistoryEntry {
@@ -993,6 +1195,11 @@ mod tests {
                 model: None,
                 language: None,
                 active_profile: None,
+                provider_profile: None,
+                local_prompt_strength: None,
+                local_prompt_carry: None,
+                local_beam_size: None,
+                local_best_of: None,
                 raw_transcript: Some("fresh-b".to_string()),
                 transformed_transcript: Some("fresh-b".to_string()),
                 corrected: false,
@@ -1003,6 +1210,9 @@ mod tests {
                 pasted: None,
                 fallback_available: None,
                 fallback_reason: None,
+                recovery_action: None,
+                recovery_message: None,
+                clipboard_restore: None,
                 error: None,
             },
         ]);
@@ -1011,5 +1221,65 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, "fresh-a");
+    }
+
+    #[test]
+    fn history_entry_preserves_insert_recovery_semantics() {
+        let _guard = test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        prepare_test_history_path("insert-recovery-semantics");
+
+        let entry = history_entry_from_insert_result(
+            &AppConfig::default(),
+            None,
+            Some("raw text".to_string()),
+            NativeTransformResult {
+                text: "final text".to_string(),
+                corrected: false,
+                applied_rules: vec!["removed_fillers".to_string()],
+                warning: None,
+            },
+            &NativeInsertResult {
+                ok: false,
+                text: "final text".to_string(),
+                insert_mode: NativeInsertMode::ClipboardFallback,
+                active_driver: NativeInsertDriver::Arboard,
+                clipboard_written: true,
+                paste_attempted: true,
+                pasted: false,
+                scratchpad_entry: super::super::insertion::ScratchpadEntry {
+                    id: "scratch-1".to_string(),
+                    text: "final text".to_string(),
+                    source: "native_insert".to_string(),
+                    created_at_ms: 1,
+                    corrected: false,
+                    insert_mode: NativeInsertMode::ClipboardFallback,
+                    active_driver: NativeInsertDriver::Arboard,
+                    clipboard_written: true,
+                    paste_attempted: true,
+                    pasted: false,
+                    fallback_reason: Some("xdotool failed".to_string()),
+                    error: Some("xdotool failed".to_string()),
+                    recovery_action: NativeInsertRecoveryAction::ManualPaste,
+                    recovery_message: Some("Transcript is on the clipboard. Paste manually.".to_string()),
+                    clipboard_restore: NativeClipboardRestoreStatus::NotAttempted,
+                },
+                fallback_available: true,
+                fallback_reason: Some("xdotool failed".to_string()),
+                error: Some("xdotool failed".to_string()),
+                recovery_action: NativeInsertRecoveryAction::ManualPaste,
+                recovery_message: "Transcript is on the clipboard. Paste manually.".to_string(),
+                clipboard_restore: NativeClipboardRestoreStatus::NotAttempted,
+            },
+        )
+        .expect("history entry from insert result");
+
+        assert_eq!(entry.recovery_action, Some(NativeInsertRecoveryAction::ManualPaste));
+        assert_eq!(entry.clipboard_restore, Some(NativeClipboardRestoreStatus::NotAttempted));
+        assert_eq!(
+            entry.recovery_message.as_deref(),
+            Some("Transcript is on the clipboard. Paste manually.")
+        );
     }
 }

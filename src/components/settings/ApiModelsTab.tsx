@@ -3,7 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { providerErrorActionLabel, useProvider } from "../../hooks/useProvider";
 import type { AppConfig } from "../../types/ipc";
-import type { ProviderCapabilities, ProviderId, ProviderProfile } from "../../types/providers";
+import type {
+  LocalProviderIssueCode,
+  ProviderCapabilities,
+  ProviderId,
+  ProviderProfile,
+} from "../../types/providers";
 
 interface Props {
   config: AppConfig;
@@ -17,6 +22,15 @@ const WHISPER_MODELS = [
   "distil-whisper-large-v3-en",
 ];
 const LOCAL_PREVIEW_MODELS = ["base", "small", "medium", "large-v3"];
+const LOCAL_PROMPT_STRENGTH_OPTIONS: Array<{
+  value: AppConfig["local_prompt_strength"];
+  label: string;
+}> = [
+  { value: "off", label: "Off" },
+  { value: "profile", label: "Profile context only" },
+  { value: "profile_and_terms", label: "Profile + terms" },
+];
+const LOCAL_DECODE_OPTIONS = [1, 2, 3, 4, 5, 6, 8] as const;
 const CORRECTION_MODELS = [
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
@@ -39,11 +53,38 @@ const LOCAL_PREVIEW_CAPABILITIES: ProviderCapabilities = {
   chat_completion: false,
   local: true,
   requires_api_key: false,
-  supports_prompt_bias: false,
+  supports_prompt_bias: true,
   supports_language: true,
   supports_segments: false,
-  model_management: false,
+  model_management: true,
 };
+
+function buildLocalPreviewFallbackProfiles(): ProviderProfile[] {
+  return LOCAL_PREVIEW_MODELS.flatMap((model, index) => {
+    const profiles: ProviderProfile[] = [
+      {
+        id: `local-preview-${model}-fast`,
+        provider: "local_preview",
+        mode: "fast",
+        model,
+        label: `Local preview ${model} fast profile (external whisper-cli)`,
+        default: index === 0,
+        requires_api_key: false,
+      },
+      {
+        id: `local-preview-${model}-quality`,
+        provider: "local_preview",
+        mode: "quality",
+        model,
+        label: `Local preview ${model} quality profile (external whisper-cli)`,
+        default: false,
+        requires_api_key: false,
+      },
+    ];
+
+    return profiles;
+  });
+}
 
 function cleanupSummary(config: AppConfig) {
   if (!config.post_process) {
@@ -62,6 +103,123 @@ function cleanupSummary(config: AppConfig) {
   return "On. Fixes punctuation, typos, and grammar without broader rewrites.";
 }
 
+function defaultLocalDecodeSettingsForProfileId(profileId: string | null | undefined) {
+  return profileId?.endsWith("-quality")
+    ? { beamSize: 5, bestOf: 5 }
+    : { beamSize: 1, bestOf: 1 };
+}
+
+function defaultLocalPromptSettingsForProfileId() {
+  return { promptStrength: "profile" as AppConfig["local_prompt_strength"], promptCarry: false };
+}
+
+function localProfilePromptSettingsForProfile(config: AppConfig, profileId: string | null | undefined) {
+  const fallback = defaultLocalPromptSettingsForProfileId();
+  const normalizedProfileId = profileId?.trim();
+
+  if (!normalizedProfileId) {
+    return fallback;
+  }
+
+  const stored = config.local_profile_prompt_settings.find((entry) => entry.profile_id === normalizedProfileId);
+  if (!stored) {
+    return fallback;
+  }
+
+  return {
+    promptStrength: stored.prompt_strength,
+    promptCarry: stored.prompt_carry,
+  };
+}
+
+function upsertLocalProfilePromptSettings(
+  settings: AppConfig["local_profile_prompt_settings"],
+  profileId: string,
+  promptStrength: AppConfig["local_prompt_strength"],
+  promptCarry: boolean,
+): AppConfig["local_profile_prompt_settings"] {
+  const nextEntry = {
+    profile_id: profileId,
+    prompt_strength: promptStrength,
+    prompt_carry: promptCarry,
+  };
+  const existingIndex = settings.findIndex((entry) => entry.profile_id === profileId);
+
+  if (existingIndex === -1) {
+    return [...settings, nextEntry];
+  }
+
+  const next = [...settings];
+  next[existingIndex] = nextEntry;
+  return next;
+}
+
+function localProfileDecodeSettingsForProfile(config: AppConfig, profileId: string | null | undefined) {
+  const fallback = defaultLocalDecodeSettingsForProfileId(profileId);
+  const normalizedProfileId = profileId?.trim();
+
+  if (!normalizedProfileId) {
+    return fallback;
+  }
+
+  const stored = config.local_profile_decode_settings.find((entry) => entry.profile_id === normalizedProfileId);
+  if (!stored) {
+    return fallback;
+  }
+
+  return {
+    beamSize: stored.beam_size,
+    bestOf: stored.best_of,
+  };
+}
+
+function upsertLocalProfileDecodeSettings(
+  settings: AppConfig["local_profile_decode_settings"],
+  profileId: string,
+  beamSize: number,
+  bestOf: number,
+): AppConfig["local_profile_decode_settings"] {
+  const nextEntry = {
+    profile_id: profileId,
+    beam_size: beamSize,
+    best_of: bestOf,
+  };
+  const existingIndex = settings.findIndex((entry) => entry.profile_id === profileId);
+
+  if (existingIndex === -1) {
+    return [...settings, nextEntry];
+  }
+
+  const next = [...settings];
+  next[existingIndex] = nextEntry;
+  return next;
+}
+
+function localSetupIssueLabel(issueCode: LocalProviderIssueCode | null | undefined) {
+  switch (issueCode) {
+    case "missing_runner":
+      return "Runner missing";
+    case "invalid_runner_path":
+      return "Runner path invalid";
+    case "runner_probe_failed":
+      return "Runner health check failed";
+    case "runner_probe_timed_out":
+      return "Runner health check timed out";
+    case "missing_model":
+      return "Model missing";
+    case "invalid_model_path":
+      return "Model path invalid";
+    case "unreadable_model_directory":
+      return "Model directory unreadable";
+    case "model_not_found":
+      return "Model not found";
+    case "missing_runner_and_model":
+      return "Runner and model missing";
+    default:
+      return "No setup blockers";
+  }
+}
+
 export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const [showTypedKey, setShowTypedKey] = useState(false);
   const [pendingKey, setPendingKey] = useState("");
@@ -70,6 +228,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const [configPath, setConfigPath] = useState<string | null>(null);
   const selectedProvider: ProviderId = config.provider === "local_preview" ? "local_preview" : "groq";
   const previewLaneSelected = selectedProvider === "local_preview";
+  const selectedLocalModel = previewLaneSelected ? config.local_model : null;
   const providerLabel = previewLaneSelected ? "Local preview" : "Groq cloud";
   const cleanupEnabled = !previewLaneSelected && config.post_process;
   const {
@@ -81,18 +240,10 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
     saveApiKey,
     clearApiKey,
     validateApiKey,
-  } = useProvider(selectedProvider);
+  } = useProvider(selectedProvider, selectedLocalModel);
 
   const fallbackProfiles: ProviderProfile[] = previewLaneSelected
-    ? LOCAL_PREVIEW_MODELS.map((model, index) => ({
-        id: `local-preview-${model}`,
-        provider: "local_preview",
-        mode: "local",
-        model,
-        label: `Local preview ${model} model (external whisper-cli)`,
-        default: index === 0,
-        requires_api_key: false,
-      }))
+    ? buildLocalPreviewFallbackProfiles()
     : WHISPER_MODELS.map((model, index) => ({
         id: `groq-${model}`,
         provider: "groq",
@@ -105,12 +256,30 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const providerProfiles = status?.profiles.length ? status.profiles : fallbackProfiles;
   const providerCapabilities = status?.capabilities ?? (previewLaneSelected ? LOCAL_PREVIEW_CAPABILITIES : GROQ_CAPABILITIES);
   const providerRequiresKey = providerCapabilities.requires_api_key;
+  const localSetup = previewLaneSelected ? status?.local_setup ?? null : null;
+  const activeLocalProfileId = previewLaneSelected
+    ? config.local_profile || providerProfiles.find((profile) => profile.default)?.id || "local-preview-base-fast"
+    : null;
+  const activeProviderProfile = previewLaneSelected
+    ? providerProfiles.find((profile) => profile.id === activeLocalProfileId)
+      ?? providerProfiles.find((profile) => profile.default)
+      ?? providerProfiles[0]
+    : providerProfiles.find((profile) => profile.model === config.model)
+      ?? providerProfiles.find((profile) => profile.default)
+      ?? providerProfiles[0];
+  const previewReady = localSetup?.readiness === "ready";
   const hasTypedKey = pendingKey.trim().length > 0;
-  const storedKey = status?.credential.configured ?? false;
+  const storedKey = previewLaneSelected ? previewReady : status?.credential.configured ?? false;
   const activeModel = previewLaneSelected
-    ? config.local_model || providerProfiles.find((profile) => profile.default)?.model || "base"
-    : config.model || providerProfiles.find((profile) => profile.default)?.model || "whisper-large-v3-turbo";
-  const activeMode = providerProfiles.find((profile) => profile.model === activeModel)?.mode ?? (previewLaneSelected ? "local" : "fast");
+    ? activeProviderProfile?.model || config.local_model || "base"
+    : config.model || activeProviderProfile?.model || "whisper-large-v3-turbo";
+  const activeMode = activeProviderProfile?.mode ?? (previewLaneSelected ? "fast" : "fast");
+  const activeLocalPrompt = localProfilePromptSettingsForProfile(config, activeLocalProfileId);
+  const activeLocalPromptStrength = activeLocalPrompt.promptStrength;
+  const activeLocalPromptCarry = activeLocalPrompt.promptCarry;
+  const activeLocalDecode = localProfileDecodeSettingsForProfile(config, activeLocalProfileId);
+  const activeLocalBeamSize = activeLocalDecode.beamSize;
+  const activeLocalBestOf = activeLocalDecode.bestOf;
   const validationState = previewLaneSelected
     ? storedKey
       ? "ok"
@@ -124,8 +293,8 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           : "missing";
   const statusTitle = previewLaneSelected
     ? storedKey
-      ? "Local preview helper ready"
-      : "Local preview helper missing"
+      ? "Local preview ready"
+      : "Local preview setup required"
     : validationState === "ok"
       ? "Stored key validated"
       : validationState === "stored"
@@ -134,9 +303,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           ? "Groq key check failed"
           : "No local Groq key stored";
   const statusCopy = previewLaneSelected
-    ? storedKey
-      ? "WordScript can transcribe through an external whisper-cli helper in this preview lane."
-      : "Install whisper-cli and point WordScript at a local ggml model before using this preview lane."
+    ? localSetup?.guidance ?? "Install whisper-cli and point WordScript at a local ggml model before using this preview lane."
     : validationState === "ok"
       ? "Validated and ready."
       : validationState === "stored"
@@ -145,7 +312,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           ? "The last provider action failed. Check the status line below."
           : "Save a Groq key to enable transcription.";
   const validationSource = previewLaneSelected
-    ? "STT-only preview lane"
+    ? localSetup?.issue_code ? localSetupIssueLabel(localSetup.issue_code) : "STT-only preview lane"
     : lastValidation?.checked_with === "provided_key"
       ? "Typed key"
       : lastValidation?.checked_with === "stored_key"
@@ -157,15 +324,71 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const handleProviderChange = (provider: ProviderId) => {
     setLocalError(null);
     setStatusMessage(null);
+    const nextLocalProfile = config.local_profile.trim() || "local-preview-base-fast";
+    const nextLocalPrompt = localProfilePromptSettingsForProfile(config, nextLocalProfile);
+    const nextLocalDecode = localProfileDecodeSettingsForProfile(config, nextLocalProfile);
     onChange({
       provider,
-      ...(provider === "local_preview" && !config.local_model.trim() ? { local_model: "base" } : {}),
+      ...(provider === "local_preview"
+        ? {
+            local_model: config.local_model.trim() || "base",
+            local_profile: nextLocalProfile,
+            local_prompt_strength: nextLocalPrompt.promptStrength,
+            local_prompt_carry: nextLocalPrompt.promptCarry,
+            local_beam_size: nextLocalDecode.beamSize,
+            local_best_of: nextLocalDecode.bestOf,
+            local_profile_prompt_settings: upsertLocalProfilePromptSettings(
+              config.local_profile_prompt_settings,
+              nextLocalProfile,
+              nextLocalPrompt.promptStrength,
+              nextLocalPrompt.promptCarry,
+            ),
+            local_profile_decode_settings: upsertLocalProfileDecodeSettings(
+              config.local_profile_decode_settings,
+              nextLocalProfile,
+              nextLocalDecode.beamSize,
+              nextLocalDecode.bestOf,
+            ),
+          }
+        : {}),
       ...(provider === "groq" && !config.model.trim() ? { model: "whisper-large-v3-turbo" } : {}),
     });
   };
 
-  const handleProfileChange = (model: string) => {
-    onChange(previewLaneSelected ? { local_model: model } : { model });
+  const handleProfileChange = (value: string) => {
+    if (previewLaneSelected) {
+      const selectedProfile = providerProfiles.find((profile) => profile.id === value);
+      if (!selectedProfile) {
+        return;
+      }
+
+      const storedPrompt = localProfilePromptSettingsForProfile(config, selectedProfile.id);
+      const storedDecode = localProfileDecodeSettingsForProfile(config, selectedProfile.id);
+
+      onChange({
+        local_profile: selectedProfile.id,
+        local_model: selectedProfile.model,
+        local_prompt_strength: storedPrompt.promptStrength,
+        local_prompt_carry: storedPrompt.promptCarry,
+        local_beam_size: storedDecode.beamSize,
+        local_best_of: storedDecode.bestOf,
+        local_profile_prompt_settings: upsertLocalProfilePromptSettings(
+          config.local_profile_prompt_settings,
+          selectedProfile.id,
+          storedPrompt.promptStrength,
+          storedPrompt.promptCarry,
+        ),
+        local_profile_decode_settings: upsertLocalProfileDecodeSettings(
+          config.local_profile_decode_settings,
+          selectedProfile.id,
+          storedDecode.beamSize,
+          storedDecode.bestOf,
+        ),
+      });
+      return;
+    }
+
+    onChange({ model: value });
   };
 
   const resolveConfigPath = async () => {
@@ -283,17 +506,27 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
         </div>
         <div className="settings__provider-meta-grid">
           <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">{providerRequiresKey ? "Storage" : "Runner"}</span>
-            <code>{status?.credential.storage ?? (providerRequiresKey ? "os_secret_store" : "external_cli")}</code>
+            <span className="settings__provider-meta-label">{providerRequiresKey ? "Storage" : "Setup"}</span>
+            {providerRequiresKey ? (
+              <code>{status?.credential.storage ?? "os_secret_store"}</code>
+            ) : (
+              <span>{previewReady ? "Ready" : "Setup required"}</span>
+            )}
           </div>
           <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">{providerRequiresKey ? "Stored preview" : "Runner detail"}</span>
-            <code>{status?.credential.key_preview ?? (providerRequiresKey ? "No stored preview" : "No helper detected")}</code>
+            <span className="settings__provider-meta-label">{providerRequiresKey ? "Stored preview" : "Runner"}</span>
+            <code>{providerRequiresKey ? status?.credential.key_preview ?? "No stored preview" : localSetup?.resolved_runner ?? "No runner resolved"}</code>
           </div>
           <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">{providerRequiresKey ? "Last check" : "Lane role"}</span>
-            <span>{validationSource}</span>
+            <span className="settings__provider-meta-label">{providerRequiresKey ? "Last check" : "Model"}</span>
+            <span>{providerRequiresKey ? validationSource : localSetup?.resolved_model ?? "No model resolved"}</span>
           </div>
+          {!providerRequiresKey && (
+            <div className="settings__provider-meta-item">
+              <span className="settings__provider-meta-label">Issue</span>
+              <span>{validationSource}</span>
+            </div>
+          )}
           <div className="settings__provider-meta-item">
             <span className="settings__provider-meta-label">Cleanup</span>
             <span>{providerCapabilities.chat_completion ? "Available" : "STT-only"}</span>
@@ -375,6 +608,9 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
             </p>
           </div>
           <p className="form-dim">
+            {localSetup?.guidance ?? "This lane is intentionally STT-only. WordScript keeps the same runtime path for capture, insert and diagnostics, but skips cloud cleanup while local preview is active."}
+          </p>
+          <p className="form-dim">
             This lane is intentionally STT-only. WordScript keeps the same runtime path for capture, insert and diagnostics, but skips cloud cleanup while local preview is active.
           </p>
         </div>
@@ -396,9 +632,11 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
       </div>
       <div className="form-row">
         <label htmlFor="profile-select">Profile</label>
-        <select id="profile-select" value={activeModel}
+        <select id="profile-select" value={previewLaneSelected ? activeLocalProfileId ?? "" : activeModel}
           onChange={(e) => handleProfileChange(e.target.value)}>
-          {providerProfiles.map((profile) => <option key={profile.id} value={profile.model}>{profile.label}</option>)}
+          {providerProfiles.map((profile) => (
+            <option key={profile.id} value={previewLaneSelected ? profile.id : profile.model}>{profile.label}</option>
+          ))}
         </select>
       </div>
       <div className="form-row">
@@ -411,9 +649,115 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           {LANGUAGES.map((l) => <option key={l}>{l}</option>)}
         </select>
       </div>
+      {previewLaneSelected && providerCapabilities.supports_prompt_bias && (
+        <>
+          <div className="form-row">
+            <label htmlFor="local-prompt-strength-select">Bias strength</label>
+            <select
+              id="local-prompt-strength-select"
+              value={activeLocalPromptStrength}
+              onChange={(e) => {
+                const nextPromptStrength = e.target.value as AppConfig["local_prompt_strength"];
+                const profileId = activeLocalProfileId ?? "local-preview-base-fast";
+                onChange({
+                  local_prompt_strength: nextPromptStrength,
+                  local_profile_prompt_settings: upsertLocalProfilePromptSettings(
+                    config.local_profile_prompt_settings,
+                    profileId,
+                    nextPromptStrength,
+                    activeLocalPromptCarry,
+                  ),
+                });
+              }}
+            >
+              {LOCAL_PROMPT_STRENGTH_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+          <label className="form-check" style={{ marginBottom: 10 }}>
+            <input
+              type="checkbox"
+              checked={activeLocalPromptCarry}
+              onChange={(e) => {
+                const nextPromptCarry = e.target.checked;
+                const profileId = activeLocalProfileId ?? "local-preview-base-fast";
+                onChange({
+                  local_prompt_carry: nextPromptCarry,
+                  local_profile_prompt_settings: upsertLocalProfilePromptSettings(
+                    config.local_profile_prompt_settings,
+                    profileId,
+                    activeLocalPromptStrength,
+                    nextPromptCarry,
+                  ),
+                });
+              }}
+            />
+            <span>Carry initial prompt</span>
+          </label>
+          <p className="form-dim">
+            Local prompt bias uses the active Text Rules profile. <strong>Profile + terms</strong> also folds dictionary replacements and snippet triggers into the initial whisper prompt, while carry keeps that bias across decoder windows.
+          </p>
+        </>
+      )}
+      {previewLaneSelected && (
+        <>
+          <div className="form-row">
+            <label htmlFor="local-beam-size-select">Beam size</label>
+            <select
+              id="local-beam-size-select"
+              value={activeLocalBeamSize}
+              onChange={(e) => {
+                const nextBeamSize = Number(e.target.value);
+                const profileId = activeLocalProfileId ?? "local-preview-base-fast";
+                onChange({
+                  local_beam_size: nextBeamSize,
+                  local_profile_decode_settings: upsertLocalProfileDecodeSettings(
+                    config.local_profile_decode_settings,
+                    profileId,
+                    nextBeamSize,
+                    activeLocalBestOf,
+                  ),
+                });
+              }}
+            >
+              {LOCAL_DECODE_OPTIONS.map((value) => (
+                <option key={`beam-${value}`} value={value}>{value}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-row">
+            <label htmlFor="local-best-of-select">Best of</label>
+            <select
+              id="local-best-of-select"
+              value={activeLocalBestOf}
+              onChange={(e) => {
+                const nextBestOf = Number(e.target.value);
+                const profileId = activeLocalProfileId ?? "local-preview-base-fast";
+                onChange({
+                  local_best_of: nextBestOf,
+                  local_profile_decode_settings: upsertLocalProfileDecodeSettings(
+                    config.local_profile_decode_settings,
+                    profileId,
+                    activeLocalBeamSize,
+                    nextBestOf,
+                  ),
+                });
+              }}
+            >
+              {LOCAL_DECODE_OPTIONS.map((value) => (
+                <option key={`best-of-${value}`} value={value}>{value}</option>
+              ))}
+            </select>
+          </div>
+          <p className="form-dim">
+            Fast and quality profiles now set decoder defaults, not hidden behavior. Lower beam and best-of values reduce search work, while higher values trade more latency for a broader local decode pass.
+          </p>
+        </>
+      )}
       <p className="form-dim">
         {previewLaneSelected
-          ? "Local preview keeps the same runtime pipeline but swaps speech-to-text to an external whisper-cli helper. Language can usually stay on Auto."
+          ? "Local preview keeps the same runtime pipeline but swaps speech-to-text to an external whisper-cli helper. Language can usually stay on Auto, and the selected local profile now controls latency vs. quality explicitly."
           : "Profile controls speed vs. accuracy. Language can usually stay on Auto."}
       </p>
 

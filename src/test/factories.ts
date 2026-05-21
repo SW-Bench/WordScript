@@ -23,6 +23,25 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     professionalize: false,
     provider: "groq",
     local_model: "base",
+    local_profile: "local-preview-base-fast",
+    local_prompt_strength: "profile",
+    local_prompt_carry: false,
+    local_beam_size: 1,
+    local_best_of: 1,
+    local_profile_prompt_settings: [
+      {
+        profile_id: "local-preview-base-fast",
+        prompt_strength: "profile",
+        prompt_carry: false,
+      },
+    ],
+    local_profile_decode_settings: [
+      {
+        profile_id: "local-preview-base-fast",
+        beam_size: 1,
+        best_of: 1,
+      },
+    ],
     hotkey: "ctrl_l+f9",
     pause_hotkey: "ctrl_l+f10",
     abort_hotkey: "ctrl_l+alt_l+escape",

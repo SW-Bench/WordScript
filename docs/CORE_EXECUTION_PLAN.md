@@ -180,7 +180,7 @@ Die Textinsertion von WordScript muss unter Linux nicht nur "irgendwie paste" ko
 - Diagnostics nennen aktive Strategie plus Fallback-Grund
 - Clipboard-Restore bleibt best effort, aber strukturell stabil
 
-Status: erster Recovery-Haertungspass umgesetzt. Native Insert-Ergebnisse tragen jetzt eine typisierte Recovery-Aktion (`none`, `manual_paste`, `use_scratchpad`), eine nutzerfaehige Recovery-Message und einen Clipboard-Restore-Status (`not_attempted`, `scheduled`, `skipped_no_previous_clipboard`). Input liest diese Werte aus dem nativen Vertrag statt aus Fallback-Freitext zu raten.
+Status: erster Recovery-Haertungspass umgesetzt. Native Insert-Ergebnisse tragen jetzt eine typisierte Recovery-Aktion (`none`, `manual_paste`, `use_scratchpad`), eine nutzerfaehige Recovery-Message und einen Clipboard-Restore-Status (`not_attempted`, `scheduled`, `skipped_no_previous_clipboard`). Input liest diese Werte aus dem nativen Vertrag statt aus Fallback-Freitext zu raten, und History/Export/Diagnostics persistieren dieselbe Recovery-Semantik jetzt ebenfalls.
 
 ## Slice 4 - Lokale STT-Lane als Preview einfuehren
 
