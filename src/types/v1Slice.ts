@@ -24,9 +24,12 @@ export interface SliceLocalProviderSetupContract {
   readiness: "ready" | "setup_required";
   runner_ready: boolean;
   model_ready: boolean;
+  chat_ready: boolean;
   issue_code: string | null;
   resolved_runner: string | null;
   resolved_model: string | null;
+  resolved_chat_base_url: string | null;
+  resolved_chat_model: string | null;
   guidance: string;
 }
 

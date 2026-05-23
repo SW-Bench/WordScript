@@ -41,7 +41,7 @@ const TABS = [
     id: "Provider & Models",
     icon: "gear",
     eyebrow: "Provider & Models",
-    blurb: "Cloud BYOK, local preview lane, language, model choice and post-correction.",
+    blurb: "Cloud BYOK, local runtime lane, language, model choice and post-correction.",
   },
   {
     section: "Configure",
@@ -106,7 +106,10 @@ export default function SettingsWindow() {
   const selectedLocalModel = selectedProvider === "local_preview"
     ? (form?.local_model ?? state.config?.local_model ?? "base")
     : null;
-  const { status: providerStatus } = useProvider(selectedProvider, selectedLocalModel);
+  const selectedCleanupModel = selectedProvider === "local_preview"
+    ? (form?.local_correction_model ?? state.config?.local_correction_model ?? "llama3.2:latest")
+    : (form?.correction_model ?? state.config?.correction_model ?? "llama-3.3-70b-versatile");
+  const { status: providerStatus } = useProvider(selectedProvider, selectedLocalModel, selectedCleanupModel);
   const providerReady = selectedProvider === "local_preview"
     ? providerStatus?.local_setup?.readiness === "ready"
     : providerStatus?.credential.configured;
@@ -148,16 +151,16 @@ export default function SettingsWindow() {
         ? { label: state.paused ? "Paused" : "Recording", title: state.paused ? "Recording is paused." : "Recording is active.", ok: true }
           : providerReady
           ? {
-              label: selectedProvider === "local_preview" ? "Preview ready" : "Ready",
+              label: selectedProvider === "local_preview" ? "Local ready" : "Ready",
               title: selectedProvider === "local_preview"
-                  ? providerStatus?.local_setup?.guidance ?? "Local preview helper and model are configured for the native runtime."
+                  ? providerStatus?.local_setup?.guidance ?? "Local runtime helper, STT model and cleanup model are configured for the native runtime."
                 : "Groq key is present and the native runtime is configured.",
               ok: true,
             }
           : {
-              label: selectedProvider === "local_preview" ? "Needs helper" : "Needs key",
+              label: selectedProvider === "local_preview" ? "Needs local setup" : "Needs key",
               title: selectedProvider === "local_preview"
-                  ? providerStatus?.local_setup?.guidance ?? "Configure whisper-cli and a local model before the preview lane can run."
+                  ? providerStatus?.local_setup?.guidance ?? "Configure whisper-cli, a local STT model and a local cleanup model before the local runtime lane can run."
                 : "Add a Groq key before transcription can run.",
               ok: false,
             };

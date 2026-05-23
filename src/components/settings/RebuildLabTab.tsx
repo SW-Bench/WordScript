@@ -339,7 +339,7 @@ function localPromptStrengthLabel(value: string | null | undefined) {
 
 function runtimeProviderLabel(runtimeContract: SliceRuntimeContract | null | undefined, fallback: string | null | undefined) {
   if (runtimeContract?.local_preview?.provider_profile) {
-    return humanizeValue(runtimeContract.local_preview.provider_profile, "Local preview");
+    return humanizeValue(runtimeContract.local_preview.provider_profile, "Local runtime");
   }
 
   return humanizeValue(fallback, "Cloud Fast");
@@ -846,7 +846,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
 
       {(runtimeLocalPreview || config.provider === "local_preview") && (
         <>
-          <div className="form-section">Local STT Contract</div>
+          <div className="form-section">Local Runtime Contract</div>
           <div className="settings__about-card">
             <p className="form-dim" style={{ marginTop: 0 }}>
               This contract comes from the native runtime snapshot. Unsaved changes in this window do not change the running contract until you save settings.
@@ -861,7 +861,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
                   <span className="settings__rule-chip">{`Best of ${runtimeLocalPreview.best_of}`}</span>
                 </div>
                 <p className="form-dim" style={{ marginBottom: runtimeDraftDifferences.length ? 12 : 0 }}>
-                  These values are currently active in the native runtime and flow into local preview requests and transcription history.
+                  These values are currently active in the native runtime and flow into local runtime requests and transcription history.
                 </p>
                 {runtimeLocalSetup && (
                   <>
@@ -869,6 +869,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
                       <span className="settings__rule-chip">{localSetupReadinessLabel(runtimeLocalSetup.readiness)}</span>
                       <span className="settings__rule-chip">{runtimeLocalSetup.runner_ready ? "Runner ready" : "Runner missing"}</span>
                       <span className="settings__rule-chip">{runtimeLocalSetup.model_ready ? "Model ready" : "Model missing"}</span>
+                      <span className="settings__rule-chip">{runtimeLocalSetup.chat_ready ? "Cleanup ready" : "Cleanup missing"}</span>
                     </div>
                     <div className="settings__rule-issues" style={{ marginTop: 12 }}>
                       <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
@@ -878,6 +879,14 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
                       <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
                         <strong>Resolved model</strong>
                         <span>{runtimeLocalSetup.resolved_model ?? "Not resolved"}</span>
+                      </div>
+                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
+                        <strong>Resolved cleanup endpoint</strong>
+                        <span>{runtimeLocalSetup.resolved_chat_base_url ?? "Not resolved"}</span>
+                      </div>
+                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
+                        <strong>Resolved cleanup model</strong>
+                        <span>{runtimeLocalSetup.resolved_chat_model ?? "Not resolved"}</span>
                       </div>
                       {runtimeLocalSetup.issue_code && (
                         <div className="settings__rule-issue settings__rule-issue--warning">
@@ -895,7 +904,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
               </>
             ) : (
               <p className="form-dim" style={{ marginBottom: runtimeDraftDifferences.length ? 12 : 0 }}>
-                The native runtime is not currently using local preview.
+                The native runtime is not currently using the local runtime lane.
               </p>
             )}
             {runtimeDraftDifferences.length > 0 && (

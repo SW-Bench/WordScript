@@ -68,9 +68,12 @@ pub struct SliceLocalProviderSetupContract {
     pub readiness: String,
     pub runner_ready: bool,
     pub model_ready: bool,
+    pub chat_ready: bool,
     pub issue_code: Option<String>,
     pub resolved_runner: Option<String>,
     pub resolved_model: Option<String>,
+    pub resolved_chat_base_url: Option<String>,
+    pub resolved_chat_model: Option<String>,
     pub guidance: String,
 }
 

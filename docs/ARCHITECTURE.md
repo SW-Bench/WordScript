@@ -207,7 +207,7 @@ Das ist keine Marketing-Sprache, sondern Teil des Insert- und Support-Modells.
 Im aktiven Produktpfad gibt es zwei klar getrennte Provider-Lanes:
 
 - `groq`: cloud-first Produktionspfad fuer BYOK, Secret Store und AI cleanup
-- `local_preview`: lokale STT-Preview-Lane ueber einen externen `whisper-cli`-Runner und lokale ggml-Modelle
+- `local_preview`: Kompatibilitaets-ID fuer die lokale Runtime-Lane mit externem `whisper-cli`-Runner fuer STT, lokalen ggml-Modellen und lokalem Ollama-Cleanup-Modell
 
 Architekturregeln dafuer:
 
@@ -216,23 +216,27 @@ Architekturregeln dafuer:
 - die JSON-Config wird beim Speichern gescrubbt
 - `ProviderStatus` liefert neben Profilen auch typisierte Modi (`fast`, `quality`, `local`, spaeter `self_hosted`) und Capabilities wie Transcription, Chat-Cleanup, Prompt-Bias, Segments, Local und API-Key-Pflicht
 - `ProviderCommandError` traegt Fehlerart, Status, Retry-After, `retryable` und eine `user_action`, damit Runtime-Events und Settings dieselbe Recovery-Semantik verwenden
-- `local_preview` nutzt keine API-Keys, sondern sichtbare Helper-/Model-Voraussetzungen in Settings und Diagnostics
-- diese Helper-/Model-Voraussetzungen laufen jetzt ueber einen typed `local_setup`-Vertrag mit `readiness`, stabilem `issue_code` sowie aufgeloestem Runner- und Modellpfad; der Vertrag wird gegen das aktuell gewaehlte lokale Modell ausgewertet und darf lokale Readiness nicht aus `credential.configured` oder Copy rekonstruieren
+- `local_preview` nutzt keine API-Keys, sondern sichtbare lokale Runtime-Voraussetzungen in Settings und Diagnostics
+- diese lokalen Voraussetzungen laufen jetzt ueber einen typed `local_setup`-Vertrag mit `readiness`, stabilem `issue_code`, aufgeloestem Runner- und Modellpfad sowie aufgeloestem Cleanup-Endpoint und Cleanup-Modell; der Vertrag wird gegen das aktuell gewaehlte lokale STT-Modell und das aktuell gewaehlte lokale Cleanup-Modell ausgewertet und darf lokale Readiness nicht aus `credential.configured` oder Copy rekonstruieren
 - `local_preview` prueft den Runner nicht nur ueber Dateisystem-Praesenz, sondern ueber einen aktiven nativen Probe-Spawn; Fehlercodes wie `runner_probe_failed` oder `runner_probe_timed_out` sind Teil derselben Produktwahrheit
 - lokale Modellprofile kommen nativ aus `WORDSCRIPT_LOCAL_MODEL_PATH` oder `WORDSCRIPT_LOCAL_MODEL_DIR`; die UI darf fuer die Local Lane keine statische Modellliste als Source of Truth behandeln
+- die lokale Lane trennt STT-Profil und Cleanup-Modell explizit; diese Trennung folgt der donor-orientierten Struktur aus `Handy` fuer Runtime-Ownership, `voxtype` fuer klare Engine-/Mode-Pfade und `openwhispr` fuer getrennte Cleanup-Scopes statt impliziter Modellwiederverwendung
 - `local_preview` reicht den aktiven STT-Prompt als initialen `whisper-cli --prompt` durch und meldet Prompt-Bias deshalb als echte Capability statt als UI-only Wunsch; die Staerke dieses Bias lebt jetzt explizit in `off`, `profile`, `profile_and_terms` plus optionalem `carry_initial_prompt`
 - lokale `local_preview`-Profile sind jetzt echte Provider-Profile mit eigener ID pro Modell und Preset (`...-fast`, `...-quality`); dieselbe Auswahl lebt in Config, Settings und dem nativen Provider-Request statt in einer Modellfamilien-Heuristik
 - dieselbe lokale Runtime-Konfiguration traegt jetzt zusaetzlich explizite Decode-Regler (`beam_size`, `best_of`); Fast/Quality liefern nur noch Defaults, die eigentliche Decoder-Suchtiefe ist Teil des persistierten AppConfig- und Provider-Request-Vertrags
-- native Diagnostics und Transcription History muessen fuer `local_preview` nicht nur Provider und Modell, sondern auch `provider_profile`, Prompt-Bias-Staerke, Carry-Flag und Decode-Werte zeigen; diese Metadaten gehoeren zur Runtime-Wahrheit eines lokalen Runs
+- dieselbe lokale Runtime-Konfiguration traegt jetzt auch ein separates `local_correction_model`; das lokale Cleanup-Modell darf nicht mehr implizit aus dem Cloud-Cleanup-Modell oder einem UI-Fallback rekonstruiert werden
+- native Diagnostics und Transcription History muessen fuer `local_preview` nicht nur Provider und Modell, sondern auch `provider_profile`, Prompt-Bias-Staerke, Carry-Flag, Decode-Werte, Cleanup-Endpoint und Cleanup-Modell zeigen; diese Metadaten gehoeren zur Runtime-Wahrheit eines lokalen Runs
 - diese Decode-Regler leben jetzt profilgebunden in AppConfig. `local_beam_size` und `local_best_of` bleiben nur der aktive Mirror des aktuell gewaehlten Profils, waehrend die eigentliche Persistenz pro `local_profile` erfolgt
-- Rebuild-Lab-Diagnostics darf den Local-STT-Vertrag nicht mehr aus dem Fenster-Draft ableiten. Der Snapshot kommt nativ aus der aktuell geladenen Runtime-Config, und die UI vergleicht ihn gegen unsaved Settings-Aenderungen statt beides zu vermischen
-- `local_preview` ist bewusst kein zweiter Full-Feature-Produktpfad; Capture, Insertion und Recovery bleiben gleich, AI cleanup bleibt cloud-first
+- Rebuild-Lab-Diagnostics darf den Local-Runtime-Vertrag nicht mehr aus dem Fenster-Draft ableiten. Der Snapshot kommt nativ aus der aktuell geladenen Runtime-Config, und die UI vergleicht ihn gegen unsaved Settings-Aenderungen statt beides zu vermischen
+- `local_preview` ist jetzt ein voller lokaler Dictation-Pfad fuer STT plus Cleanup innerhalb derselben Runtime-Lane; Capture, Insertion und Recovery bleiben bewusst dieselben Produktpfade wie bei Groq
 - ein eigener WordScript-Proxy oder Hosted Mode existiert nicht
 
-Die aktuelle Local-Preview-Verdrahtung erwartet:
+Die aktuelle Local-Runtime-Verdrahtung erwartet:
 
 - `whisper-cli` in `PATH` oder `WORDSCRIPT_LOCAL_WHISPER_CLI`
 - `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine einzelne ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin` und gaengige Varianten wie quantisierte oder `.en`-Dateien
+- Ollama lokal unter `http://127.0.0.1:11434` oder `WORDSCRIPT_LOCAL_CHAT_BASE_URL`
+- ein installiertes lokales Cleanup-Modell, das ueber `local_correction_model` oder `WORDSCRIPT_LOCAL_CHAT_MODEL` ausgewaehlt wird
 
 Wenn spaeter weitere Provider dazukommen, gehoeren sie unter `src-tauri/src/core/providers/` und muessen denselben Fehler- und Antwortvertrag bedienen.
 
@@ -240,7 +244,7 @@ Wenn spaeter weitere Provider dazukommen, gehoeren sie unter `src-tauri/src/core
 
 Diese Themen sind moegliche spaetere Produktstufen, aber heute nicht aktive Architektur:
 
-- first-class lokale Lane mit Modellmanagement, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets
+- gefuehrtes Modellmanagement mit Download-/Pull-Flow, Install-Checks und gefuehrtem lokalen Setup statt env-basierter Runtime-Verdrahtung
 - arbeitsmodusfaehige Profile mit Defaults fuer Rewrite, Insert und Recovery sowie spaeterer permission-basierter App-/Mode-Aktivierung
 - Live-Preview-/Controlled-Commit-Overlay mit `raw transcript`, bereinigtem Text, aktivem Arbeitsmodus und schnellen Recovery-Aktionen
 - weiteres Produktionsprovider-System mit expliziten Modi wie `fast`, `quality`, `local` und `self_hosted`

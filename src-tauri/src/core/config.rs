@@ -9,6 +9,7 @@ use super::providers::{
 use super::runtime_log;
 
 pub const DEFAULT_CORRECTION_MODEL: &str = "llama-3.3-70b-versatile";
+pub const DEFAULT_LOCAL_CORRECTION_MODEL: &str = "llama3.2:latest";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DictionaryEntry {
@@ -83,6 +84,7 @@ pub struct AppConfig {
     pub curated_profiles_seeded: bool,
     pub post_process: bool,
     pub correction_model: String,
+    pub local_correction_model: String,
     pub filter_fillers: bool,
     pub professionalize: bool,
     #[serde(alias = "backend")]
@@ -129,6 +131,7 @@ impl Default for AppConfig {
             curated_profiles_seeded: true,
             post_process: true,
             correction_model: DEFAULT_CORRECTION_MODEL.to_string(),
+            local_correction_model: DEFAULT_LOCAL_CORRECTION_MODEL.to_string(),
             filter_fillers: true,
             professionalize: false,
             provider: default_provider_id().to_string(),
@@ -271,6 +274,8 @@ impl AppConfig {
         self.local_profile = normalize_local_profile_id(&self.local_profile, &self.local_model);
         self.local_model = local_model_from_profile_id(&self.local_profile)
             .unwrap_or_else(|| self.local_model.clone());
+        self.local_correction_model =
+            normalize_local_correction_model_value(&self.local_correction_model);
         self.local_prompt_strength =
             normalize_local_prompt_strength_value(&self.local_prompt_strength);
         self.local_profile_prompt_settings =
@@ -524,6 +529,15 @@ fn is_modifier_only(part: &str) -> bool {
 
 fn default_local_prompt_strength() -> &'static str {
     "profile"
+}
+
+fn normalize_local_correction_model_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        DEFAULT_LOCAL_CORRECTION_MODEL.to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn normalize_local_decode_value(value: u8, fallback: u8) -> u8 {

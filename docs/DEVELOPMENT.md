@@ -12,7 +12,7 @@ Wichtig: Der aktive Pfad ist kein Python-Sidecar-Rebuild mehr. Produktlogik lieg
 
 - Frontend: React 18, TypeScript, Vite, Vitest
 - Desktop host: Tauri v2
-- Runtime: Rust mit `cpal`, `hound`, `reqwest`, `keyring`, `rodio`, `arboard`, `enigo` und optionalem externen `whisper-cli` fuer die lokale Preview-Lane
+- Runtime: Rust mit `cpal`, `hound`, `reqwest`, `keyring`, `rodio`, `arboard`, `enigo`, externem `whisper-cli` fuer lokale STT und lokalem Ollama-Cleanup fuer die lokale Runtime-Lane
 - Versionstand: `0.2.2-alpha`
 
 Die aktiven Arbeitsbereiche sind:
@@ -70,11 +70,12 @@ Wichtiger Plattformhinweis fuer echte Insert-Checks:
 - Linux-Checks fuer das Settings-Fenster muessen im nativen Host laufen; Browser-Preview reicht nicht, wenn Fensterdekorationen, Scrollverhalten oder Fensterrand-Verhalten beurteilt werden sollen
 - dasselbe gilt fuer das Diagnostics-Pop-out: native Dekoration, Startgroesse und Resize-Grenzen muessen im Host geprueft werden, nicht nur im eingebetteten Settings-Tab
 
-Optionaler lokaler Preview-Pfad:
+Optionaler lokaler Runtime-Pfad:
 
 - `local_preview` braucht `whisper-cli` in `PATH` oder `WORDSCRIPT_LOCAL_WHISPER_CLI`
 - ein nichtleerer `WORDSCRIPT_LOCAL_WHISPER_CLI`-Wert reicht nicht als Readiness-Signal; der native Provider-Status muss den Runnerpfad aktiv probe-pruefen und lokale Setup-Probleme als typed `issue_code` melden
 - dazu `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin`
+- AI cleanup laeuft lokal ueber Ollama an `http://127.0.0.1:11434` oder `WORDSCRIPT_LOCAL_CHAT_BASE_URL`; das Cleanup-Modell lebt getrennt in `local_correction_model` statt den Cloud-Cleanup-Slot wiederzuverwenden
 - der native Provider-Status bewertet die Lane gegen das aktuell ausgewaehlte lokale Modell und liefert die Modellliste aus nativer Discovery statt aus einer statischen UI-Annahme
 - dieselbe Lane reicht den aktiven Transkriptions-Context als `whisper-cli --prompt` durch; `local_prompt_strength` und `local_prompt_carry` leben jetzt explizit in Config und muessen als nativer Request-Vertrag behandelt werden
 - der Cloud-Pfad nutzt denselben aktiven Profil-Context inzwischen ebenfalls fuer bounded STT-Hinweise aus Dictionary und expliziten `stt_hints`. Snippet-Trigger gehoeren nicht mehr implizit in diesen Bias. Wer Transkriptionsprompting aendert, muss Cloud- und Local-Lane zusammen betrachten statt nur `local_preview` zu verbessern
@@ -86,8 +87,8 @@ Optionaler lokaler Preview-Pfad:
 - die echte Persistenz fuer lokale Decode-Werte liegt jetzt in profilgebundenen Settings-Eintraegen. Wenn UI oder Migration nur `local_beam_size` und `local_best_of` schreiben, aber die Profilsammlung nicht aktualisieren, kommt beim naechsten Profilwechsel alter oder falscher Decoderzustand zurueck
 - dasselbe gilt fuer lokale Prompt-Bias-Werte: Wenn UI oder Migration nur `local_prompt_strength` und `local_prompt_carry` schreiben, aber die profilgebundene Sammlung nicht aktualisieren, springt beim naechsten Profilwechsel wieder ein alter Bias-Zustand ein
 - `v1_slice_status` ist jetzt eine native Snapshot-Oberflaeche fuer den laufenden Runtime-Vertrag. Diagnostics muss lokale Vertragswerte aus diesem Snapshot lesen und eventuelle Fenster-Drafts explizit als unsaved Drift markieren
-- dieser Snapshot muss jetzt nicht nur Config, sondern echte Live-Statusquellen einziehen: Local-Provider-Readiness inkl. aufgeloester Runner-/Modellpfade und nativer Capture-Status gehoeren in den Snapshot, statt im UI neu zusammengesetzt zu werden
-- die Lane ist aktuell STT-only; AI cleanup bleibt Groq-first und faellt sonst auf das rohe Transkript zurueck
+- dieser Snapshot muss jetzt nicht nur Config, sondern echte Live-Statusquellen einziehen: Local-Provider-Readiness inkl. aufgeloester Runner-/Modellpfade, Cleanup-Endpoint/-Modell und nativer Capture-Status gehoeren in den Snapshot, statt im UI neu zusammengesetzt zu werden
+- dieselbe Scope-Trennung folgt den aktiven Donoren: `Handy` fuer klare Runtime-Ownership, `voxtype` fuer explizite lokale Engine-/Mode-Pfade und `openwhispr` fuer getrennte Cleanup-Settings statt impliziter Modellwiederverwendung
 
 ## Arbeitsregeln
 
@@ -98,7 +99,7 @@ Optionaler lokaler Preview-Pfad:
 - Architekturfragen zuerst gegen [ARCHITECTURE.md](./ARCHITECTURE.md) pruefen
 - Produkt- und Scope-Fragen zuerst gegen [VISION.md](./VISION.md) pruefen
 - Provider-Slices starten bei `src-tauri/src/core/providers/` und duerfen nicht mehr direkt am Groq-Einzelfall vorbei in UI oder Host verdrahtet werden
-- Preview-/Offline-Slices muessen ihre externen Runtime-Voraussetzungen in Settings, README und REFERENCE explizit benennen statt einen eingebetteten Local-Mode vorzutaeuschen
+- Local-/Offline-Slices muessen ihre externen Runtime-Voraussetzungen in Settings, README und REFERENCE explizit benennen statt einen eingebetteten Local-Mode vorzutaeuschen
 - Provider-Fehler muessen ueber `ProviderCommandError` laufen und `kind`, `retryable` sowie `user_action` behalten; UI-Copy darf daraus anzeigen, aber keine eigene Fehlersemantik erfinden
 - Settings-Performance-Slices starten am owning Scroll- oder Listenpfad. Bei langen React-Listen zuerst strukturelle Sharing-Brueche, Deep-Clones und parent-driven Re-Renders pruefen, bevor weiter CSS oder Scroll-Physics getunt wird
 
@@ -218,8 +219,8 @@ Wichtig fuer den aktuellen Stand:
 - `src-tauri/src/core/trigger.rs`: Start/Stop, Pause/Resume, Abort
 - `src-tauri/src/core/capture.rs`: Mikrofon-Capture, Levels, WAV und Auto-Stop
 - `src-tauri/src/core/providers/groq.rs`: Groq-BYOK und Provider-Fehler
-- `src-tauri/src/core/providers/local_preview.rs`: lokale `whisper-cli`-Lane mit Runner-Probe, selected-model-Readiness und nativer Model-Discovery
-- `src-tauri/src/core/providers/mod.rs`: gemeinsamer Provider-Vertrag inklusive typed `local_setup`-Status fuer die lokale Preview-Lane
+- `src-tauri/src/core/providers/local_preview.rs`: lokale Runtime-Lane mit `whisper-cli` fuer STT, Ollama fuer Cleanup, Runner-Probe, selected-model-Readiness und nativer Model-Discovery
+- `src-tauri/src/core/providers/mod.rs`: gemeinsamer Provider-Vertrag inklusive typed `local_setup`-Status fuer die lokale Runtime-Lane
 - `src-tauri/src/core/transform.rs`: Cleanup, aktive Profile, Dictionary und Snippets
 - `src-tauri/src/core/insertion.rs`: Paste-Modi, Clipboard-Restore, Scratchpad und Recovery
 - `src-tauri/src/core/updates.rs`: ehrlicher GitHub-Release-Status fuer die About-Flaeche und den Release-Aufbaupfad
@@ -248,7 +249,7 @@ Die naechste Arbeit ist nicht weiterer Scope-Ausbau, sondern V1-Konsolidierung:
 3. lokale Textprofile zu sichtbaren Arbeitsmodi fuer Context, Dictionary, Snippets, spaetere Rewrite-Defaults, Insert-Verhalten und Recovery-Verhalten weiterziehen
 4. Overlay und Settings auf einen Live-Preview- und kontrollierten Commit-Pfad vorbereiten, damit Nutzer `raw transcript`, bereinigten Text, aktiven Modus und schnelle Recovery-Aktionen sehen koennen
 5. den Provider-Stack von Groq als erstem Adapter zu einem produktfaehigen Modellsystem mit mindestens einem zweiten Produktionsprovider und klaren Modi wie `fast`, `quality`, `local` und `self_hosted` ausbauen
-6. `local_preview` weiter ueber die jetzt vorhandenen Bausteine fuer Modellmanagement, initiales Prompt-Bias, Fast/Quality-Presets und ehrliche Health-Diagnostics hinaus mit tieferen Prompt-Reglern und expliziten Quality-vs-Latency-Controls zu einer volleren Local Lane ausbauen
+6. die lokale Runtime-Lane ueber die jetzt vorhandenen Bausteine fuer getrennte Cleanup-Slots, initiales Prompt-Bias, Fast/Quality-Presets und ehrliche Health-Diagnostics hinaus mit gefuehrtem Modellmanagement, Pull-Checks und optionalen weiteren lokalen Backends ausbauen
 7. Setup, Permissions und Packaging als gefuehrten Produktpfad ohne falsche Verfuegbarkeitssignale sauber mitfuehren
 
 Lokale Profile sind jetzt implementiert. Shell und Text-Rules-Editor teilen sich dafuer denselben Profil-Patch-Pfad, und zentrale ICP-Baselines werden einmalig als kuratierte Profile in die User-App-Config geseedet statt als separater Starter-Katalog zur Laufzeit gehalten. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung und spaetere Rewrite-Defaults ueber den aktiven Profilzustand hinaus.

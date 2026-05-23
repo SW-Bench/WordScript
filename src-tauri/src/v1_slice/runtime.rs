@@ -278,6 +278,11 @@ pub fn runtime_contract_for_app<R: Runtime>(app: &AppHandle<R>) -> SliceRuntimeC
     let provider_status = providers::provider_status(ProviderStatusRequest {
         provider,
         model: Some(model),
+        correction_model: Some(if config.provider == LOCAL_PREVIEW_PROVIDER_ID {
+            config.local_correction_model.clone()
+        } else {
+            config.correction_model.clone()
+        }),
     });
     let capture_status = capture::current_status_for_app(app).ok();
 
@@ -408,9 +413,12 @@ fn map_local_provider_setup(setup: LocalProviderSetupStatus) -> SliceLocalProvid
         },
         runner_ready: setup.runner_ready,
         model_ready: setup.model_ready,
+        chat_ready: setup.chat_ready,
         issue_code: setup.issue_code.map(local_provider_issue_code_value),
         resolved_runner: setup.resolved_runner,
         resolved_model: setup.resolved_model,
+        resolved_chat_base_url: setup.resolved_chat_base_url,
+        resolved_chat_model: setup.resolved_chat_model,
         guidance: setup.guidance,
     }
 }
@@ -426,6 +434,10 @@ fn local_provider_issue_code_value(code: LocalProviderIssueCode) -> String {
         LocalProviderIssueCode::UnreadableModelDirectory => "unreadable_model_directory".to_string(),
         LocalProviderIssueCode::ModelNotFound => "model_not_found".to_string(),
         LocalProviderIssueCode::MissingRunnerAndModel => "missing_runner_and_model".to_string(),
+        LocalProviderIssueCode::InvalidChatEndpoint => "invalid_chat_endpoint".to_string(),
+        LocalProviderIssueCode::ChatBackendUnavailable => "chat_backend_unavailable".to_string(),
+        LocalProviderIssueCode::MissingChatModel => "missing_chat_model".to_string(),
+        LocalProviderIssueCode::ChatModelNotFound => "chat_model_not_found".to_string(),
     }
 }
 
@@ -601,7 +613,7 @@ mod tests {
             .unwrap_or_default()
             .contains("fallback"));
         assert_eq!(result.status.runtime_contract.provider, "groq");
-        assert_eq!(result.transcript.provider_mode, "cloud-fast");
+        assert_eq!(result.transcript.provider_mode, "cloud-quality");
     }
 
     #[test]
@@ -654,10 +666,14 @@ mod tests {
                     readiness: LocalProviderReadiness::Ready,
                     runner_ready: true,
                     model_ready: true,
+                    chat_ready: true,
                     issue_code: None,
                     resolved_runner: Some("/usr/bin/whisper-cli".to_string()),
                     resolved_model: Some("/models/ggml-large-v3-q5_0.bin".to_string()),
-                    guidance: "Local preview is ready.".to_string(),
+                    resolved_chat_base_url: Some("http://127.0.0.1:11434".to_string()),
+                    resolved_chat_model: Some("llama3.2:latest".to_string()),
+                    available_chat_models: vec!["llama3.2:latest".to_string()],
+                    guidance: "Local runtime is ready.".to_string(),
                 }),
             })),
         );

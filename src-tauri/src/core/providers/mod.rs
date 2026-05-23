@@ -161,6 +161,10 @@ pub enum LocalProviderIssueCode {
 	UnreadableModelDirectory,
 	ModelNotFound,
 	MissingRunnerAndModel,
+	InvalidChatEndpoint,
+	ChatBackendUnavailable,
+	MissingChatModel,
+	ChatModelNotFound,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -168,9 +172,13 @@ pub struct LocalProviderSetupStatus {
 	pub readiness: LocalProviderReadiness,
 	pub runner_ready: bool,
 	pub model_ready: bool,
+	pub chat_ready: bool,
 	pub issue_code: Option<LocalProviderIssueCode>,
 	pub resolved_runner: Option<String>,
 	pub resolved_model: Option<String>,
+	pub resolved_chat_base_url: Option<String>,
+	pub resolved_chat_model: Option<String>,
+	pub available_chat_models: Vec<String>,
 	pub guidance: String,
 }
 
@@ -188,6 +196,7 @@ pub struct ProviderStatus {
 pub struct ProviderStatusRequest {
 	pub provider: String,
 	pub model: Option<String>,
+	pub correction_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -301,6 +310,7 @@ pub fn provider_credentials_configured(
 	Ok(provider_status(ProviderStatusRequest {
 		provider: provider.to_string(),
 		model: None,
+		correction_model: None,
 	})?
 	.credential
 	.configured)
@@ -322,7 +332,12 @@ pub fn provider_status(
 ) -> Result<ProviderStatus, ProviderCommandError> {
 	match resolve_provider_id(&request.provider)? {
 		ProviderId::Groq => groq::provider_status(),
-		ProviderId::LocalPreview => local_preview::provider_status(request.model.as_deref()),
+		ProviderId::LocalPreview => {
+			local_preview::provider_status(
+				request.model.as_deref(),
+				request.correction_model.as_deref(),
+			)
+		}
 	}
 }
 

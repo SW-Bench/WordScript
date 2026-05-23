@@ -73,15 +73,23 @@ export type LocalProviderIssueCode =
   | "invalid_model_path"
   | "unreadable_model_directory"
   | "model_not_found"
-  | "missing_runner_and_model";
+  | "missing_runner_and_model"
+  | "invalid_chat_endpoint"
+  | "chat_backend_unavailable"
+  | "missing_chat_model"
+  | "chat_model_not_found";
 
 export interface LocalProviderSetupStatus {
   readiness: LocalProviderReadiness;
   runner_ready: boolean;
   model_ready: boolean;
+  chat_ready: boolean;
   issue_code: LocalProviderIssueCode | null;
   resolved_runner: string | null;
   resolved_model: string | null;
+  resolved_chat_base_url: string | null;
+  resolved_chat_model: string | null;
+  available_chat_models: string[];
   guidance: string;
 }
 
@@ -97,6 +105,7 @@ export interface ProviderStatus {
 export interface ProviderStatusRequest {
   provider: string;
   model: string | null;
+  correction_model?: string | null;
 }
 
 export type GroqProviderStatus = ProviderStatus;

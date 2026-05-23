@@ -22,6 +22,7 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     curated_profiles_seeded: true,
     post_process: true,
     correction_model: "llama-3.3-70b-versatile",
+    local_correction_model: "llama3.2:latest",
     filter_fillers: true,
     professionalize: false,
     provider: "groq",

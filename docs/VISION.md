@@ -1,6 +1,6 @@
 # WordScript — Vision
 
-Stand: 2026-05-13
+Stand: 2026-05-23
 
 ## Nordstern
 
@@ -102,6 +102,7 @@ Der Produktkern ist real:
 - native Hotkeys
 - native Aufnahme
 - Groq-BYOK
+- lokale Runtime-Lane fuer STT plus Cleanup
 - native Transform-Pipeline
 - lokale Textprofile fuer Context, Dictionary und Snippets
 - native Insertion mit Recovery
@@ -158,7 +159,7 @@ Die naechste Produktphase nach dem bisherigen Kern ist daher:
 1. Profile von statischen Rule-Sets zu sichtbaren Arbeitsmodi fuer Context, Dictionary, Snippets, spaetere Rewrite-Defaults, Insert-Verhalten und Recovery-Verhalten verdichten.
 2. Live-Preview und kontrollierten Commit zwischen Sprechen und finalem Insert einziehen, damit WordScript mehr Vertrauen und weniger Dev-Tool-Gefuehl erzeugt.
 3. den Provider-Stack von einem ersten Adapter zu einem echten Modellsystem mit mindestens einem zweiten Produktionsprovider und klaren Modi wie `fast`, `quality`, `local` und `self_hosted` ausbauen.
-4. `local_preview` von einer externen Preview-Lane zu einer first-class lokalen Produktoption mit Modellmanagement, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets weiterziehen.
+4. die lokale Runtime-Lane von env-basierter Expertenkonfiguration zu einer first-class lokalen Produktoption mit gefuehrtem Modellmanagement, Pull-Checks, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets weiterziehen.
 5. Setup, Permissions und Packaging als gefuehrten Produktpfad behandeln, damit Nutzer von Install bis erster brauchbarer Diktation nicht durch verstreute Diagnostics stolpern.
 
 Was wir dafuer bewusst noch nicht in die naechste Baustelle ziehen:

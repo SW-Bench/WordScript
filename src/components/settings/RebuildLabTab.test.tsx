@@ -21,9 +21,12 @@ let v1SliceState: {
           readiness: "ready" | "setup_required";
           runner_ready: boolean;
           model_ready: boolean;
+          chat_ready: boolean;
           issue_code: string | null;
           resolved_runner: string | null;
           resolved_model: string | null;
+          resolved_chat_base_url: string | null;
+          resolved_chat_model: string | null;
           guidance: string;
         } | null;
       };
@@ -79,9 +82,12 @@ let v1SliceState: {
             readiness: "ready" | "setup_required";
             runner_ready: boolean;
             model_ready: boolean;
+            chat_ready: boolean;
             issue_code: string | null;
             resolved_runner: string | null;
             resolved_model: string | null;
+            resolved_chat_base_url: string | null;
+            resolved_chat_model: string | null;
             guidance: string;
           } | null;
         };
@@ -406,10 +412,13 @@ describe("RebuildLabTab", () => {
               readiness: "ready",
               runner_ready: true,
               model_ready: true,
+              chat_ready: true,
               issue_code: null,
               resolved_runner: "/usr/bin/whisper-cli",
               resolved_model: "/models/ggml-base.bin",
-              guidance: "Local preview is ready.",
+              resolved_chat_base_url: "http://127.0.0.1:11434",
+              resolved_chat_model: "llama3.2:latest",
+              guidance: "Local runtime is ready.",
             },
           },
           capture_status: {
@@ -474,7 +483,7 @@ describe("RebuildLabTab", () => {
       />,
     );
 
-    expect(screen.getByText("Local STT Contract")).toBeInTheDocument();
+    expect(screen.getByText("Local Runtime Contract")).toBeInTheDocument();
     expect(screen.getAllByText("local-preview-base-quality").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Prompt bias profile + terms").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Carry initial prompt").length).toBeGreaterThan(0);
@@ -500,9 +509,12 @@ describe("RebuildLabTab", () => {
               readiness: "setup_required",
               runner_ready: false,
               model_ready: false,
+              chat_ready: false,
               issue_code: "missing_runner_and_model",
               resolved_runner: null,
               resolved_model: null,
+              resolved_chat_base_url: null,
+              resolved_chat_model: null,
               guidance: "Install whisper-cli and configure a local model.",
             },
           },

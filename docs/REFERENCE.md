@@ -1,6 +1,6 @@
 # WordScript — Reference
 
-Stand: 2026-05-13
+Stand: 2026-05-23
 
 ## Zweck
 
@@ -28,9 +28,9 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - native Mikrofonaufnahme mit Waveform-/Level-Events
 - Silence-Timeout und Max-Duration-Autostop
 - Groq-BYOK mit OS secret store
-- `local_preview` als STT-only Preview-Lane ueber externes `whisper-cli` und lokale ggml-Modelle
+- `local_preview` als lokale Runtime-Lane ueber externes `whisper-cli`, lokale ggml-Modelle und lokales Ollama-Cleanup
 - bounded STT-Promptbias fuer Groq und `local_preview` aus aktivem Profil-Context, Dictionary-Schreibweisen und wahrscheinlichen Phrasen
-- Halluzinationsfilter und optionale AI-Nachkorrektur mit konservativen Preserve-Hinweisen aus aktivem Profil-Context und Dictionary-Schreibweisen
+- Halluzinationsfilter und optionale AI-Nachkorrektur mit konservativen Preserve-Hinweisen aus aktivem Profil-Context und Dictionary-Schreibweisen; lokal und cloud nutzen dafuer getrennte Modell-Slots
 - lokale Textprofile fuer Transcription Context, Dictionary und Snippets im nativen Transform-Pfad
 - persistenter nativer Transkriptverlauf mit Retry, Delete/Clear, serverseitigen Filtern, JSON-Export und separater Diagnostics-Darstellung neben Runtime-Logs
 - Text-Rules-Validation, Preview, Import/Export und Konfliktbehandlung
@@ -77,18 +77,20 @@ Die native Plattformdiagnostik kommt aus `core::insertion` und wird sichtbar in 
 ### Provider-Lanes heute
 
 - `groq` ist der cloud-first Produktionspfad
-- `local_preview` ist die aktuelle lokale Preview-Lane fuer STT ueber einen externen `whisper-cli`-Runner
+- `local_preview` ist die interne Kompatibilitaets-ID fuer die lokale Runtime-Lane mit `whisper-cli` fuer STT und Ollama fuer Cleanup
 - der Nutzer speichert den eigenen Groq-API-Key lokal im OS secret store
 - die JSON-Konfiguration wird beim Speichern gescrubbt und alte JSON-Groq-Secrets werden nativ in den Secret Store migriert
 - Provider-Status enthaelt typisierte Modi (`fast`, `quality`, `local`, spaeter `self_hosted`) und Capabilities fuer Transcription, Chat-Cleanup, Local, API-Key-Pflicht, Prompt-Bias, Language, Segments und Modellmanagement
 - Provider-Fehler enthalten neben Text auch `kind`, HTTP-Status, Retry-After, `retryable` und eine `user_action`; Settings und Runtime-Events sollen diese Semantik weiterreichen statt eigene Fehlerkategorien zu bauen
 - ein WordScript-Proxy oder Hosted Mode existiert nicht
 
-### Lokale Preview-Voraussetzungen
+### Lokale Runtime-Voraussetzungen
 
 - `whisper-cli` in `PATH` oder `WORDSCRIPT_LOCAL_WHISPER_CLI`
 - `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin` sowie gaengige Varianten wie quantisierte oder `.en`-Dateien
-- die Lane ist aktuell STT-only; AI cleanup bleibt Groq-first und faellt im Preview-Pfad auf das rohe lokale Transkript zurueck
+- Ollama lokal unter `http://127.0.0.1:11434` oder `WORDSCRIPT_LOCAL_CHAT_BASE_URL`
+- ein installiertes lokales Cleanup-Modell, ausgewaehlt ueber `local_correction_model` oder `WORDSCRIPT_LOCAL_CHAT_MODEL`
+- die Lane ist nicht mehr STT-only; AI cleanup laeuft lokal ueber das separate Cleanup-Modell und faellt nur bei Nichtverfuegbarkeit oder Guardrail-Rejects auf das rohe lokale Transkript zurueck
 
 ### Audio- und Upload-Relevanz
 
@@ -171,7 +173,7 @@ Zusatzregeln des aktiven Pfads:
 - Release- und Signing-Validation mit echten Secrets ist noch kein regelmaessiger Routinepfad
 - Linux Wayland bleibt experimentell
 - ein gefuehrter Setup-, Permissions- und Packaging-Pfad von Install bis erster brauchbarer Diktation ist noch nicht implementiert
-- `local_preview` ist noch keine first-class Local Lane; Modellmanagement, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets fehlen noch
+- die lokale Runtime-Lane braucht noch gefuehrtes Modellmanagement, Pull-/Install-Checks und einen nutzerfaehigen Setup-Pfad statt env-lastiger Expertenkonfiguration
 - mehrere vollwertige Produktionsprovider ueber Groq hinaus sind noch nicht implementiert; ebenso fehlt noch ein explizites Mode-Modell wie `fast`, `quality`, `local` oder `self_hosted`
 - Settings- und Overlay-UI brauchen noch eine klarere Informationshierarchie und mehr native macOS-Produktpolish; die aktuelle Shell ist brauchbar, aber noch nicht der Zielzustand
 - Profile sind noch nicht zu echten Arbeitsmodi mit Defaults fuer Rewrite, Insert und Recovery verdichtet; spaetere app- oder mode-basierte Aktivierung bleibt ebenfalls offen

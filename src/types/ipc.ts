@@ -50,6 +50,7 @@ export interface AppConfig {
   curated_profiles_seeded: boolean;
   post_process:            boolean;
   correction_model:        string;
+  local_correction_model:  string;
   filter_fillers:          boolean;
   professionalize:         boolean;
   provider:                string;

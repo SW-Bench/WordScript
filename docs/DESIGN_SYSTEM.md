@@ -64,15 +64,15 @@ Die aktive Shell nutzt jetzt eine klare Utility-Orientierung: gruppierte Sidebar
 Fuer scrollende Utility-Flaechen gilt zusaetzlich: lange Kartenlisten muessen ruhig bleiben. Wiederholte Diagnostics- oder Text-Rules-Karten duerfen nicht ueber per-render Deep-Clones oder unnötige Parent-Renders permanent neu aufgebaut werden.
 
 Die naechste geplante Vertiefung dieser Shell ist, Profile als sichtbare Arbeitsmodi mit spaeteren Defaults fuer Rewrite, Insert und Recovery zu fuehren. Solange das nicht aktiv ist, bleibt die echte Profilrealitaet bei lokalem Context, optionalen STT-Hints, Dictionary und Snippets.
-Provider & Models muss Provider-Faehigkeiten, STT-only-Grenzen und Recovery-Aktionen aus dem nativen Provider-Status anzeigen. Der Tab darf nicht aus Modellnamen raten, ob Cleanup, Prompt-Bias, Segments oder Local-Setup verfuegbar sind.
-Fuer `local_preview` muessen Runner-, Modell- und Combined-Setup-Probleme ueber den nativen `local_setup`-Vertrag sichtbar werden. Labels wie `Runner path invalid`, `Runner probe failed` oder `Model not found` sind Produkttext, keine UI-Erfindungen.
+Provider & Models muss Provider-Faehigkeiten, lokale Runtime-Grenzen und Recovery-Aktionen aus dem nativen Provider-Status anzeigen. Der Tab darf nicht aus Modellnamen raten, ob Cleanup, Prompt-Bias, Segments oder Local-Setup verfuegbar sind.
+Fuer `local_preview` muessen Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Probleme ueber den nativen `local_setup`-Vertrag sichtbar werden. Labels wie `Runner path invalid`, `Runner probe failed`, `Cleanup backend unavailable` oder `Cleanup model not found` sind Produkttext, keine UI-Erfindungen.
 Der lokale Profilpicker muss auf nativen Provider-Profilen basieren. Wenn ein Nutzer ein anderes lokales Profil waehlt, muss dieselbe Selektion sofort die angezeigte Readiness, Warnungen, Modellauflosung und Fast-vs-Quality-Semantik steuern.
 Wenn `local_preview` Prompt-Bias meldet, muss der Tab das als echte Runtime-Faehigkeit zeigen: der aktive Text-Profile-Context geht lokal als initialer `whisper-cli`-Prompt hinein, und die Regler fuer `off`, `profile`, `profile + terms` sowie `carry initial prompt` muessen sichtbar als echte Config-Zustaende auftreten.
 Diese lokalen Prompt-Regler muessen profilgebunden arbeiten wie die Decode-Regler. Wechselt der Nutzer das lokale Profil, muss dieselbe Auswahl die fuer dieses Profil gespeicherte Bias-Staerke und Carry-Entscheidung laden statt einen globalen Restwert zu spiegeln.
 Der lokale Mode-Label darf nicht generisch `local` bleiben, wenn das native Profil bereits `fast` oder `quality` liefert. Die Shell muss dieselbe Preset-Semantik auch fuer lokale Modelle spiegeln und darf den ausgewaehlten Profilmodus nicht aus dem Modellnamen neu ableiten.
-Diagnostics braucht fuer `local_preview` eine sichtbare Local-STT-Kontraktflaeche, die Provider-Profil, Prompt-Bias-Staerke, Carry-Flag, Beam Size und Best Of zusammen zeigt. Diese Werte duerfen nicht nur im Provider-Tab existieren.
-Diese Diagnostics-Flaeche muss jetzt ausserdem echte Live-Setup-Wahrheit zeigen: Provider-Readiness, aufgeloester Runnerpfad, aufgeloester Modellpfad und aktueller nativer Capture-State gehoeren in denselben Snapshot statt in getrennte UI-Heuristiken.
-Transcription-History-Karten muessen dieselben Local-Metadaten in der Karten-Chip-Reihe zeigen, damit ein lokaler Run nicht nur als `local_preview` plus Modell sichtbar bleibt, sondern als vollstaendiger Decode- und Prompt-Zustand gelesen werden kann.
+Diagnostics braucht fuer `local_preview` eine sichtbare Local-Runtime-Kontraktflaeche, die Provider-Profil, Prompt-Bias-Staerke, Carry-Flag, Beam Size, Best Of, Cleanup-Endpoint und Cleanup-Modell zusammen zeigt. Diese Werte duerfen nicht nur im Provider-Tab existieren.
+Diese Diagnostics-Flaeche muss jetzt ausserdem echte Live-Setup-Wahrheit zeigen: Provider-Readiness, aufgeloester Runnerpfad, aufgeloester Modellpfad, aufgeloester Cleanup-Endpoint, aufgeloestes Cleanup-Modell und aktueller nativer Capture-State gehoeren in denselben Snapshot statt in getrennte UI-Heuristiken.
+Transcription-History-Karten muessen dieselben Local-Metadaten in der Karten-Chip-Reihe zeigen, damit ein lokaler Run nicht nur als `local_preview` plus Modell sichtbar bleibt, sondern als vollstaendiger Decode-, Prompt- und Cleanup-Zustand gelesen werden kann.
 Wenn das Settings-Fenster unsaved lokale Aenderungen traegt, darf die Shell das bereits in ihrer Window-State-Flaeche markieren, aber Diagnostics muss die Abweichung zwischen Draft und nativer Runtime weiterhin explizit als Warning zeigen.
 Der Provider-Tab muss lokale Decode-Regler profilgebunden behandeln. Wechselt der Nutzer zwischen `...-fast` und `...-quality`, muessen die fuer dieses Profil gespeicherten Decoderwerte erscheinen statt eines zuletzt global geaenderten lokalen Werts.
 
@@ -141,7 +141,7 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 - Save-Bar bleibt ruhig und funktional
 - About-/Trust-Flaechen muessen Plattformvoraussetzungen und ehrliche Grenzen sichtbar getrennt zeigen, nicht in einen neutralen Absatz verstecken
 - Release-Aufbauflaechen im About-Tab sind erlaubt, wenn sie klar `in progress` markieren und keine live Downloads oder funktionierende In-App-Updates vortaeuschen
-- Provider & Models muss Groq-Authentifizierung sichtbar von Local-Preview-Helper-Voraussetzungen trennen; API-Key-UI darf fuer lokale Preview nicht erscheinen
+- Provider & Models muss Groq-Authentifizierung sichtbar von Local-Runtime-Voraussetzungen trennen; API-Key-UI darf fuer `local_preview` nicht erscheinen, dafuer aber Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Status
 
 ## Text Rules UX
 
@@ -165,11 +165,11 @@ Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 ## Credential- und Privacy-UI
 
 - Groq bleibt BYOK
-- die aktive UI bleibt cloud-first, zeigt aber die `local_preview`-Lane als STT-only Local Lane mit externem Helper, nativer Modell-Discovery und ehrlicher Runner-Gesundheit explizit daneben
+- die aktive UI bleibt cloud-first, zeigt aber die `local_preview`-Lane als vollwertige lokale Runtime-Lane mit externem STT-Helper, lokalem Cleanup-Modell, nativer Modell-Discovery und ehrlicher Runner-/Cleanup-Gesundheit explizit daneben
 - UI-Copy sagt `Save locally` und `OS secret store`, nicht implizit Cloud-Speicherung
 - der volle API-Key wird nach dem Speichern nicht zurueck in den Renderer geholt
 - Key-Praesenz ist neutral; gruene Signale gibt es erst nach echter Validierung
-- lokale Preview zeigt Runner-/Model-Status statt Auth-Sprache, muss die noetigen Env-Variablen erklaeren und darf Runner-Gesundheit nicht aus blossen Pfaden oder Dateiexistenz ableiten
+- die lokale Runtime zeigt Runner-/Model-/Cleanup-Status statt Auth-Sprache, muss die noetigen Env-Variablen erklaeren und darf weder Runner- noch Cleanup-Gesundheit aus blossen Pfaden oder UI-Fallbacks ableiten
 
 ## Motion und Plattformgrenzen
 

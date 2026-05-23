@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as BlockingCommand, Stdio};
 use std::time::{Duration, Instant};
 
+use reqwest::{blocking::Client as BlockingClient, Url};
+use serde::Deserialize;
 use tokio::process::Command;
 use tokio::time::timeout;
 
@@ -16,11 +18,48 @@ use super::{
 };
 
 const DEFAULT_TIMEOUT_MS: u64 = 90_000;
-const LOCAL_STORAGE_LABEL: &str = "external_cli";
+const LOCAL_STORAGE_LABEL: &str = "local_runtime";
 const LOCAL_WHISPER_BINARY_ENV: &str = "WORDSCRIPT_LOCAL_WHISPER_CLI";
 const LOCAL_MODEL_PATH_ENV: &str = "WORDSCRIPT_LOCAL_MODEL_PATH";
 const LOCAL_MODEL_DIR_ENV: &str = "WORDSCRIPT_LOCAL_MODEL_DIR";
 const LOCAL_RUNNER_PROBE_TIMEOUT_MS: u64 = 750;
+const LOCAL_CHAT_BASE_URL_ENV: &str = "WORDSCRIPT_LOCAL_CHAT_BASE_URL";
+const LOCAL_CHAT_MODEL_ENV: &str = "WORDSCRIPT_LOCAL_CHAT_MODEL";
+const DEFAULT_LOCAL_CHAT_BASE_URL: &str = "http://127.0.0.1:11434";
+const DEFAULT_LOCAL_CHAT_MODEL: &str = "llama3.2:latest";
+const LOCAL_CHAT_PROBE_TIMEOUT_MS: u64 = 1_500;
+
+#[derive(Debug, Deserialize)]
+struct OllamaTagsResponse {
+    #[serde(default)]
+    models: Vec<OllamaModelDescriptor>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaModelDescriptor {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    model: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaChatCompletionResponse {
+    message: OllamaChatMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaChatMessage {
+    #[serde(default)]
+    content: String,
+}
+
+#[derive(Debug, Clone)]
+struct LocalChatRuntime {
+    base_url: String,
+    model: String,
+    available_models: Vec<String>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LocalDecodePreset {
@@ -81,7 +120,10 @@ impl LocalProfileSelection {
     }
 }
 
-pub fn provider_status(model: Option<&str>) -> Result<ProviderStatus, ProviderCommandError> {
+pub fn provider_status(
+    model: Option<&str>,
+    correction_model: Option<&str>,
+) -> Result<ProviderStatus, ProviderCommandError> {
     let profiles = provider_profiles();
     let default_profile_id = profiles
         .iter()
@@ -98,11 +140,12 @@ pub fn provider_status(model: Option<&str>) -> Result<ProviderStatus, ProviderCo
                 .map(|profile| profile.model.as_str())
         })
         .unwrap_or("base");
-    let local_setup = inspect_local_setup(requested_model);
+    let requested_chat_model = resolve_local_chat_model_name(correction_model);
+    let local_setup = inspect_local_setup(requested_model, &requested_chat_model);
     let configured = matches!(local_setup.readiness, LocalProviderReadiness::Ready);
     let status_detail = Some(if configured {
         format!(
-            "{} · {}",
+            "{} · {} · {}",
             local_setup
                 .resolved_runner
                 .clone()
@@ -114,6 +157,10 @@ pub fn provider_status(model: Option<&str>) -> Result<ProviderStatus, ProviderCo
                 .and_then(|path| path.file_name())
                 .and_then(|value| value.to_str())
                 .unwrap_or("model.bin"),
+            local_setup
+                .resolved_chat_model
+                .as_deref()
+                .unwrap_or(DEFAULT_LOCAL_CHAT_MODEL),
         )
     } else {
         local_setup.guidance.clone()
@@ -136,20 +183,20 @@ pub fn provider_status(model: Option<&str>) -> Result<ProviderStatus, ProviderCo
 
 pub fn save_api_key(_api_key: &str) -> Result<ProviderCredentialStatus, ProviderCommandError> {
     Err(ProviderCommandError::invalid_request(
-        "Local preview does not use API keys. Configure whisper-cli and a local model instead.",
+        "Local runtime does not use API keys. Configure whisper-cli, a local STT model, and a local AI runtime instead.",
     ))
 }
 
 pub fn clear_api_key() -> Result<ProviderCredentialStatus, ProviderCommandError> {
     Err(ProviderCommandError::invalid_request(
-        "Local preview does not use API keys. There is no stored key to clear.",
+        "Local runtime does not use API keys. There is no stored key to clear.",
     ))
 }
 
 pub async fn validate_api_key(
     _api_key: Option<String>,
 ) -> Result<ValidateProviderApiKeyResponse, ProviderCommandError> {
-    let status = provider_status(None)?;
+    let status = provider_status(None, None)?;
     if !status.credential.configured {
         return Err(ProviderCommandError::local_setup(
             local_preview_setup_message("base"),
@@ -213,7 +260,7 @@ pub async fn transcribe_audio_file(
         .stderr(Stdio::piped());
 
     runtime_log::record(format!(
-        "[WordScript] Local preview transcription start binary={} model={} profile={} timeout_ms={} audio_path={} prompt_chars={} carry_initial_prompt={} beam_size={} best_of={}",
+        "[WordScript] Local runtime transcription start binary={} model={} profile={} timeout_ms={} audio_path={} prompt_chars={} carry_initial_prompt={} beam_size={} best_of={}",
         binary,
         model_path.display(),
         profile.profile_id(),
@@ -231,7 +278,7 @@ pub async fn transcribe_audio_file(
             ProviderCommandError::new(
                 ProviderErrorKind::Timeout,
                 format!(
-                "Local preview transcription timed out after {} ms while waiting for whisper-cli.",
+                "Local runtime transcription timed out after {} ms while waiting for whisper-cli.",
                 timeout_ms,
             ),
                 None,
@@ -241,7 +288,7 @@ pub async fn transcribe_audio_file(
         .map_err(|error| {
             ProviderCommandError::new(
                 ProviderErrorKind::Io,
-                format!("Could not start local preview transcription: {error}"),
+                format!("Could not start local runtime transcription: {error}"),
                 None,
                 None,
             )
@@ -253,11 +300,11 @@ pub async fn transcribe_audio_file(
             ProviderErrorKind::ProviderStatus,
             if stderr.is_empty() {
                 format!(
-                    "Local preview transcription failed with status {}.",
+                    "Local runtime transcription failed with status {}.",
                     output.status,
                 )
             } else {
-                format!("Local preview transcription failed: {stderr}")
+                format!("Local runtime transcription failed: {stderr}")
             },
             output.status.code().map(|code| code as u16),
             None,
@@ -270,10 +317,10 @@ pub async fn transcribe_audio_file(
         return Err(ProviderCommandError::new(
             ProviderErrorKind::Parse,
             if stderr.is_empty() {
-                "Local preview returned no transcription text on stdout.".to_string()
+                "Local runtime returned no transcription text on stdout.".to_string()
             } else {
                 format!(
-                    "Local preview returned no transcription text. whisper-cli stderr: {}",
+                    "Local runtime returned no transcription text. whisper-cli stderr: {}",
                     stderr,
                 )
             },
@@ -283,7 +330,7 @@ pub async fn transcribe_audio_file(
     }
 
     runtime_log::record(format!(
-        "[WordScript] Local preview transcription done elapsed_ms={} chars={}",
+        "[WordScript] Local runtime transcription done elapsed_ms={} chars={}",
         started_at.elapsed().as_millis(),
         text.len(),
     ));
@@ -343,11 +390,128 @@ fn normalize_local_decode_value(value: Option<u8>, fallback: u8) -> u8 {
 }
 
 pub async fn create_chat_completion(
-    _request: ChatCompletionRequest,
+    request: ChatCompletionRequest,
 ) -> Result<String, ProviderCommandError> {
-    Err(ProviderCommandError::invalid_request(
-        "Local preview does not provide AI cleanup. Disable AI cleanup or switch back to Groq for post-correction.",
-    ))
+    let started_at = Instant::now();
+    let timeout_ms = request.timeout_ms.unwrap_or(8_000).max(5_000);
+    let chat_runtime = inspect_local_chat_runtime_async(Some(&request.model), timeout_ms)
+        .await
+        .map_err(|issue| ProviderCommandError::local_setup(issue.guidance()))?;
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_ms))
+        .connect_timeout(Duration::from_millis(1_500))
+        .build()
+        .map_err(|error| {
+            ProviderCommandError::new(
+                ProviderErrorKind::InvalidRequest,
+                format!("Could not build local runtime HTTP client: {error}"),
+                None,
+                None,
+            )
+        })?;
+    let prompt_chars = request
+        .messages
+        .iter()
+        .map(|message| message.content.len())
+        .sum::<usize>();
+
+    runtime_log::record(format!(
+        "[WordScript] Local runtime correction start endpoint={} model={} timeout_ms={} prompt_chars={} max_tokens={}",
+        chat_runtime.base_url,
+        chat_runtime.model,
+        timeout_ms,
+        prompt_chars,
+        request.max_tokens,
+    ));
+
+    let response = http
+        .post(format!("{}/api/chat", chat_runtime.base_url))
+        .json(&serde_json::json!({
+            "model": chat_runtime.model,
+            "messages": request.messages,
+            "stream": false,
+            "options": {
+                "temperature": request.temperature,
+                "num_predict": request.max_tokens,
+            },
+        }))
+        .send()
+        .await
+        .map_err(|error| {
+            ProviderCommandError::new(
+                if error.is_timeout() {
+                    ProviderErrorKind::Timeout
+                } else {
+                    ProviderErrorKind::Network
+                },
+                format!(
+                    "Local runtime cleanup request to {} failed: {}",
+                    chat_runtime.base_url, error,
+                ),
+                None,
+                None,
+            )
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let detail = response
+            .text()
+            .await
+            .unwrap_or_else(|_| String::new())
+            .trim()
+            .to_string();
+
+        return Err(ProviderCommandError::new(
+            ProviderErrorKind::ProviderStatus,
+            if detail.is_empty() {
+                format!(
+                    "Local runtime cleanup failed with status {} from {}.",
+                    status,
+                    chat_runtime.base_url,
+                )
+            } else {
+                format!(
+                    "Local runtime cleanup failed with status {} from {}: {}",
+                    status,
+                    chat_runtime.base_url,
+                    detail,
+                )
+            },
+            Some(status.as_u16()),
+            None,
+        ));
+    }
+
+    let payload = response
+        .json::<OllamaChatCompletionResponse>()
+        .await
+        .map_err(|error| {
+            ProviderCommandError::new(
+                ProviderErrorKind::Parse,
+                format!("Could not parse local runtime cleanup response: {error}"),
+                None,
+                None,
+            )
+        })?;
+    let content = payload.message.content.trim().to_string();
+
+    if content.is_empty() {
+        return Err(ProviderCommandError::new(
+            ProviderErrorKind::Parse,
+            "Local runtime cleanup returned no assistant text.".to_string(),
+            None,
+            None,
+        ));
+    }
+
+    runtime_log::record(format!(
+        "[WordScript] Local runtime correction done elapsed_ms={} corrected_len={}",
+        started_at.elapsed().as_millis(),
+        content.len(),
+    ));
+
+    Ok(content)
 }
 
 fn provider_profiles() -> Vec<ProviderProfile> {
@@ -357,7 +521,7 @@ fn provider_profiles() -> Vec<ProviderProfile> {
 fn provider_capabilities() -> ProviderCapabilities {
     ProviderCapabilities {
         transcription: true,
-        chat_completion: false,
+        chat_completion: true,
         local: true,
         requires_api_key: false,
         supports_prompt_bias: true,
@@ -533,7 +697,7 @@ fn local_model_name_from_path(path: &Path) -> Option<String> {
 
 fn local_preview_setup_message(model: &str) -> String {
     format!(
-        "Local preview requires an external whisper-cli runner and a local model file. Set {} to the binary or install whisper-cli in PATH, then point {} to a ggml model file or {} to a directory containing ggml-{}.bin.",
+        "Local runtime requires whisper-cli plus a local STT model. Set {} to the binary or install whisper-cli in PATH, then point {} to a ggml model file or {} to a directory containing ggml-{}.bin.",
         LOCAL_WHISPER_BINARY_ENV,
         LOCAL_MODEL_PATH_ENV,
         LOCAL_MODEL_DIR_ENV,
@@ -541,39 +705,62 @@ fn local_preview_setup_message(model: &str) -> String {
     )
 }
 
-fn inspect_local_setup(model: &str) -> LocalProviderSetupStatus {
+fn local_runtime_chat_setup_message(chat_model: &str) -> String {
+    format!(
+        "Local runtime AI cleanup requires a reachable Ollama endpoint and a pulled local model. Start Ollama at {} or set {} to another local endpoint, then pull '{}' or set {} to an installed local model.",
+        DEFAULT_LOCAL_CHAT_BASE_URL,
+        LOCAL_CHAT_BASE_URL_ENV,
+        chat_model,
+        LOCAL_CHAT_MODEL_ENV,
+    )
+}
+
+fn inspect_local_setup(model: &str, correction_model: &str) -> LocalProviderSetupStatus {
     let runner = resolve_local_whisper_binary();
     let runner_probe = runner
         .as_ref()
         .ok()
         .and_then(|binary| probe_local_whisper_runner(binary).err());
     let model_path = resolve_local_model_path(model);
+    let chat_runtime = inspect_local_chat_runtime(Some(correction_model));
     let runner_ready = runner.is_ok() && runner_probe.is_none();
     let model_ready = model_path.is_ok();
+    let chat_ready = chat_runtime.is_ok();
     let issue_code = local_setup_issue_code(
         runner.as_ref().err(),
         runner_probe.as_ref(),
         model_path.as_ref().err(),
+        chat_runtime.as_ref().err(),
     );
     let guidance = local_setup_guidance(
         model,
+        correction_model,
         runner.as_ref().ok().map(String::as_str),
         runner.as_ref().err(),
         runner_probe.as_ref(),
         model_path.as_ref().err(),
+        chat_runtime.as_ref().err(),
     );
 
     LocalProviderSetupStatus {
-        readiness: if runner_ready && model_ready {
+        readiness: if runner_ready && model_ready && chat_ready {
             LocalProviderReadiness::Ready
         } else {
             LocalProviderReadiness::SetupRequired
         },
         runner_ready,
         model_ready,
+        chat_ready,
         issue_code,
         resolved_runner: runner.ok(),
         resolved_model: model_path.ok().map(|path| path.display().to_string()),
+        resolved_chat_base_url: chat_runtime.as_ref().ok().map(|runtime| runtime.base_url.clone()),
+        resolved_chat_model: chat_runtime.as_ref().ok().map(|runtime| runtime.model.clone()),
+        available_chat_models: chat_runtime
+            .as_ref()
+            .ok()
+            .map(|runtime| runtime.available_models.clone())
+            .unwrap_or_default(),
         guidance,
     }
 }
@@ -582,41 +769,60 @@ fn local_setup_issue_code(
     runner_issue: Option<&LocalRunnerResolutionError>,
     runner_probe_issue: Option<&LocalRunnerProbeError>,
     model_issue: Option<&LocalModelResolutionError>,
+    chat_issue: Option<&LocalChatResolutionError>,
 ) -> Option<LocalProviderIssueCode> {
-    match (runner_issue, runner_probe_issue, model_issue) {
+    match (runner_issue, runner_probe_issue, model_issue, chat_issue) {
         (
             Some(LocalRunnerResolutionError::MissingConfiguration),
             None,
             Some(LocalModelResolutionError::MissingConfiguration { .. }),
+            _,
         ) => Some(LocalProviderIssueCode::MissingRunnerAndModel),
-        (Some(issue), _, _) => Some(issue.issue_code()),
-        (None, Some(issue), _) => Some(issue.issue_code()),
-        (None, None, Some(issue)) => Some(issue.issue_code()),
-        (None, None, None) => None,
+        (Some(issue), _, _, _) => Some(issue.issue_code()),
+        (None, Some(issue), _, _) => Some(issue.issue_code()),
+        (None, None, Some(issue), _) => Some(issue.issue_code()),
+        (None, None, None, Some(issue)) => Some(issue.issue_code()),
+        (None, None, None, None) => None,
     }
 }
 
 fn local_setup_guidance(
     model: &str,
+    correction_model: &str,
     runner: Option<&str>,
     runner_issue: Option<&LocalRunnerResolutionError>,
     runner_probe_issue: Option<&LocalRunnerProbeError>,
     model_issue: Option<&LocalModelResolutionError>,
+    chat_issue: Option<&LocalChatResolutionError>,
 ) -> String {
-    match (runner_issue, runner_probe_issue, model_issue) {
+    match (runner_issue, runner_probe_issue, model_issue, chat_issue) {
         (
             Some(LocalRunnerResolutionError::MissingConfiguration),
             None,
             Some(LocalModelResolutionError::MissingConfiguration { .. }),
+            Some(LocalChatResolutionError::MissingModel { .. }),
+        ) => {
+            format!(
+                "{} {}",
+                local_preview_setup_message(model),
+                local_runtime_chat_setup_message(correction_model),
+            )
+        }
+        (
+            Some(LocalRunnerResolutionError::MissingConfiguration),
+            None,
+            Some(LocalModelResolutionError::MissingConfiguration { .. }),
+            _,
         ) => local_preview_setup_message(model),
-        (None, None, None) => {
-            "Local preview helper, health probe and model are ready for the STT lane."
+        (None, None, None, None) => {
+            "Local runtime helper, STT model and AI cleanup model are ready."
                 .to_string()
         }
         _ => [
             runner_issue.map(|issue| issue.guidance(model)),
             runner_probe_issue.map(|issue| issue.guidance(runner.unwrap_or("whisper-cli"))),
             model_issue.map(LocalModelResolutionError::guidance),
+            chat_issue.map(LocalChatResolutionError::guidance),
         ]
         .into_iter()
         .flatten()
@@ -903,6 +1109,175 @@ fn local_binary_exists(program: &str) -> bool {
     command_in_path(program)
 }
 
+fn resolve_local_chat_model_name(model: Option<&str>) -> String {
+    model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            std::env::var(LOCAL_CHAT_MODEL_ENV)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| DEFAULT_LOCAL_CHAT_MODEL.to_string())
+}
+
+fn resolve_local_chat_base_url() -> Result<String, LocalChatResolutionError> {
+    let raw = std::env::var(LOCAL_CHAT_BASE_URL_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_LOCAL_CHAT_BASE_URL.to_string());
+    let normalized = raw.trim_end_matches('/').to_string();
+
+    Url::parse(&normalized)
+        .map(|_| normalized)
+        .map_err(|_| LocalChatResolutionError::InvalidBaseUrl { url: raw })
+}
+
+fn inspect_local_chat_runtime(
+    requested_model: Option<&str>,
+) -> Result<LocalChatRuntime, LocalChatResolutionError> {
+    let base_url = resolve_local_chat_base_url()?;
+    let requested_model = resolve_local_chat_model_name(requested_model);
+    let available_models = fetch_local_chat_models_blocking(&base_url)?;
+    let model = resolve_local_chat_model(&requested_model, &available_models, &base_url)?;
+
+    Ok(LocalChatRuntime {
+        base_url,
+        model,
+        available_models,
+    })
+}
+
+async fn inspect_local_chat_runtime_async(
+    requested_model: Option<&str>,
+    timeout_ms: u64,
+) -> Result<LocalChatRuntime, LocalChatResolutionError> {
+    let base_url = resolve_local_chat_base_url()?;
+    let requested_model = resolve_local_chat_model_name(requested_model);
+    let available_models = fetch_local_chat_models_async(&base_url, timeout_ms).await?;
+    let model = resolve_local_chat_model(&requested_model, &available_models, &base_url)?;
+
+    Ok(LocalChatRuntime {
+        base_url,
+        model,
+        available_models,
+    })
+}
+
+fn resolve_local_chat_model(
+    requested_model: &str,
+    available_models: &[String],
+    base_url: &str,
+) -> Result<String, LocalChatResolutionError> {
+    if available_models.is_empty() {
+        return Err(LocalChatResolutionError::MissingModel {
+            base_url: base_url.to_string(),
+            requested: requested_model.to_string(),
+        });
+    }
+
+    if available_models.iter().any(|model| model == requested_model) {
+        return Ok(requested_model.to_string());
+    }
+
+    Err(LocalChatResolutionError::ModelNotFound {
+        base_url: base_url.to_string(),
+        requested: requested_model.to_string(),
+        available: available_models.to_vec(),
+    })
+}
+
+fn fetch_local_chat_models_blocking(
+    base_url: &str,
+) -> Result<Vec<String>, LocalChatResolutionError> {
+    let http = BlockingClient::builder()
+        .timeout(Duration::from_millis(LOCAL_CHAT_PROBE_TIMEOUT_MS))
+        .connect_timeout(Duration::from_millis(750))
+        .build()
+        .map_err(|error| LocalChatResolutionError::BackendUnavailable {
+            base_url: base_url.to_string(),
+            message: error.to_string(),
+        })?;
+    let response = http
+        .get(format!("{}/api/tags", base_url))
+        .send()
+        .map_err(|error| LocalChatResolutionError::BackendUnavailable {
+            base_url: base_url.to_string(),
+            message: error.to_string(),
+        })?;
+
+    if !response.status().is_success() {
+        return Err(LocalChatResolutionError::BackendUnavailable {
+            base_url: base_url.to_string(),
+            message: format!("GET /api/tags returned HTTP {}", response.status()),
+        });
+    }
+
+    let payload = response
+        .json::<OllamaTagsResponse>()
+        .map_err(|error| LocalChatResolutionError::BackendUnavailable {
+            base_url: base_url.to_string(),
+            message: format!("Could not parse /api/tags response: {error}"),
+        })?;
+
+    Ok(normalize_available_local_chat_models(payload.models))
+}
+
+async fn fetch_local_chat_models_async(
+    base_url: &str,
+    timeout_ms: u64,
+) -> Result<Vec<String>, LocalChatResolutionError> {
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_millis(timeout_ms.max(5_000)))
+        .connect_timeout(Duration::from_millis(1_500))
+        .build()
+        .map_err(|error| LocalChatResolutionError::BackendUnavailable {
+            base_url: base_url.to_string(),
+            message: error.to_string(),
+        })?;
+    let response = http
+        .get(format!("{}/api/tags", base_url))
+        .send()
+        .await
+        .map_err(|error| LocalChatResolutionError::BackendUnavailable {
+            base_url: base_url.to_string(),
+            message: error.to_string(),
+        })?;
+
+    if !response.status().is_success() {
+        return Err(LocalChatResolutionError::BackendUnavailable {
+            base_url: base_url.to_string(),
+            message: format!("GET /api/tags returned HTTP {}", response.status()),
+        });
+    }
+
+    let payload = response
+        .json::<OllamaTagsResponse>()
+        .await
+        .map_err(|error| LocalChatResolutionError::BackendUnavailable {
+            base_url: base_url.to_string(),
+            message: format!("Could not parse /api/tags response: {error}"),
+        })?;
+
+    Ok(normalize_available_local_chat_models(payload.models))
+}
+
+fn normalize_available_local_chat_models(models: Vec<OllamaModelDescriptor>) -> Vec<String> {
+    let mut available = models
+        .into_iter()
+        .flat_map(|descriptor| [descriptor.name, descriptor.model])
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    available.sort();
+    available.dedup();
+    available
+}
+
 #[derive(Debug, Clone)]
 enum LocalRunnerResolutionError {
     MissingConfiguration,
@@ -1006,6 +1381,58 @@ impl LocalModelResolutionError {
                 requested,
                 LOCAL_MODEL_PATH_ENV,
                 LOCAL_MODEL_DIR_ENV,
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum LocalChatResolutionError {
+    InvalidBaseUrl { url: String },
+    BackendUnavailable { base_url: String, message: String },
+    MissingModel { base_url: String, requested: String },
+    ModelNotFound {
+        base_url: String,
+        requested: String,
+        available: Vec<String>,
+    },
+}
+
+impl LocalChatResolutionError {
+    fn issue_code(&self) -> LocalProviderIssueCode {
+        match self {
+            Self::InvalidBaseUrl { .. } => LocalProviderIssueCode::InvalidChatEndpoint,
+            Self::BackendUnavailable { .. } => LocalProviderIssueCode::ChatBackendUnavailable,
+            Self::MissingModel { .. } => LocalProviderIssueCode::MissingChatModel,
+            Self::ModelNotFound { .. } => LocalProviderIssueCode::ChatModelNotFound,
+        }
+    }
+
+    fn guidance(&self) -> String {
+        match self {
+            Self::InvalidBaseUrl { url } => format!(
+                "Local runtime chat endpoint '{}' is invalid. Set {} to a valid Ollama URL such as {}.",
+                url, LOCAL_CHAT_BASE_URL_ENV, DEFAULT_LOCAL_CHAT_BASE_URL,
+            ),
+            Self::BackendUnavailable { base_url, message } => format!(
+                "Local runtime AI cleanup backend at '{}' is unavailable. WordScript could not read {}/api/tags: {} Start Ollama or point {} to a reachable local endpoint.",
+                base_url, base_url, message, LOCAL_CHAT_BASE_URL_ENV,
+            ),
+            Self::MissingModel { base_url, requested } => format!(
+                "Local runtime AI cleanup backend at '{}' is reachable, but no local chat models are installed. Pull '{}' with 'ollama pull {}' or set {} to an installed model.",
+                base_url, requested, requested, LOCAL_CHAT_MODEL_ENV,
+            ),
+            Self::ModelNotFound {
+                base_url,
+                requested,
+                available,
+            } => format!(
+                "Local runtime chat model '{}' is not installed at '{}'. Available models: {}. Pull '{}' with 'ollama pull {}' or choose one of the installed models.",
+                requested,
+                base_url,
+                available.join(", "),
+                requested,
+                requested,
             ),
         }
     }
@@ -1193,7 +1620,7 @@ whisper_print_timings: total time = 1337.00 ms
         std::env::remove_var(LOCAL_MODEL_DIR_ENV);
         std::env::set_var("PATH", "");
 
-        let status = provider_status(None).expect("local preview status");
+        let status = provider_status(None, None).expect("local preview status");
 
         assert_eq!(status.provider, LOCAL_PREVIEW_PROVIDER_ID);
         assert!(!status.credential.configured);
@@ -1226,7 +1653,7 @@ whisper_print_timings: total time = 1337.00 ms
         std::env::remove_var(LOCAL_MODEL_DIR_ENV);
         std::env::set_var("PATH", "");
 
-        let status = provider_status(None).expect("local preview status");
+        let status = provider_status(None, None).expect("local preview status");
 
         assert!(!status.credential.configured);
         assert_eq!(
@@ -1256,7 +1683,7 @@ whisper_print_timings: total time = 1337.00 ms
         std::env::set_var(LOCAL_MODEL_PATH_ENV, &model_path);
         std::env::remove_var(LOCAL_MODEL_DIR_ENV);
 
-        let status = provider_status(None).expect("local preview status");
+        let status = provider_status(None, None).expect("local preview status");
 
         assert!(!status.credential.configured);
         assert_eq!(
@@ -1299,7 +1726,7 @@ whisper_print_timings: total time = 1337.00 ms
         std::env::set_var(LOCAL_MODEL_PATH_ENV, &model_path);
         std::env::remove_var(LOCAL_MODEL_DIR_ENV);
 
-        let status = provider_status(None).expect("local preview status");
+        let status = provider_status(None, None).expect("local preview status");
 
         assert_eq!(
             status
@@ -1317,7 +1744,7 @@ whisper_print_timings: total time = 1337.00 ms
         assert!(capabilities.transcription);
         assert!(capabilities.local);
         assert!(capabilities.supports_language);
-        assert!(!capabilities.chat_completion);
+        assert!(capabilities.chat_completion);
         assert!(!capabilities.requires_api_key);
         assert!(capabilities.supports_prompt_bias);
         assert!(!capabilities.supports_segments);
@@ -1391,7 +1818,7 @@ whisper_print_timings: total time = 1337.00 ms
         std::env::set_var("PATH", "");
         std::env::set_var(LOCAL_WHISPER_BINARY_ENV, "/tmp/wordscript-missing-whisper-cli");
 
-        let status = provider_status(Some("medium")).expect("local preview status");
+        let status = provider_status(Some("medium"), None).expect("local preview status");
 
         assert_eq!(
             status.default_profile,

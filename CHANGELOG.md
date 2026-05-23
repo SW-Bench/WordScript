@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - native transcription history with persistence, retention, delete/clear commands and retry-based re-processing from stored raw transcripts
 - local text profiles that bundle transcription context, dictionary and snippets into native runtime config and active Text Rules UI
 - curated local profiles for core ICPs with Customer Success, Sales, Founder/Ops, Recruiting and Product/Engineering baselines, seeded directly into the app config on first run
+- a full local runtime lane behind the existing `local_preview` compatibility id, combining `whisper-cli` STT with local Ollama cleanup, typed runner/model/chat setup truth and a separate `local_correction_model`
 
 ### Fixed
 
@@ -59,22 +60,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - native pipeline completion, empty results and provider/insert failures are now guarded by the active processing session id, so stale async results after aborts or newer captures are ignored instead of overwriting runtime state
 - provider status, credential and transcription dispatch now run through shared provider commands and types, while Groq remains the only wired production provider
 - provider status now exposes typed capabilities and provider modes, while provider errors include retryability and a user recovery action instead of only free-text failure messages
-- provider selection now exposes a second `local_preview` lane that uses an external `whisper-cli` runner and local ggml models without changing the capture, transform, insertion or recovery pipeline shape
+- provider selection now exposes a second `local_preview` compatibility lane that uses an external `whisper-cli` runner, local ggml models and local Ollama cleanup without changing the capture, transform, insertion or recovery pipeline shape
 - `local_preview` now strips timestamped `whisper-cli` segment output more cleanly and resolves common model variants from model directories instead of only exact `ggml-<model>.bin` names
-- `local_preview` provider status now validates the configured runner path instead of treating every non-empty env value as ready, and Settings exposes a typed local setup contract with stable issue codes for runner/model gaps
+- `local_preview` provider status now validates the configured runner path instead of treating every non-empty env value as ready, and Settings exposes a typed local setup contract with stable issue codes for runner/model/chat gaps
 - `local_preview` setup truth now follows the currently selected local model instead of always checking `base`, so Settings and provider gating no longer report false readiness for a different configured model
 - `local_preview` now performs an active runner probe and surfaces stable `runner_probe_failed` and `runner_probe_timed_out` issue codes instead of treating filesystem presence alone as executable health
 - `local_preview` model profiles are now discovered natively from the configured local model path or model directory, and quantized names such as `large-v3-q5_0` survive discovery without being normalized into unusable lookup keys
 - `local_preview` now forwards the active transcription context prompt to `whisper-cli --prompt` and exposes prompt-bias support through the shared provider capability contract instead of silently dropping local bias input
 - `local_preview` profiles now classify discovered and fallback local models into `fast` or `quality` presets, so the Settings shell can describe local latency-vs-accuracy tradeoffs without a fake generic `local` mode
-- local preview config now persists the selected local provider profile id plus explicit prompt-bias controls, so Settings can save `fast` vs `quality`, `off` vs `profile` vs `profile + terms`, and `carry initial prompt` as native runtime truth instead of transient UI state
+- local runtime config now persists the selected local provider profile id, separate local cleanup model and explicit prompt-bias controls, so Settings can save `fast` vs `quality`, `off` vs `profile` vs `profile + terms`, `carry initial prompt` and local cleanup choice as native runtime truth instead of transient UI state
 - `local_preview` now materializes two real profiles per local model (`fast` and `quality`) and maps them to distinct whisper-cli decode arguments, instead of inferring latency-vs-quality only from the model family name
 - local preview now persists explicit `beam_size` and `best_of` decode controls on top of the selected `fast` or `quality` profile, so local latency-vs-search depth is no longer locked behind preset-only behavior
-- transcription history and Diagnostics now surface the local provider profile, prompt-bias strength, prompt carry flag, beam size and best-of values for local preview runs, so runtime triage can separate setup errors from decode or prompt drift
+- transcription history and Diagnostics now surface the local provider profile, prompt-bias strength, prompt carry flag, beam size, best-of values and resolved cleanup endpoint/model for local runtime runs, so runtime triage can separate setup errors from decode, cleanup or prompt drift
 - local decode tuning is now stored per local provider profile, so `base-fast`, `base-quality`, `large-quality` and other profile ids retain their own saved `beam_size` and `best_of` values instead of overwriting one global local decoder state
 - local prompt-bias tuning is now stored per local provider profile as well, so `off` vs `profile` vs `profile + terms` plus `carry initial prompt` now switch with the selected local `fast` or `quality` profile instead of leaking one global local prompt state across profiles
-- Rebuild Lab now reads the active local STT contract from the native `v1_slice_status` snapshot and warns when the unsaved Settings draft differs from the persisted runtime provider/profile/prompt/decode contract
-- Rebuild Lab runtime snapshots now also pull live provider readiness and native capture status, so Diagnostics can show resolved `whisper-cli` and model paths plus current capture device/state instead of only replaying persisted config values
+- Rebuild Lab now reads the active local runtime contract from the native `v1_slice_status` snapshot and warns when the unsaved Settings draft differs from the persisted runtime provider/profile/prompt/decode/cleanup contract
+- Rebuild Lab runtime snapshots now also pull live provider readiness and native capture status, so Diagnostics can show resolved `whisper-cli`, model, cleanup endpoint and cleanup model paths plus current capture device/state instead of only replaying persisted config values
 - native insertion results now expose a typed recovery action, user-facing recovery message and clipboard-restore status, so UI and diagnostics no longer infer recovery state from fallback text alone
 - native history now supports server-side provider/status/profile filters, JSON export, persisted limit/retention policy and typed insert-recovery metadata instead of only a fixed in-memory diagnostics slice
 - active config and settings terminology now use `provider` consistently, while the old JSON `groq_api_key` survives only as an explicit legacy migration field
@@ -124,7 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - the native pipeline no longer completes the same session twice when insertion succeeds, and failed insertion now finishes the session on the pipeline owner instead of inside the insert adapter
 - provider config values now normalize to a supported runtime provider, and post-correction uses the same provider dispatch layer as transcription
 - history entries now keep the active text profile name through success, empty, retry and failure paths instead of dropping profile context in diagnostics
-- the settings UI now keeps cloud and local preview model slots separate, shows honest helper prerequisites for the local lane and hides API-key actions when the preview lane is selected
+- the settings UI now keeps cloud and local model slots separate, stores local cleanup in its own lane-specific slot, shows honest helper prerequisites for the local runtime and hides API-key actions when the local lane is selected
 - retry in diagnostics is now a real re-process path through transform and insertion, not only a clipboard restore shortcut
 - the client now exposes release build-up honestly without implying published installers or working in-place updates
 - README, DEVELOPMENT and REFERENCE now include explicit macOS and Windows bootstrap paths instead of a Linux-only quick start

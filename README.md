@@ -157,7 +157,7 @@ The default repo path remains source-first. `npm run tauri build` and `.github/w
 WordScript currently ships with two runtime lanes behind the same provider contract:
 
 - Groq as the cloud-first production lane with BYOK stored in the OS secret store
-- `local_preview` as an STT-only local lane that runs through an external `whisper-cli` helper and local ggml models, with typed setup truth for the selected model, active runner probes, discovered local profiles, fast-vs-quality preset labels and stable issue codes in Settings
+- `local_preview` as the compatibility id for the local runtime lane, which runs speech-to-text through an external `whisper-cli` helper plus local ggml models and runs cleanup through a local Ollama model, with typed setup truth for the selected STT model and cleanup model, active runner probes, discovered local profiles, fast-vs-quality preset labels and stable issue codes in Settings
 
 Runtime credentials stay with the user:
 
@@ -165,19 +165,21 @@ Runtime credentials stay with the user:
 - the JSON config is scrubbed on save
 - there is no hosted WordScript backend or shared WordScript API key in the current product path
 
-Local preview prerequisites today:
+Local runtime prerequisites today:
 
 - install `whisper-cli` in `PATH` or point `WORDSCRIPT_LOCAL_WHISPER_CLI` at the binary
 - set `WORDSCRIPT_LOCAL_MODEL_PATH` to one ggml model file or `WORDSCRIPT_LOCAL_MODEL_DIR` to a directory that contains `ggml-<model>.bin` or common variant files such as quantized or `.en` model builds
+- run Ollama locally at `http://127.0.0.1:11434` or point `WORDSCRIPT_LOCAL_CHAT_BASE_URL` at another local endpoint
+- keep a local cleanup model installed in Ollama; the Settings lane stores this separately from the Groq cleanup model and resolves it through the native provider status
 - expect the Settings profile picker to come from native profile discovery; each local model now exposes explicit `fast` and `quality` profiles, and local readiness still follows the resolved model behind the selected profile
 - expect the active text-profile prompt plus explicit profile-owned STT hints and dictionary terms to feed local STT bias through `whisper-cli --prompt`, with explicit Settings controls for `off`, `profile`, `profile + terms`, and optional `carry initial prompt`; snippet triggers are not forwarded automatically
 - expect explicit local decode controls for `beam size` and `best of`; the selected profile sets the starting defaults, but the decoder search depth is now a persisted runtime choice instead of a hidden preset side effect
-- expect Diagnostics and transcription history to record the active local provider profile together with prompt-bias and decode settings, so local regression triage can see more than just provider and model
+- expect Diagnostics and transcription history to record the active local provider profile together with prompt-bias, decode settings, resolved cleanup endpoint and cleanup model, so local regression triage can see more than just provider and model
 - expect those local decode controls to persist per local provider profile, not as one global local pair; switching between `fast` and `quality` profiles now restores the saved decoder settings of that specific profile
 - expect the local prompt-bias controls to persist per local provider profile too; switching between `fast` and `quality` now restores the saved `off`/`profile`/`profile + terms` and `carry initial prompt` state of that exact profile
-- expect Rebuild Lab to show the native runtime contract separately from unsaved Settings edits, so you can see when local preview changes in the window have not been saved into the running runtime yet
-- expect Rebuild Lab to include live provider readiness, resolved runner/model paths and current native capture device/state in that runtime contract, not just the last saved provider/model config
-- expect speech-to-text only; AI cleanup stays cloud-first and falls back to the raw transcript when local preview is active
+- expect Rebuild Lab to show the native runtime contract separately from unsaved Settings edits, so you can see when local runtime changes in the window have not been saved into the running runtime yet
+- expect Rebuild Lab to include live provider readiness, resolved runner/model paths, resolved cleanup endpoint/model and current native capture device/state in that runtime contract, not just the last saved provider/model config
+- expect speech-to-text plus local cleanup in the same local lane; cleanup still falls back conservatively to the raw transcript when the local model is unavailable or returns unsafe text
 
 Distribution credentials and signing remain part of the release build-up. They are intentionally not described as active user delivery while no published releases exist.
 

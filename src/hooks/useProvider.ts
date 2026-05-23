@@ -41,7 +41,11 @@ export function providerErrorActionLabel(action: ProviderErrorAction) {
   }
 }
 
-export function useProvider(providerId: ProviderId = "groq", model?: string | null) {
+export function useProvider(
+  providerId: ProviderId = "groq",
+  model?: string | null,
+  correctionModel?: string | null,
+) {
   const [status, setStatus] = useState<ProviderStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +59,7 @@ export function useProvider(providerId: ProviderId = "groq", model?: string | nu
         request: {
           provider: providerId,
           model: model?.trim() ? model.trim() : null,
+          correction_model: correctionModel?.trim() ? correctionModel.trim() : null,
         },
       });
       setStatus(next);
@@ -68,7 +73,7 @@ export function useProvider(providerId: ProviderId = "groq", model?: string | nu
     } finally {
       setIsLoading(false);
     }
-  }, [model, providerId]);
+  }, [correctionModel, model, providerId]);
 
   const saveApiKey = useCallback(async (apiKey: string) => {
     setIsLoading(true);

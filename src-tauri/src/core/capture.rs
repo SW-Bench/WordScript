@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use super::{
-    config::{AppConfig, DictionaryEntry, SnippetEntry, DEFAULT_CORRECTION_MODEL},
+    config::{
+        AppConfig, DictionaryEntry, SnippetEntry, DEFAULT_CORRECTION_MODEL,
+    },
     paths::user_data_dir,
     providers::default_provider_id,
     runtime_log,
@@ -84,6 +86,7 @@ impl NativeCaptureConfig {
         let app_config = AppConfig::load_from_disk();
         let active_profile = app_config.active_text_profile();
         let provider = app_config.provider;
+        let local_provider_selected = provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID;
         let model = if provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID {
             if app_config.local_model.trim().is_empty() {
                 "base".to_string()
@@ -108,7 +111,11 @@ impl NativeCaptureConfig {
             dictionary_entries: active_profile.dictionary_entries,
             snippet_entries: active_profile.snippet_entries,
             post_process: app_config.post_process,
-            correction_model: app_config.correction_model,
+            correction_model: if local_provider_selected {
+                app_config.local_correction_model
+            } else {
+                app_config.correction_model
+            },
             filter_fillers: app_config.filter_fillers,
             professionalize: app_config.professionalize,
             audio_device: app_config.audio_device,

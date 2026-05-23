@@ -615,7 +615,11 @@ fn transform_config_from_app_config(config: &AppConfig) -> NativeTransformConfig
         dictionary_entries: active_profile.dictionary_entries,
         snippet_entries: active_profile.snippet_entries,
         post_process: config.post_process,
-        correction_model: config.correction_model.clone(),
+        correction_model: if config.provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID {
+            config.local_correction_model.clone()
+        } else {
+            config.correction_model.clone()
+        },
         filter_fillers: config.filter_fillers,
         professionalize: config.professionalize,
     }

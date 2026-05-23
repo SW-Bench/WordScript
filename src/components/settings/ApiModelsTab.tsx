@@ -37,6 +37,11 @@ const CORRECTION_MODELS = [
   "mixtral-8x7b-32768",
   "gemma2-9b-it",
 ];
+const LOCAL_RUNTIME_CORRECTION_MODELS = [
+  "llama3.2:latest",
+  "qwen2.5:7b-instruct",
+  "gemma3:4b",
+];
 const LANGUAGES = ["Auto", "en", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "ja", "ko", "zh"];
 const GROQ_CAPABILITIES: ProviderCapabilities = {
   transcription: true,
@@ -50,7 +55,7 @@ const GROQ_CAPABILITIES: ProviderCapabilities = {
 };
 const LOCAL_PREVIEW_CAPABILITIES: ProviderCapabilities = {
   transcription: true,
-  chat_completion: false,
+  chat_completion: true,
   local: true,
   requires_api_key: false,
   supports_prompt_bias: true,
@@ -215,9 +220,25 @@ function localSetupIssueLabel(issueCode: LocalProviderIssueCode | null | undefin
       return "Model not found";
     case "missing_runner_and_model":
       return "Runner and model missing";
+    case "invalid_chat_endpoint":
+      return "Cleanup endpoint invalid";
+    case "chat_backend_unavailable":
+      return "Cleanup backend unavailable";
+    case "missing_chat_model":
+      return "Cleanup model missing";
+    case "chat_model_not_found":
+      return "Cleanup model not found";
     default:
       return "No setup blockers";
   }
+}
+
+function localCleanupModelOptions(config: AppConfig, availableModels: string[] | undefined) {
+  return Array.from(new Set([
+    config.local_correction_model.trim() || "llama3.2:latest",
+    ...(availableModels ?? []),
+    ...LOCAL_RUNTIME_CORRECTION_MODELS,
+  ]));
 }
 
 export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
@@ -229,8 +250,9 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const selectedProvider: ProviderId = config.provider === "local_preview" ? "local_preview" : "groq";
   const previewLaneSelected = selectedProvider === "local_preview";
   const selectedLocalModel = previewLaneSelected ? config.local_model : null;
-  const providerLabel = previewLaneSelected ? "Local preview" : "Groq cloud";
-  const cleanupEnabled = !previewLaneSelected && config.post_process;
+  const selectedCleanupModel = previewLaneSelected ? config.local_correction_model : config.correction_model;
+  const providerLabel = previewLaneSelected ? "Local runtime" : "Groq cloud";
+  const cleanupEnabled = config.post_process;
   const {
     status,
     isLoading,
@@ -240,7 +262,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
     saveApiKey,
     clearApiKey,
     validateApiKey,
-  } = useProvider(selectedProvider, selectedLocalModel);
+  } = useProvider(selectedProvider, selectedLocalModel, selectedCleanupModel);
 
   const fallbackProfiles: ProviderProfile[] = previewLaneSelected
     ? buildLocalPreviewFallbackProfiles()
@@ -280,6 +302,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const activeLocalDecode = localProfileDecodeSettingsForProfile(config, activeLocalProfileId);
   const activeLocalBeamSize = activeLocalDecode.beamSize;
   const activeLocalBestOf = activeLocalDecode.bestOf;
+  const localCleanupModels = localCleanupModelOptions(config, localSetup?.available_chat_models);
   const validationState = previewLaneSelected
     ? storedKey
       ? "ok"
@@ -293,8 +316,8 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           : "missing";
   const statusTitle = previewLaneSelected
     ? storedKey
-      ? "Local preview ready"
-      : "Local preview setup required"
+      ? "Local runtime ready"
+      : "Local runtime setup required"
     : validationState === "ok"
       ? "Stored key validated"
       : validationState === "stored"
@@ -303,7 +326,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           ? "Groq key check failed"
           : "No local Groq key stored";
   const statusCopy = previewLaneSelected
-    ? localSetup?.guidance ?? "Install whisper-cli and point WordScript at a local ggml model before using this preview lane."
+    ? localSetup?.guidance ?? "Configure whisper-cli, a local ggml STT model, and a local Ollama cleanup model before using this local runtime lane."
     : validationState === "ok"
       ? "Validated and ready."
       : validationState === "stored"
@@ -312,7 +335,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           ? "The last provider action failed. Check the status line below."
           : "Save a Groq key to enable transcription.";
   const validationSource = previewLaneSelected
-    ? localSetup?.issue_code ? localSetupIssueLabel(localSetup.issue_code) : "STT-only preview lane"
+    ? localSetup?.issue_code ? localSetupIssueLabel(localSetup.issue_code) : "Local transcription + cleanup lane"
     : lastValidation?.checked_with === "provided_key"
       ? "Typed key"
       : lastValidation?.checked_with === "stored_key"
@@ -332,6 +355,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
       ...(provider === "local_preview"
         ? {
             local_model: config.local_model.trim() || "base",
+          local_correction_model: config.local_correction_model.trim() || "llama3.2:latest",
             local_profile: nextLocalProfile,
             local_prompt_strength: nextLocalPrompt.promptStrength,
             local_prompt_carry: nextLocalPrompt.promptCarry,
@@ -475,7 +499,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
         <article className="settings__summary-item">
           <span>Lane</span>
           <strong>{providerLabel}</strong>
-          <small>{providerCapabilities.local ? "External helper lane for local speech-to-text preview." : "Cloud transcription with local BYOK."}</small>
+          <small>{providerCapabilities.local ? "Local transcription plus local AI cleanup via whisper-cli and Ollama." : "Cloud transcription with local BYOK."}</small>
         </article>
         <article className="settings__summary-item">
           <span>Active model</span>
@@ -489,7 +513,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
         </article>
       </div>
 
-      <div className="form-section">{providerRequiresKey ? "Credential status" : "Preview status"}</div>
+      <div className="form-section">{providerRequiresKey ? "Credential status" : "Local runtime status"}</div>
       <div className="settings__provider-card settings__provider-card--highlight">
         <div className="provider-status provider-status--stacked">
           <span className={`provider-status__dot${
@@ -527,9 +551,21 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
               <span>{validationSource}</span>
             </div>
           )}
+          {!providerRequiresKey && (
+            <div className="settings__provider-meta-item">
+              <span className="settings__provider-meta-label">Cleanup endpoint</span>
+              <code>{localSetup?.resolved_chat_base_url ?? "No endpoint resolved"}</code>
+            </div>
+          )}
+          {!providerRequiresKey && (
+            <div className="settings__provider-meta-item">
+              <span className="settings__provider-meta-label">Cleanup model</span>
+              <span>{(localSetup?.resolved_chat_model ?? config.local_correction_model) || "No cleanup model resolved"}</span>
+            </div>
+          )}
           <div className="settings__provider-meta-item">
             <span className="settings__provider-meta-label">Cleanup</span>
-            <span>{providerCapabilities.chat_completion ? "Available" : "STT-only"}</span>
+            <span>{providerCapabilities.chat_completion ? "Available" : "Unavailable"}</span>
           </div>
           <div className="settings__provider-meta-item">
             <span className="settings__provider-meta-label">Context bias</span>
@@ -602,16 +638,13 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
       ) : (
         <div className="settings__provider-card">
           <div className="settings__provider-card-header">
-            <strong className="settings__about-title">External helper setup</strong>
+            <strong className="settings__about-title">Local runtime setup</strong>
             <p className="form-dim settings__provider-card-copy">
-              Set <code>WORDSCRIPT_LOCAL_WHISPER_CLI</code> to a whisper-cli binary or install <code>whisper-cli</code> in PATH. Then set <code>WORDSCRIPT_LOCAL_MODEL_PATH</code> to one ggml model file or <code>WORDSCRIPT_LOCAL_MODEL_DIR</code> to a directory with <code>ggml-&lt;model&gt;.bin</code> files.
+              Set <code>WORDSCRIPT_LOCAL_WHISPER_CLI</code> to a whisper-cli binary or install <code>whisper-cli</code> in PATH. Then set <code>WORDSCRIPT_LOCAL_MODEL_PATH</code> to one ggml model file or <code>WORDSCRIPT_LOCAL_MODEL_DIR</code> to a directory with <code>ggml-&lt;model&gt;.bin</code> files. AI cleanup runs through Ollama at <code>WORDSCRIPT_LOCAL_CHAT_BASE_URL</code> or the default local endpoint.
             </p>
           </div>
           <p className="form-dim">
-            {localSetup?.guidance ?? "This lane is intentionally STT-only. WordScript keeps the same runtime path for capture, insert and diagnostics, but skips cloud cleanup while local preview is active."}
-          </p>
-          <p className="form-dim">
-            This lane is intentionally STT-only. WordScript keeps the same runtime path for capture, insert and diagnostics, but skips cloud cleanup while local preview is active.
+            {localSetup?.guidance ?? "This lane uses the same runtime path for capture, insert and diagnostics, but now expects both local STT and local cleanup to be reachable."}
           </p>
         </div>
       )}
@@ -627,7 +660,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
         <label htmlFor="provider-select">Provider</label>
         <select id="provider-select" value={selectedProvider} onChange={(e) => handleProviderChange(e.target.value as ProviderId)}>
           <option value="groq">Groq cloud</option>
-          <option value="local_preview">Local preview (external whisper-cli)</option>
+          <option value="local_preview">Local runtime (whisper-cli + Ollama)</option>
         </select>
       </div>
       <div className="form-row">
@@ -696,7 +729,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
             <span>Carry initial prompt</span>
           </label>
           <p className="form-dim">
-            Local prompt bias uses the active Text Rules profile. <strong>Profile + terms</strong> also folds dictionary replacements and snippet triggers into the initial whisper prompt, while carry keeps that bias across decoder windows.
+            Local prompt bias uses the active Text Rules profile. <strong>Profile + terms</strong> adds dictionary replacements and explicit STT hints to the initial whisper prompt, while carry keeps that bias across decoder windows.
           </p>
         </>
       )}
@@ -757,20 +790,19 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
       )}
       <p className="form-dim">
         {previewLaneSelected
-          ? "Local preview keeps the same runtime pipeline but swaps speech-to-text to an external whisper-cli helper. Language can usually stay on Auto, and the selected local profile now controls latency vs. quality explicitly."
+          ? "Local runtime keeps the same pipeline for capture, transform and insert, but runs speech-to-text through whisper-cli and cleanup through a local Ollama model. Language can usually stay on Auto, and the selected local profile controls latency vs. quality explicitly."
           : "Profile controls speed vs. accuracy. Language can usually stay on Auto."}
       </p>
 
       <div className="form-section">AI cleanup</div>
       <label className="form-check" style={{ marginBottom: 10 }}>
         <input type="checkbox" checked={cleanupEnabled}
-          disabled={previewLaneSelected}
           onChange={(e) => onChange({ post_process: e.target.checked })} />
         <span>AI cleanup</span>
       </label>
       <p className="form-dim" style={{ margin: "0 0 10px 26px" }}>
         {previewLaneSelected
-          ? "Local preview is STT-only. WordScript inserts the raw local transcript for this lane and leaves cloud cleanup off."
+          ? "Runs locally after speech-to-text and falls back to the original transcript if the rewrite looks unsafe or the local cleanup model is unavailable."
           : cleanupSummary(config)}
       </p>
       {cleanupEnabled && (
@@ -787,13 +819,17 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           </label>
           <div className="form-row">
             <label htmlFor="correction-model-select">Model</label>
-            <select id="correction-model-select" value={config.correction_model}
-              onChange={(e) => onChange({ correction_model: e.target.value })}>
-              {CORRECTION_MODELS.map((m) => <option key={m}>{m}</option>)}
+            <select id="correction-model-select" value={previewLaneSelected ? config.local_correction_model : config.correction_model}
+              onChange={(e) => onChange(previewLaneSelected
+                ? { local_correction_model: e.target.value }
+                : { correction_model: e.target.value })}>
+              {(previewLaneSelected ? localCleanupModels : CORRECTION_MODELS).map((m) => <option key={m}>{m}</option>)}
             </select>
           </div>
           <p className="form-dim">
-            Runs after speech-to-text and can fall back to the original transcript if the rewrite looks unsafe.
+            {previewLaneSelected
+              ? "Uses a local Ollama chat model for cleanup. Keep the chosen model installed locally so the native lane stays fully offline and sustainable."
+              : "Runs after speech-to-text and can fall back to the original transcript if the rewrite looks unsafe."}
           </p>
         </>
       )}

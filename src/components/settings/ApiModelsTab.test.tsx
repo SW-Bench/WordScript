@@ -21,7 +21,7 @@ const groqCapabilities = {
 
 const localPreviewCapabilities = {
   transcription: true,
-  chat_completion: false,
+  chat_completion: true,
   local: true,
   requires_api_key: false,
   supports_prompt_bias: true,
@@ -70,7 +70,7 @@ const localPreviewProviderState = {
     credential: {
       provider: "local_preview",
       configured: false,
-      storage: "external_cli",
+      storage: "local_runtime",
       key_preview: "install whisper-cli and set WORDSCRIPT_LOCAL_MODEL_PATH or WORDSCRIPT_LOCAL_MODEL_DIR",
     },
     profiles: [
@@ -98,10 +98,14 @@ const localPreviewProviderState = {
       readiness: "setup_required" as const,
       runner_ready: false,
       model_ready: false,
+      chat_ready: false,
       issue_code: "missing_runner_and_model" as const,
       resolved_runner: null,
       resolved_model: null,
-      guidance: "Local preview requires an external whisper-cli runner and a local model file. Set WORDSCRIPT_LOCAL_WHISPER_CLI to the binary or install whisper-cli in PATH, then point WORDSCRIPT_LOCAL_MODEL_PATH to a ggml model file or WORDSCRIPT_LOCAL_MODEL_DIR to a directory containing ggml-base.bin.",
+      resolved_chat_base_url: null,
+      resolved_chat_model: null,
+      available_chat_models: [],
+      guidance: "Local runtime requires whisper-cli plus a local STT model. Set WORDSCRIPT_LOCAL_WHISPER_CLI to the binary or install whisper-cli in PATH, then point WORDSCRIPT_LOCAL_MODEL_PATH to a ggml model file or WORDSCRIPT_LOCAL_MODEL_DIR to a directory containing ggml-base.bin.",
     },
   } as ProviderStatus,
   isLoading: false,
@@ -165,7 +169,7 @@ beforeEach(() => {
     credential: {
       provider: "local_preview",
       configured: false,
-      storage: "external_cli",
+      storage: "local_runtime",
       key_preview: "install whisper-cli and set WORDSCRIPT_LOCAL_MODEL_PATH or WORDSCRIPT_LOCAL_MODEL_DIR",
     },
     profiles: [
@@ -193,10 +197,14 @@ beforeEach(() => {
       readiness: "setup_required",
       runner_ready: false,
       model_ready: false,
+      chat_ready: false,
       issue_code: "missing_runner_and_model",
       resolved_runner: null,
       resolved_model: null,
-      guidance: "Local preview requires an external whisper-cli runner and a local model file. Set WORDSCRIPT_LOCAL_WHISPER_CLI to the binary or install whisper-cli in PATH, then point WORDSCRIPT_LOCAL_MODEL_PATH to a ggml model file or WORDSCRIPT_LOCAL_MODEL_DIR to a directory containing ggml-base.bin.",
+      resolved_chat_base_url: null,
+      resolved_chat_model: null,
+      available_chat_models: [],
+      guidance: "Local runtime requires whisper-cli plus a local STT model. Set WORDSCRIPT_LOCAL_WHISPER_CLI to the binary or install whisper-cli in PATH, then point WORDSCRIPT_LOCAL_MODEL_PATH to a ggml model file or WORDSCRIPT_LOCAL_MODEL_DIR to a directory containing ggml-base.bin.",
     },
   } as ProviderStatus;
   localPreviewProviderState.isLoading = false;
@@ -272,22 +280,23 @@ describe("ApiModelsTab", () => {
     expect(screen.queryByText("Model")).not.toBeInTheDocument();
   });
 
-  it("shows local preview as an STT-only lane without key actions", () => {
+  it("shows local runtime as a full local lane without key actions", () => {
     render(
       <ApiModelsTab
         config={createAppConfig({
           provider: "local_preview",
           local_model: "base",
           local_profile: "local-preview-base-fast",
+          local_correction_model: "llama3.2:latest",
         })}
         onChange={vi.fn()}
         onOpenDiagnostics={vi.fn()}
       />,
     );
 
-    expect(screen.getAllByText(/local preview setup required/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/local runtime setup required/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/runner and model missing/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/external helper setup/i)).toBeInTheDocument();
+    expect(screen.getByText(/^local runtime setup$/i)).toBeInTheDocument();
     expect(screen.getAllByText(/wordscript_local_whisper_cli/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("combobox", { name: /provider/i })).toHaveValue("local_preview");
     expect(screen.getByRole("combobox", { name: /profile/i })).toHaveValue("local-preview-base-fast");
@@ -296,10 +305,11 @@ describe("ApiModelsTab", () => {
     expect(screen.getByRole("checkbox", { name: /carry initial prompt/i })).not.toBeChecked();
     expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("1");
     expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("1");
+    expect(screen.getByRole("combobox", { name: /^model$/i })).toHaveValue("llama3.2:latest");
     expect(screen.getByText(/^supported$/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open groq keys/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save locally/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /^ai cleanup$/i })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /^ai cleanup$/i })).toBeEnabled();
   });
 
   it("renders discovered local models from the native provider status", () => {
@@ -329,7 +339,11 @@ describe("ApiModelsTab", () => {
       local_setup: {
         ...localPreviewProviderState.status.local_setup!,
         model_ready: true,
+        chat_ready: true,
         resolved_model: "/models/ggml-large-v3-q5_0.bin",
+        resolved_chat_base_url: "http://127.0.0.1:11434",
+        resolved_chat_model: "qwen2.5:7b-instruct",
+        available_chat_models: ["qwen2.5:7b-instruct"],
       },
     } as ProviderStatus;
 
@@ -339,6 +353,7 @@ describe("ApiModelsTab", () => {
           provider: "local_preview",
           local_model: "large-v3-q5_0",
           local_profile: "local-preview-large-v3-q5_0-quality",
+          local_correction_model: "qwen2.5:7b-instruct",
           local_prompt_strength: "profile_and_terms",
           local_prompt_carry: true,
           local_beam_size: 5,
@@ -380,6 +395,7 @@ describe("ApiModelsTab", () => {
     expect(screen.getByRole("checkbox", { name: /carry initial prompt/i })).toBeChecked();
     expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("5");
     expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("5");
+    expect(screen.getByRole("combobox", { name: /^model$/i })).toHaveValue("qwen2.5:7b-instruct");
   });
 
   it("loads stored local prompt and decode controls when the profile changes", () => {

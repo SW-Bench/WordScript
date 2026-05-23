@@ -184,7 +184,7 @@ Status: erster Recovery-Haertungspass umgesetzt. Native Insert-Ergebnisse tragen
 
 ## Slice 4 - Lokale STT-Lane als Preview einfuehren
 
-Status: umgesetzt als `local_preview`-Lane ueber externes `whisper-cli` plus lokale ggml-Modelle; AI cleanup bleibt cloud-first und faellt im Preview-Pfad auf Rohtext zurueck.
+Status: umgesetzt als `local_preview`-Kompatibilitaets-ID fuer eine lokale Runtime-Lane ueber externes `whisper-cli` plus lokale ggml-Modelle und lokales Ollama-Cleanup; Cleanup-Modell und STT-Profil sind jetzt getrennte Runtime-Slots.
 
 ### Ziel
 
@@ -210,13 +210,13 @@ WordScript braucht eine echte lokale Preview-Lane als zweite Produktspur fuer of
 
 ### Gewuenschte Zielstruktur in WordScript
 
-- lokaler Preview-Provider mit demselben Antwortvertrag wie Groq
+- lokaler Runtime-Provider mit demselben Antwortvertrag wie Groq
 - Transcription Context / Dictionary kann optional als Prompt-Bias genutzt werden
-- UI macht klar: local ist Preview-Lane, cloud-first bleibt der Hauptpfad
+- UI trennt lokale STT-Profile und lokales Cleanup-Modell explizit; cloud-first bleibt der Hauptpfad
 
 ### Exit-Kriterien
 
-- ein lokaler Provider kann ueber denselben Runtime-Pfad transkribieren
+- ein lokaler Provider kann ueber denselben Runtime-Pfad transkribieren und lokal bereinigen
 - Transform und Insertion unterscheiden nicht zwischen lokal und cloud
 - bestehende Recovery-Pfade funktionieren fuer beide Lanes
 
