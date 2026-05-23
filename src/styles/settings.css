@@ -1136,6 +1136,42 @@
   overflow-wrap: anywhere;
 }
 
+.settings__preflight,
+.settings__local-preflight {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings__local-preflight-step {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: #171b20;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings__local-preflight-step--ready {
+  border-color: rgba(56, 220, 109, 0.18);
+  background: #1b241f;
+}
+
+.settings__local-preflight-step--blocked {
+  border-color: rgba(255, 196, 94, 0.16);
+  background: #211e19;
+}
+
+.settings__local-preflight-step p {
+  min-width: 0;
+  margin: 0;
+  color: rgba(245, 247, 244, 0.58);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .settings__provider-input {
   display: flex;
   align-items: center;

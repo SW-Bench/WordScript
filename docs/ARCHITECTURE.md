@@ -219,6 +219,7 @@ Architekturregeln dafuer:
 - `ProviderCommandError` traegt Fehlerart, Status, Retry-After, `retryable` und eine `user_action`, damit Runtime-Events und Settings dieselbe Recovery-Semantik verwenden
 - `local_preview` nutzt keine API-Keys, sondern sichtbare lokale Runtime-Voraussetzungen in Settings und Diagnostics
 - diese lokalen Voraussetzungen laufen jetzt ueber einen typed `local_setup`-Vertrag mit `readiness`, stabilem `issue_code`, aufgeloestem Runner- und Modellpfad sowie aufgeloestem Cleanup-Endpoint und Cleanup-Modell; der Vertrag wird gegen das aktuell gewaehlte lokale STT-Modell und das aktuell gewaehlte lokale Cleanup-Modell ausgewertet und darf lokale Readiness nicht aus `credential.configured` oder Copy rekonstruieren
+- Provider & Models rendert denselben Vertrag als Preflight-Checkliste fuer Speech Runner, STT-Modell, Cleanup-Endpoint und Cleanup-Modell; diese UI ist Anzeige und Fuehrung, nicht eine zweite Setup-Quelle
 - `local_preview` prueft den Runner nicht nur ueber Dateisystem-Praesenz, sondern ueber einen aktiven nativen Probe-Spawn; Fehlercodes wie `runner_probe_failed` oder `runner_probe_timed_out` sind Teil derselben Produktwahrheit
 - lokale Modellprofile kommen nativ aus `WORDSCRIPT_LOCAL_MODEL_PATH` oder `WORDSCRIPT_LOCAL_MODEL_DIR`; die UI darf fuer die Local Lane keine statische Modellliste als Source of Truth behandeln
 - die lokale Lane trennt STT-Profil und Cleanup-Modell explizit; diese Trennung folgt der donor-orientierten Struktur aus `Handy` fuer Runtime-Ownership, `voxtype` fuer klare Engine-/Mode-Pfade und `openwhispr` fuer getrennte Cleanup-Scopes statt impliziter Modellwiederverwendung
@@ -245,7 +246,7 @@ Wenn spaeter weitere Provider dazukommen, gehoeren sie unter `src-tauri/src/core
 
 Diese Themen sind moegliche spaetere Produktstufen, aber heute nicht aktive Architektur:
 
-- gefuehrtes Modellmanagement mit Download-/Pull-Flow, Install-Checks und gefuehrtem lokalen Setup statt env-basierter Runtime-Verdrahtung
+- automatisches Modellmanagement mit Download-/Pull-Flow und Installer-nahen Checks ueber die aktuelle env-basierte Runtime-Verdrahtung und Provider-&-Models-Preflight-Flaeche hinaus
 - arbeitsmodusfaehige Profile mit Defaults fuer Rewrite, Insert und Recovery sowie spaeterer permission-basierter App-/Mode-Aktivierung
 - Live-Preview-/Controlled-Commit-Overlay mit `raw transcript`, bereinigtem Text, aktivem Arbeitsmodus und schnellen Recovery-Aktionen
 - weiteres Produktionsprovider-System mit expliziten Modi wie `fast`, `quality`, `local` und `self_hosted`

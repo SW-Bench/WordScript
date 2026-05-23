@@ -444,6 +444,8 @@ Den Provider-Stack von einem ersten Adapter zu einem echten Produktmodell mit we
 
 ### Slice 10 - Lokale Runtime-Lane produktisieren
 
+Status: erster Produktisierungspass umgesetzt. Provider & Models zeigt die native `local_setup`-Wahrheit jetzt als Preflight-Checkliste fuer Speech Runner, STT-Modell, Cleanup-Endpoint und Cleanup-Modell; offen bleiben automatisierte Modell-/Pull-Flows und ein noch glatterer Erststartpfad.
+
 ### Ziel
 
 Den vorhandenen lokalen Runtime-Pfad von einer env-lastigen Expertenfunktion zu einer gefuehrten first-class Option fuer privacy, resilience und echte lokale Arbeit weiterziehen.
@@ -481,6 +483,8 @@ Den vorhandenen lokalen Runtime-Pfad von einer env-lastigen Expertenfunktion zu 
 - lokaler Pfad fuehlt sich wie eine echte Produktoption an und nicht wie ein externer Debug-Helper
 
 ### Slice 11 - Setup, Permissions und Packaging fuehren
+
+Status: teilweise angebrochen. Die Provider-&-Models-Preflight-Flaeche fuehrt lokale Helfer und Modelle konkreter, und Input zeigt jetzt einen First-Dictation-Preflight fuer Trigger, Mikrofon, Insert und Recovery; Plattform-Permissions, Packaging und der komplette Install-to-first-dictation-Pfad bleiben noch offen.
 
 ### Ziel
 

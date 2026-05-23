@@ -215,6 +215,7 @@ export function InputTab({ config, onChange }: Props) {
     : "Detecting current insert chain.";
   const activeDriverLabel = insertDriverLabel(platformStatus?.active_driver);
   const insertPreflightLabel = insertReadinessLabel(platformStatus?.readiness);
+  const startHotkeyIssue = getHotkeyValidationMessage(config.hotkey, { allowModifierOnly: true });
   const audioStatusMessage = audioError
     ? audioError
     : captureStatus?.is_recording && captureStatus.device_name
@@ -245,6 +246,40 @@ export function InputTab({ config, onChange }: Props) {
     ?? insertion.status?.last_transcript?.clipboard_restore
     ?? null;
   const latestClipboardRestoreLabel = clipboardRestoreLabel(latestClipboardRestore);
+  const firstDictationPreflight = [
+    {
+      id: "trigger",
+      label: "Trigger",
+      ready: Boolean(config.hotkey.trim()) && !startHotkeyIssue,
+      state: startHotkeyIssue ? "Shortcut needs attention" : "Ready",
+      detail: startHotkeyIssue ?? (config.hotkey || "Set a start / stop hotkey."),
+      action: startHotkeyIssue ? "Fix shortcut" : activationLabel,
+    },
+    {
+      id: "microphone",
+      label: "Microphone",
+      ready: selectedAudioDeviceAvailable && !audioError,
+      state: audioError || !selectedAudioDeviceAvailable ? "Needs attention" : "Ready",
+      detail: audioStatusMessage,
+      action: captureStatus?.is_recording ? "Applies next capture" : "Capture ready",
+    },
+    {
+      id: "insert",
+      label: "Insert path",
+      ready: platformStatus?.readiness === "ready",
+      state: insertPreflightLabel,
+      detail: platformStatus?.readiness_message ?? "WordScript is checking the current native insert chain.",
+      action: platformStatus?.readiness === "ready" ? activeDriverLabel : recoveryActionLabel("manual_paste"),
+    },
+    {
+      id: "recovery",
+      label: "Recovery",
+      ready: Boolean(insertion.status?.scratchpad_path),
+      state: insertion.status?.scratchpad_path ? "Ready" : "Checking preflight",
+      detail: insertion.status?.scratchpad_path ?? "WordScript is loading the recovery scratchpad path.",
+      action: scratchpadLabel,
+    },
+  ];
 
   return (
     <>
@@ -272,10 +307,28 @@ export function InputTab({ config, onChange }: Props) {
 
       <div className="settings__provider-card settings__input-path-card">
         <div className="settings__provider-card-header">
-          <strong className="settings__about-title">Current native path</strong>
+          <strong className="settings__about-title">First dictation preflight</strong>
           <p className="form-dim settings__provider-card-copy">
-            The next capture and insert cycle will follow this runtime path.
+            The next capture and insert cycle follows these native checks before it reaches recovery.
           </p>
+        </div>
+        <div className="settings__preflight" aria-label="First dictation preflight checklist">
+          {firstDictationPreflight.map((step) => (
+            <article
+              key={step.id}
+              className={`settings__local-preflight-step${step.ready ? " settings__local-preflight-step--ready" : " settings__local-preflight-step--blocked"}`}
+            >
+              <div className="provider-status provider-status--stacked">
+                <span className={`provider-status__dot${step.ready ? " provider-status__dot--ok" : ""}`} />
+                <div>
+                  <strong>{step.label}</strong>
+                  <span>{step.state}</span>
+                </div>
+              </div>
+              <p>{step.detail}</p>
+              <span className="settings__rule-chip">{step.action}</span>
+            </article>
+          ))}
         </div>
         <div className="settings__provider-meta-grid">
           <div className="settings__provider-meta-item">

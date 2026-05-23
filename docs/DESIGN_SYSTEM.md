@@ -66,6 +66,7 @@ Fuer scrollende Utility-Flaechen gilt zusaetzlich: lange Kartenlisten muessen ru
 Die naechste geplante Vertiefung dieser Shell ist, Profile als sichtbare Arbeitsmodi mit spaeteren Defaults fuer Rewrite, Insert und Recovery zu fuehren. Solange das nicht aktiv ist, bleibt die echte Profilrealitaet bei lokalem Context, optionalen STT-Hints, Dictionary und Snippets.
 Provider & Models muss Provider-Faehigkeiten, lokale Runtime-Grenzen und Recovery-Aktionen aus dem nativen Provider-Status anzeigen. Der Tab darf nicht aus Modellnamen raten, ob Cleanup, Prompt-Bias, Segments oder Local-Setup verfuegbar sind.
 Fuer `local_preview` muessen Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Probleme ueber den nativen `local_setup`-Vertrag sichtbar werden. Labels wie `Runner path invalid`, `Runner probe failed`, `Cleanup backend unavailable` oder `Cleanup model not found` sind Produkttext, keine UI-Erfindungen.
+Provider & Models soll diesen Vertrag als kompakte Preflight-Checkliste zeigen: vier Schritte fuer Speech Runner, STT-Modell, Cleanup-Endpoint und Cleanup-Modell, jeweils mit Status, konkretem aufgeloestem Wert oder naechster lokaler Voraussetzung.
 Der lokale Profilpicker muss auf nativen Provider-Profilen basieren. Wenn ein Nutzer ein anderes lokales Profil waehlt, muss dieselbe Selektion sofort die angezeigte Readiness, Warnungen, Modellauflosung und Fast-vs-Quality-Semantik steuern.
 Wenn `local_preview` Prompt-Bias meldet, muss der Tab das als echte Runtime-Faehigkeit zeigen: der aktive Text-Profile-Context geht lokal als initialer `whisper-cli`-Prompt hinein, und die Regler fuer `off`, `profile`, `profile + terms` sowie `carry initial prompt` muessen sichtbar als echte Config-Zustaende auftreten.
 Diese lokalen Prompt-Regler muessen profilgebunden arbeiten wie die Decode-Regler. Wechselt der Nutzer das lokale Profil, muss dieselbe Auswahl die fuer dieses Profil gespeicherte Bias-Staerke und Carry-Entscheidung laden statt einen globalen Restwert zu spiegeln.
@@ -142,7 +143,8 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 - Save-Bar bleibt ruhig und funktional
 - About-/Trust-Flaechen muessen Plattformvoraussetzungen und ehrliche Grenzen sichtbar getrennt zeigen, nicht in einen neutralen Absatz verstecken
 - Release-Aufbauflaechen im About-Tab sind erlaubt, wenn sie klar `in progress` markieren und keine live Downloads oder funktionierende In-App-Updates vortaeuschen
-- Provider & Models muss Groq-Authentifizierung sichtbar von Local-Runtime-Voraussetzungen trennen; API-Key-UI darf fuer `local_preview` nicht erscheinen, dafuer aber Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Status
+- Provider & Models muss Groq-Authentifizierung sichtbar von Local-Runtime-Voraussetzungen trennen; API-Key-UI darf fuer `local_preview` nicht erscheinen, dafuer aber eine native Preflight-Checkliste mit Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Status
+- Input darf den ersten Diktierpfad als kompakte Preflight-Checkliste zeigen: Trigger, Mikrofon, Insert-Pfad und Recovery. Diese Flaeche muss bestehende native Statuswerte verdichten und darf keine neue Readiness-Semantik einfuehren.
 
 ## Text Rules UX
 
@@ -170,7 +172,7 @@ Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 - UI-Copy sagt `Save locally` und `OS secret store`, nicht implizit Cloud-Speicherung
 - der volle API-Key wird nach dem Speichern nicht zurueck in den Renderer geholt
 - Key-Praesenz ist neutral; gruene Signale gibt es erst nach echter Validierung
-- die lokale Runtime zeigt Runner-/Model-/Cleanup-Status statt Auth-Sprache, muss die noetigen Env-Variablen erklaeren und darf weder Runner- noch Cleanup-Gesundheit aus blossen Pfaden oder UI-Fallbacks ableiten
+- die lokale Runtime zeigt Runner-/Model-/Cleanup-Status statt Auth-Sprache, muss die noetigen lokalen Voraussetzungen in der Preflight-Checkliste erklaeren und darf weder Runner- noch Cleanup-Gesundheit aus blossen Pfaden oder UI-Fallbacks ableiten
 
 ## Motion und Plattformgrenzen
 

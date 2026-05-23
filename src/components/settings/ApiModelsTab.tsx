@@ -5,6 +5,7 @@ import { providerErrorActionLabel, useProvider } from "../../hooks/useProvider";
 import type { AppConfig } from "../../types/ipc";
 import type {
   LocalProviderIssueCode,
+  LocalProviderSetupStatus,
   ProviderCapabilities,
   ProviderId,
   ProviderProfile,
@@ -241,6 +242,53 @@ function localCleanupModelOptions(config: AppConfig, availableModels: string[] |
   ]));
 }
 
+function issueMatches(issueCode: LocalProviderIssueCode | null | undefined, codes: LocalProviderIssueCode[]) {
+  return Boolean(issueCode && codes.includes(issueCode));
+}
+
+function localRuntimeSetupSteps(localSetup: LocalProviderSetupStatus | null, config: AppConfig) {
+  const issueCode = localSetup?.issue_code ?? null;
+  const cleanupEndpointBlocked = issueMatches(issueCode, ["invalid_chat_endpoint", "chat_backend_unavailable"]);
+  const cleanupModelBlocked = issueMatches(issueCode, ["invalid_chat_endpoint", "chat_backend_unavailable", "missing_chat_model", "chat_model_not_found"]);
+  const cleanupEndpointReady = Boolean(localSetup?.chat_ready || (localSetup?.resolved_chat_base_url && !cleanupEndpointBlocked));
+  const cleanupModelReady = Boolean(localSetup?.chat_ready || (localSetup?.resolved_chat_model && !cleanupModelBlocked));
+
+  return [
+    {
+      id: "runner",
+      label: "Speech runner",
+      ready: localSetup?.runner_ready === true,
+      state: localSetup?.runner_ready ? "Ready" : localSetupIssueLabel(issueCode),
+      detail: localSetup?.resolved_runner ?? "Install whisper-cli in PATH or set WORDSCRIPT_LOCAL_WHISPER_CLI.",
+      action: localSetup?.runner_ready ? "Probe passed" : "Install or point runner",
+    },
+    {
+      id: "model",
+      label: "STT model",
+      ready: localSetup?.model_ready === true,
+      state: localSetup?.model_ready ? "Ready" : localSetupIssueLabel(issueCode),
+      detail: localSetup?.resolved_model ?? "Set WORDSCRIPT_LOCAL_MODEL_PATH or WORDSCRIPT_LOCAL_MODEL_DIR to a ggml model.",
+      action: localSetup?.model_ready ? "Model resolved" : "Select local model",
+    },
+    {
+      id: "cleanup-endpoint",
+      label: "Cleanup endpoint",
+      ready: cleanupEndpointReady,
+      state: cleanupEndpointReady ? "Ready" : localSetupIssueLabel(issueCode),
+      detail: localSetup?.resolved_chat_base_url ?? "Run Ollama locally or set WORDSCRIPT_LOCAL_CHAT_BASE_URL.",
+      action: cleanupEndpointReady ? "Endpoint reachable" : "Start local AI runtime",
+    },
+    {
+      id: "cleanup-model",
+      label: "Cleanup model",
+      ready: cleanupModelReady,
+      state: cleanupModelReady ? "Ready" : localSetupIssueLabel(issueCode),
+      detail: localSetup?.resolved_chat_model ?? (config.local_correction_model.trim() || "Install a local Ollama cleanup model."),
+      action: cleanupModelReady ? "Model available" : "Pull cleanup model",
+    },
+  ];
+}
+
 export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const [showTypedKey, setShowTypedKey] = useState(false);
   const [pendingKey, setPendingKey] = useState("");
@@ -303,6 +351,7 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const activeLocalBeamSize = activeLocalDecode.beamSize;
   const activeLocalBestOf = activeLocalDecode.bestOf;
   const localCleanupModels = localCleanupModelOptions(config, localSetup?.available_chat_models);
+  const localSetupSteps = previewLaneSelected ? localRuntimeSetupSteps(localSetup, config) : [];
   const validationState = previewLaneSelected
     ? storedKey
       ? "ok"
@@ -640,8 +689,26 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
           <div className="settings__provider-card-header">
             <strong className="settings__about-title">Local runtime setup</strong>
             <p className="form-dim settings__provider-card-copy">
-              Set <code>WORDSCRIPT_LOCAL_WHISPER_CLI</code> to a whisper-cli binary or install <code>whisper-cli</code> in PATH. Then set <code>WORDSCRIPT_LOCAL_MODEL_PATH</code> to one ggml model file or <code>WORDSCRIPT_LOCAL_MODEL_DIR</code> to a directory with <code>ggml-&lt;model&gt;.bin</code> files. AI cleanup runs through Ollama at <code>WORDSCRIPT_LOCAL_CHAT_BASE_URL</code> or the default local endpoint.
+              Local setup is checked by the native provider contract. WordScript needs a speech runner, one ggml STT model, a local cleanup endpoint and the selected cleanup model before this lane is ready.
             </p>
+          </div>
+          <div className="settings__preflight settings__local-preflight" aria-label="Local runtime setup checklist">
+            {localSetupSteps.map((step) => (
+              <article
+                key={step.id}
+                className={`settings__local-preflight-step${step.ready ? " settings__local-preflight-step--ready" : " settings__local-preflight-step--blocked"}`}
+              >
+                <div className="provider-status provider-status--stacked">
+                  <span className={`provider-status__dot${step.ready ? " provider-status__dot--ok" : ""}`} />
+                  <div>
+                    <strong>{step.label}</strong>
+                    <span>{step.state}</span>
+                  </div>
+                </div>
+                <p>{step.detail}</p>
+                <span className="settings__rule-chip">{step.action}</span>
+              </article>
+            ))}
           </div>
           <p className="form-dim">
             {localSetup?.guidance ?? "This lane uses the same runtime path for capture, insert and diagnostics, but now expects both local STT and local cleanup to be reachable."}

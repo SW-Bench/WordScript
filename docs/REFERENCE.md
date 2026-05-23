@@ -29,6 +29,7 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - Silence-Timeout und Max-Duration-Autostop
 - Groq-BYOK mit OS secret store
 - `local_preview` als lokale Runtime-Lane ueber externes `whisper-cli`, lokale ggml-Modelle und lokales Ollama-Cleanup
+- Provider-&-Models-Preflight fuer die lokale Runtime-Lane mit nativer Runner-, STT-Modell-, Cleanup-Endpoint- und Cleanup-Modell-Readiness
 - bounded STT-Promptbias fuer Groq und `local_preview` aus aktivem Profil-Context, Dictionary-Schreibweisen und wahrscheinlichen Phrasen
 - Halluzinationsfilter und optionale AI-Nachkorrektur mit konservativen Preserve-Hinweisen aus aktivem Profil-Context und Dictionary-Schreibweisen; lokal und cloud nutzen dafuer getrennte Modell-Slots
 - lokale Textprofile fuer Transcription Context, Dictionary und Snippets im nativen Transform-Pfad
@@ -36,6 +37,7 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - Text-Rules-Validation, Preview, Import/Export und Konfliktbehandlung
 - native Insertion mit mehreren Fallback-Stufen
 - Scratchpad und Last-Transcript-Restore
+- Input-Preflight fuer die erste Diktation mit Trigger-, Mikrofon-, Insert- und Recovery-Status aus nativer Wahrheit
 - native Sound-Cues fuer Startup, Start, Stop, Abort und Fehler
 - gepufferte Runtime-Logs in Diagnostics
 - nativer Release-Status-Check fuer die About-Flaeche mit ehrlichem GitHub-Release-Signal
@@ -90,6 +92,7 @@ Die native Plattformdiagnostik kommt aus `core::insertion` und wird sichtbar in 
 - `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin` sowie gaengige Varianten wie quantisierte oder `.en`-Dateien
 - Ollama lokal unter `http://127.0.0.1:11434` oder `WORDSCRIPT_LOCAL_CHAT_BASE_URL`
 - ein installiertes lokales Cleanup-Modell, ausgewaehlt ueber `local_correction_model` oder `WORDSCRIPT_LOCAL_CHAT_MODEL`
+- Provider & Models zeigt diese Voraussetzungen jetzt als native Preflight-Checkliste statt nur als Env-Text; die Checkliste liest `local_setup` und nicht eigene UI-Heuristiken
 - die Lane ist nicht mehr STT-only; AI cleanup laeuft lokal ueber das separate Cleanup-Modell und faellt nur bei Nichtverfuegbarkeit oder Guardrail-Rejects auf das rohe lokale Transkript zurueck
 
 ### Audio- und Upload-Relevanz
@@ -172,8 +175,8 @@ Zusatzregeln des aktiven Pfads:
 - kein signierter In-Place-Auto-Updater
 - Release- und Signing-Validation mit echten Secrets ist noch kein regelmaessiger Routinepfad
 - Linux Wayland bleibt experimentell
-- ein gefuehrter Setup-, Permissions- und Packaging-Pfad von Install bis erster brauchbarer Diktation ist noch nicht implementiert
-- die lokale Runtime-Lane braucht noch gefuehrtes Modellmanagement, Pull-/Install-Checks und einen nutzerfaehigen Setup-Pfad statt env-lastiger Expertenkonfiguration
+- ein vollstaendiger gefuehrter Setup-, Permissions- und Packaging-Pfad von Install bis erster brauchbarer Diktation ist noch nicht implementiert; lokale Runtime und Input haben aber bereits Preflight-Flaechen fuer die wichtigsten ersten Schritte
+- die lokale Runtime-Lane braucht noch automatisches Modellmanagement, Pull-/Install-Aktionen und einen nutzerfaehigen Erststartpfad ueber die aktuelle env-basierte Runtime-Verdrahtung hinaus
 - mehrere vollwertige Produktionsprovider ueber Groq hinaus sind noch nicht implementiert; ebenso fehlt noch ein explizites Mode-Modell wie `fast`, `quality`, `local` oder `self_hosted`
 - Settings- und Overlay-UI brauchen noch eine klarere Informationshierarchie und mehr native macOS-Produktpolish; die aktuelle Shell ist brauchbar, aber noch nicht der Zielzustand
 - Profile sind noch nicht zu echten Arbeitsmodi mit Defaults fuer Rewrite, Insert und Recovery verdichtet; spaetere app- oder mode-basierte Aktivierung bleibt ebenfalls offen

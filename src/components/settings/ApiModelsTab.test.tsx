@@ -297,6 +297,16 @@ describe("ApiModelsTab", () => {
     expect(screen.getAllByText(/local runtime setup required/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/runner and model missing/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/^local runtime setup$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/local runtime setup checklist/i)).toBeInTheDocument();
+    expect(screen.getByText("Speech runner")).toBeInTheDocument();
+    expect(screen.getByText("STT model")).toBeInTheDocument();
+    expect(screen.getAllByText("Cleanup endpoint").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cleanup model").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/install whisper-cli in path/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/wordscript_local_model_path/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/run ollama locally/i)).toBeInTheDocument();
+    expect(screen.getByText("Start local AI runtime")).toBeInTheDocument();
+    expect(screen.getByText("Pull cleanup model")).toBeInTheDocument();
     expect(screen.getAllByText(/wordscript_local_whisper_cli/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("combobox", { name: /provider/i })).toHaveValue("local_preview");
     expect(screen.getByRole("combobox", { name: /profile/i })).toHaveValue("local-preview-base-fast");
@@ -396,6 +406,10 @@ describe("ApiModelsTab", () => {
     expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("5");
     expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("5");
     expect(screen.getByRole("combobox", { name: /^model$/i })).toHaveValue("qwen2.5:7b-instruct");
+    expect(screen.getAllByText("/models/ggml-large-v3-q5_0.bin").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("http://127.0.0.1:11434").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Endpoint reachable").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Model available").length).toBeGreaterThan(0);
   });
 
   it("loads stored local prompt and decode controls when the profile changes", () => {

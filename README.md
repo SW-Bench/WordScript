@@ -36,13 +36,13 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - native microphone capture with waveform, silence timeout and max-duration stop
 - guarded native session finalization, so late provider, transform or insertion results cannot overwrite the current runtime state after aborts or newer captures
 - Groq BYOK transcription with OS secret-store storage
-- first generic provider contract in Rust and Tauri, with typed provider modes, capabilities, recovery actions and local-setup readiness; Groq remains the cloud-first production lane and `local_preview` is the compatibility id for the full local runtime lane with native model discovery, selected STT/cleanup setup truth, prompt-bias support, probe-based runner diagnostics and local Ollama cleanup
+- first generic provider contract in Rust and Tauri, with typed provider modes, capabilities, recovery actions and local-setup readiness; Groq remains the cloud-first production lane and `local_preview` is the compatibility id for the full local runtime lane with native model discovery, selected STT/cleanup setup truth, a Provider & Models preflight checklist, prompt-bias support, probe-based runner diagnostics and local Ollama cleanup
 - transform pipeline with hallucination guardrails, profile-aware AI cleanup, and profile/dictionary-guided transcription prompts across Groq and the local CLI lane so mixed-language and technical terms survive more reliably, plus local text profiles with explicit STT hints, seeded curated baselines, dictionary and snippets
 - native insertion with direct paste, clipboard fallback, typed recovery actions, clipboard-restore status, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
 - native transcription history with retention policy, server-side filters, JSON export, retry and persisted insert-recovery semantics, plus a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
 - diagnostics history, decoded runtime-log hints and long Text Rules card lists now keep stable render boundaries, so routine filter edits and rule changes no longer force every visible card to rebuild at once
 - platform diagnostics and runtime logs, including a stage timeline for capture, provider, transform and insert with per-step state, duration and stable error-code truth
-- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a grouped utility sidebar with a persistent profile dock for manual profile switching and a sequenced Text Rules workspace with a compact process summary, profile/setup deck, curated-profile overview, pinned stage navigation and one dominant working canvas at a time
+- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a grouped utility sidebar with a persistent profile dock, a Provider & Models local-runtime preflight, an Input first-dictation preflight and a sequenced Text Rules workspace with a compact process summary, profile/setup deck, curated-profile overview, pinned stage navigation and one dominant working canvas at a time
 - a calmer utility-style Settings shell with native window controls, grouped navigation, a compact tab header, explicit runtime/save-state chips and one dominant content surface that behaves more predictably on Linux
 - a dedicated native diagnostics preview window that reuses the same Rebuild Lab surface in a calmer pop-out instead of falling back to a separate fake-chrome shell
 - manual release build-up lanes for Linux, macOS and Windows
@@ -57,9 +57,9 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - work-mode capable profiles beyond static context, optional STT hints, dictionary and snippets, with explicit defaults for rewrite, insertion and recovery and later opt-in activation by app or context
 - a live-preview and controlled-commit overlay that shows raw text, cleaned text, the active work mode and quick recovery actions
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
-- guided model management, install/pull checks and a smoother first-run path for the existing local runtime lane
+- automated local model management, install/pull actions and a smoother first-run path beyond the current local runtime preflight checklist
 - final live-host verification and cross-window polish so the calmer utility direction stays consistent across settings and overlay states on Windows, macOS and Linux without platform-fake chrome
-- guided setup, permissions and packaging that get users from install to first useful dictation without having to reverse-engineer diagnostics output
+- guided permissions and packaging that complete the path from install to first useful dictation beyond the current Provider & Models and Input preflight surfaces
 
 ## Planning references
 
@@ -157,7 +157,7 @@ The default repo path remains source-first. `npm run tauri build` and `.github/w
 WordScript currently ships with two runtime lanes behind the same provider contract:
 
 - Groq as the cloud-first production lane with BYOK stored in the OS secret store
-- `local_preview` as the compatibility id for the local runtime lane, which runs speech-to-text through an external `whisper-cli` helper plus local ggml models and runs cleanup through a local Ollama model, with typed setup truth for the selected STT model and cleanup model, active runner probes, discovered local profiles, fast-vs-quality preset labels and stable issue codes in Settings
+- `local_preview` as the compatibility id for the local runtime lane, which runs speech-to-text through an external `whisper-cli` helper plus local ggml models and runs cleanup through a local Ollama model, with typed setup truth for the selected STT model and cleanup model, active runner probes, a Provider & Models checklist for runner/model/endpoint/model readiness, discovered local profiles, fast-vs-quality preset labels and stable issue codes in Settings
 
 Runtime credentials stay with the user:
 
@@ -171,6 +171,7 @@ Local runtime prerequisites today:
 - set `WORDSCRIPT_LOCAL_MODEL_PATH` to one ggml model file or `WORDSCRIPT_LOCAL_MODEL_DIR` to a directory that contains `ggml-<model>.bin` or common variant files such as quantized or `.en` model builds
 - run Ollama locally at `http://127.0.0.1:11434` or point `WORDSCRIPT_LOCAL_CHAT_BASE_URL` at another local endpoint
 - keep a local cleanup model installed in Ollama; the Settings lane stores this separately from the Groq cleanup model and resolves it through the native provider status
+- use the Provider & Models preflight checklist to see the native readiness of the speech runner, STT model, cleanup endpoint and selected cleanup model without reading diagnostics output first
 - expect the Settings profile picker to come from native profile discovery; each local model now exposes explicit `fast` and `quality` profiles, and local readiness still follows the resolved model behind the selected profile
 - expect the active text-profile prompt plus explicit profile-owned STT hints and dictionary terms to feed local STT bias through `whisper-cli --prompt`, with explicit Settings controls for `off`, `profile`, `profile + terms`, and optional `carry initial prompt`; snippet triggers are not forwarded automatically
 - expect explicit local decode controls for `beam size` and `best of`; the selected profile sets the starting defaults, but the decoder search depth is now a persisted runtime choice instead of a hidden preset side effect

@@ -120,9 +120,17 @@ describe("InputTab", () => {
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("list_native_input_devices"));
 
     expect(screen.getByRole("checkbox", { name: /play sound feedback/i })).toBeChecked();
+    expect(screen.getByText("First dictation preflight")).toBeInTheDocument();
+    expect(screen.getByLabelText(/first dictation preflight checklist/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Trigger").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Microphone").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Insert path").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Recovery").length).toBeGreaterThan(0);
+    expect(screen.getByText(/capture ready/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/manual paste/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/manual format: use \+ between keys/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /input device/i })).toBeInTheDocument();
-    expect(screen.getByText(/next capture will use built-in microphone/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/next capture will use built-in microphone/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/recovery only/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/current driver: wl-copy/i)).toBeInTheDocument();
     expect(screen.getAllByText(/wl-copy -> wtype/i).length).toBeGreaterThan(0);
