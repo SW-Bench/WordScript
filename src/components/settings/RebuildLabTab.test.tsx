@@ -13,6 +13,7 @@ let v1SliceState: {
     architecture_mode: string;
     runtime_contract: {
       provider: string;
+      provider_profile: string;
       model: string;
       provider_status: {
         ready: boolean;
@@ -74,6 +75,7 @@ let v1SliceState: {
       architecture_mode: string;
       runtime_contract: {
         provider: string;
+        provider_profile: string;
         model: string;
         provider_status: {
           ready: boolean;
@@ -196,6 +198,7 @@ beforeEach(() => {
     architecture_mode: "native-rebuild-slice",
     runtime_contract: {
       provider: "groq",
+      provider_profile: "cloud-fast",
       model: "whisper-large-v3-turbo",
       provider_status: {
         ready: true,
@@ -404,6 +407,7 @@ describe("RebuildLabTab", () => {
         preferred_provider: "local-preview-base-quality",
         runtime_contract: {
           provider: "local_preview",
+          provider_profile: "local-preview-base-quality",
           model: "base",
           provider_status: {
             ready: true,
@@ -501,6 +505,7 @@ describe("RebuildLabTab", () => {
         preferred_provider: "local-preview-base-fast",
         runtime_contract: {
           provider: "local_preview",
+          provider_profile: "local-preview-base-fast",
           model: "base",
           provider_status: {
             ready: false,

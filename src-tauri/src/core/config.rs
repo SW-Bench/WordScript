@@ -695,7 +695,7 @@ fn normalize_local_prompt_strength_value(value: &str) -> String {
     }
 }
 
-fn normalize_local_model_value(model: &str) -> String {
+pub(crate) fn normalize_local_model_value(model: &str) -> String {
     let normalized = model.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "" => "base".to_string(),
@@ -720,7 +720,7 @@ fn default_local_profile_mode_for_model(model: &str) -> &'static str {
     }
 }
 
-fn default_local_profile_for_model(model: &str) -> String {
+pub(crate) fn default_local_profile_for_model(model: &str) -> String {
     let normalized = normalize_local_model_value(model);
     format!(
         "local-preview-{}-{}",
@@ -729,7 +729,7 @@ fn default_local_profile_for_model(model: &str) -> String {
     )
 }
 
-fn local_model_from_profile_id(profile: &str) -> Option<String> {
+pub(crate) fn local_model_from_profile_id(profile: &str) -> Option<String> {
     let normalized = profile.trim().to_ascii_lowercase();
     let rest = normalized.strip_prefix("local-preview-")?;
 
@@ -738,7 +738,7 @@ fn local_model_from_profile_id(profile: &str) -> Option<String> {
         .map(normalize_local_model_value)
 }
 
-fn normalize_local_profile_id(profile: &str, fallback_model: &str) -> String {
+pub(crate) fn normalize_local_profile_id(profile: &str, fallback_model: &str) -> String {
     let normalized = profile.trim().to_ascii_lowercase();
     let fallback = default_local_profile_for_model(fallback_model);
 

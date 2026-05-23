@@ -118,6 +118,7 @@ React darf diese Dinge anzeigen, konfigurieren und diagnostisch erklaeren, aber 
 
 Async Runtime-Ergebnisse aus Provider, Transform und Insert muessen ueber die aktive `processing`-Session-ID guardiert werden. Ein spaeter Provider- oder Insert-Fehler darf nach Abort, neuer Aufnahme oder bereits finalisierter Session keinen UI-State mehr ueberschreiben.
 Provider-Capabilities und Provider-Modi kommen aus dem nativen Provider-Vertrag. Settings duerfen sie als Status- und Auswahlhilfe nutzen, aber nicht aus Modellnamen oder UI-Heuristiken ableiten.
+Dasselbe gilt fuer den V1-Slice: `preferred_provider` und `provider_mode` muessen aus dem nativen Runtime-Vertrag kommen. Tests duerfen diese Begriffe nicht aus `AppConfig::load_from_disk()` oder losen Modellnamen-Heuristiken ableiten.
 Insert-Recovery muss ueber den nativen Insert-Outcome laufen. Neue UI darf `recovery_action`, `recovery_message` und `clipboard_restore` anzeigen, aber nicht aus `fallback_reason` eigene Recovery-States ableiten.
 Dasselbe gilt fuer durable History und Export: `TranscriptionHistoryEntry` ist eine Weitergabe des nativen Recovery-Vertrags und keine zweite, vereinfachte Recovery-Projektion.
 Dasselbe gilt fuer Diagnostics-Stage-Telemetrie: Wenn Rebuild Lab Capture-, Provider-, Transform- oder Insert-Fortschritt anzeigt, muessen `state`, `duration_ms` und `error_code` aus dem nativen Slice-Vertrag kommen und nicht aus UI-Timern, Log-Parsing oder Text-Heuristiken rekonstruiert werden.

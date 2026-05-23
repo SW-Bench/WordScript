@@ -10,7 +10,7 @@ use tauri::{AppHandle, Runtime};
 
 use crate::core::{
     capture::{self, NativeCaptureStatus},
-    config::AppConfig,
+    config::{normalize_local_profile_id, AppConfig},
     providers::{
         self, LocalProviderIssueCode, LocalProviderReadiness, LocalProviderSetupStatus,
         ProviderCommandError, ProviderStatus, ProviderStatusRequest, LOCAL_PREVIEW_PROVIDER_ID,
@@ -39,7 +39,7 @@ pub struct V1SliceState {
 impl V1SliceState {
     #[cfg(test)]
     pub fn status(&self) -> SliceStatus {
-        let runtime_contract = runtime_contract_from_config(&AppConfig::load_from_disk());
+        let runtime_contract = test_runtime_contract();
         self.status_with_runtime(runtime_contract)
     }
 
@@ -54,7 +54,7 @@ impl V1SliceState {
                 .active_session
                 .as_ref()
                 .map(|session| session.trigger.clone()),
-            preferred_provider: runtime_provider_mode(&runtime_contract),
+            preferred_provider: runtime_contract.provider_profile.clone(),
             architecture_mode: "native-rebuild-slice".to_string(),
             runtime_contract,
             last_transcript: self
@@ -86,7 +86,7 @@ impl V1SliceState {
 
     #[cfg(test)]
     pub fn reset(&mut self) -> SliceStatus {
-        let runtime_contract = runtime_contract_from_config(&AppConfig::load_from_disk());
+        let runtime_contract = test_runtime_contract();
         self.reset_with_runtime(runtime_contract)
     }
 
@@ -104,7 +104,7 @@ impl V1SliceState {
 
     #[cfg(test)]
     pub fn start_capture(&mut self, request: StartCaptureRequest) -> Result<SliceStatus, String> {
-        let runtime_contract = runtime_contract_from_config(&AppConfig::load_from_disk());
+        let runtime_contract = test_runtime_contract();
         self.start_capture_with_runtime(request, runtime_contract)
     }
 
@@ -153,7 +153,7 @@ impl V1SliceState {
         &mut self,
         request: CompleteCaptureRequest,
     ) -> Result<SliceResult, String> {
-        let runtime_contract = runtime_contract_from_config(&AppConfig::load_from_disk());
+        let runtime_contract = test_runtime_contract();
         self.complete_capture_with_runtime(request, runtime_contract)
     }
 
@@ -209,7 +209,7 @@ impl V1SliceState {
         self.stage = SliceStage::Processing;
 
         let provider_started_at = Instant::now();
-        let provider_mode = runtime_provider_mode(&runtime_contract);
+        let provider_mode = runtime_contract.provider_profile.clone();
         let provider_duration_ms = elapsed_ms(provider_started_at);
 
         let transform_started_at = Instant::now();
@@ -323,6 +323,11 @@ fn runtime_contract_from_config(config: &AppConfig) -> SliceRuntimeContract {
     runtime_contract_from_sources(config, None, None)
 }
 
+#[cfg(test)]
+fn test_runtime_contract() -> SliceRuntimeContract {
+    runtime_contract_from_config(&AppConfig::default())
+}
+
 fn runtime_contract_from_sources(
     config: &AppConfig,
     capture_status: Option<NativeCaptureStatus>,
@@ -330,15 +335,17 @@ fn runtime_contract_from_sources(
 ) -> SliceRuntimeContract {
     let provider = normalized_runtime_provider(config);
     let local_model = normalized_local_model(config);
+    let provider_profile = runtime_provider_profile(config);
 
     SliceRuntimeContract {
         provider: provider.to_string(),
+        provider_profile,
         model: runtime_model_for_provider(config, provider).to_string(),
         provider_status: map_provider_runtime_status(provider_status),
         capture_status: map_capture_runtime_status(capture_status),
         local_preview: if provider == LOCAL_PREVIEW_PROVIDER_ID {
             Some(SliceLocalPreviewContract {
-                provider_profile: config.local_profile.trim().to_string(),
+                provider_profile: normalized_local_profile(config),
                 model: local_model.to_string(),
                 prompt_strength: config.local_prompt_strength.trim().to_string(),
                 prompt_carry: config.local_prompt_carry,
@@ -373,6 +380,10 @@ fn normalized_local_model(config: &AppConfig) -> &str {
     } else {
         config.local_model.trim()
     }
+}
+
+fn normalized_local_profile(config: &AppConfig) -> String {
+    normalize_local_profile_id(&config.local_profile, normalized_local_model(config))
 }
 
 fn runtime_model_for_provider<'a>(config: &'a AppConfig, provider: &str) -> &'a str {
@@ -460,16 +471,34 @@ fn map_capture_runtime_status(capture_status: Option<NativeCaptureStatus>) -> Sl
     }
 }
 
-fn runtime_provider_mode(runtime_contract: &SliceRuntimeContract) -> String {
-    if let Some(local_preview) = &runtime_contract.local_preview {
-        return local_preview.provider_profile.clone();
+fn runtime_provider_profile(config: &AppConfig) -> String {
+    let provider = normalized_runtime_provider(config);
+
+    if provider == LOCAL_PREVIEW_PROVIDER_ID {
+        return normalized_local_profile(config);
     }
 
-    if runtime_contract.model.contains("turbo") || runtime_contract.model.contains("distil") {
-        "cloud-fast".to_string()
-    } else {
-        "cloud-quality".to_string()
+    match normalized_cloud_model(config) {
+        "whisper-large-v3-turbo" => "cloud-fast".to_string(),
+        "whisper-large-v3" => "cloud-quality".to_string(),
+        model => format!("groq-model-{}", sanitize_runtime_profile_segment(model)),
     }
+}
+
+fn sanitize_runtime_profile_segment(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .map(|character| match character {
+            'a'..='z' | '0'..='9' => character,
+            'A'..='Z' => character.to_ascii_lowercase(),
+            _ => '-',
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 fn build_transcript(raw_text: &str, profile: &str, provider_mode: &str) -> SliceTranscript {
@@ -613,7 +642,34 @@ mod tests {
             .unwrap_or_default()
             .contains("fallback"));
         assert_eq!(result.status.runtime_contract.provider, "groq");
-        assert_eq!(result.transcript.provider_mode, "cloud-quality");
+        assert_eq!(result.status.runtime_contract.provider_profile, "cloud-fast");
+        assert_eq!(result.status.preferred_provider, "cloud-fast");
+        assert_eq!(result.transcript.provider_mode, "cloud-fast");
+    }
+
+    #[test]
+    fn runtime_contract_uses_explicit_cloud_profile_ids_instead_of_model_heuristics() {
+        let config = AppConfig {
+            model: "whisper-large-v3".to_string(),
+            ..AppConfig::default()
+        };
+
+        let runtime_contract = runtime_contract_from_config(&config);
+
+        assert_eq!(runtime_contract.provider, "groq");
+        assert_eq!(runtime_contract.provider_profile, "cloud-quality");
+    }
+
+    #[test]
+    fn runtime_contract_labels_unknown_cloud_models_without_collapsing_to_quality() {
+        let config = AppConfig {
+            model: "custom/cloud model@edge".to_string(),
+            ..AppConfig::default()
+        };
+
+        let runtime_contract = runtime_contract_from_config(&config);
+
+        assert_eq!(runtime_contract.provider_profile, "groq-model-custom-cloud-model-edge");
     }
 
     #[test]
@@ -679,8 +735,8 @@ mod tests {
         );
 
         assert_eq!(runtime_contract.provider, LOCAL_PREVIEW_PROVIDER_ID);
+        assert_eq!(runtime_contract.provider_profile, "local-preview-large-v3-q5_0-quality");
         assert_eq!(runtime_contract.model, "large-v3-q5_0");
-        assert_eq!(runtime_provider_mode(&runtime_contract), "local-preview-large-v3-q5_0-quality");
         assert!(runtime_contract.provider_status.ready);
         assert_eq!(
             runtime_contract

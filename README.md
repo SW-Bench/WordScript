@@ -36,7 +36,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - native microphone capture with waveform, silence timeout and max-duration stop
 - guarded native session finalization, so late provider, transform or insertion results cannot overwrite the current runtime state after aborts or newer captures
 - Groq BYOK transcription with OS secret-store storage
-- first generic provider contract in Rust and Tauri, with typed provider modes, capabilities, recovery actions and local-setup readiness; Groq remains the cloud-first production lane and `local_preview` is the local STT lane with native model discovery, selected-model setup truth, prompt-bias support and probe-based runner diagnostics
+- first generic provider contract in Rust and Tauri, with typed provider modes, capabilities, recovery actions and local-setup readiness; Groq remains the cloud-first production lane and `local_preview` is the compatibility id for the full local runtime lane with native model discovery, selected STT/cleanup setup truth, prompt-bias support, probe-based runner diagnostics and local Ollama cleanup
 - transform pipeline with hallucination guardrails, profile-aware AI cleanup, and profile/dictionary-guided transcription prompts across Groq and the local CLI lane so mixed-language and technical terms survive more reliably, plus local text profiles with explicit STT hints, seeded curated baselines, dictionary and snippets
 - native insertion with direct paste, clipboard fallback, typed recovery actions, clipboard-restore status, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
 - native transcription history with retention policy, server-side filters, JSON export, retry and persisted insert-recovery semantics, plus a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
@@ -57,7 +57,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - work-mode capable profiles beyond static context, optional STT hints, dictionary and snippets, with explicit defaults for rewrite, insertion and recovery and later opt-in activation by app or context
 - a live-preview and controlled-commit overlay that shows raw text, cleaned text, the active work mode and quick recovery actions
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
-- a first-class local lane with model management, health diagnostics, bias prompting and quality/latency presets instead of an external-helper-only preview path
+- guided model management, install/pull checks and a smoother first-run path for the existing local runtime lane
 - final live-host verification and cross-window polish so the calmer utility direction stays consistent across settings and overlay states on Windows, macOS and Linux without platform-fake chrome
 - guided setup, permissions and packaging that get users from install to first useful dictation without having to reverse-engineer diagnostics output
 

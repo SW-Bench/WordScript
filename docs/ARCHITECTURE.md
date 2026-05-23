@@ -103,7 +103,7 @@ Der aktive Produktkern sitzt in `src-tauri/src/core/`.
 
 - `providers/mod.rs`: gemeinsamer Provider-Vertrag, Dispatch und generische Command-Oberflaechen
 - `providers/groq.rs`: erste produktive Cloud-Implementierung fuer BYOK, Secret Store und Groq-spezifische HTTP-Fehler
-- `providers/local_preview.rs`: lokale `whisper-cli`-STT-Lane mit nativer Modell-Discovery, probe-basierter Runner-Gesundheit und selected-model-Setup-Wahrheit ueber denselben Antwortvertrag
+- `providers/local_preview.rs`: lokale Runtime-Lane mit `whisper-cli` fuer STT, lokalem Ollama-Cleanup, nativer Modell-Discovery, probe-basierter Runner-Gesundheit und selected-model-/cleanup-Setup-Wahrheit ueber denselben Antwortvertrag
 - `transform.rs`: Halluzinationsfilter, optionale Nachkorrektur, Dictionary- und Snippet-Aufloesung
 - `text_rules.rs`: Analyse, Preview, Import/Export und Konfliktbehandlung der Text Rules
 
@@ -191,6 +191,7 @@ Wichtige Architekturregeln dieses Pfads:
 - About zeigt Voraussetzungen und Grenzen aus diesem nativen Vertrag, statt pro Plattform neue UI-Nebenwahrheiten zu erfinden
 - Linux/X11/Wayland werden als explizite Driver-Ketten modelliert; `wl-copy`, `xdotool`, `wtype`, `ydotool`, `enigo` und Scratchpad stehen im Status nicht mehr nur implizit im Code
 - Rebuild-Lab-Diagnostics zeigt fuer die V1-Slice nicht nur `stage`, sondern eine native Step-Timeline fuer `capture`, `provider`, `transform` und `insert` inklusive `state`, `duration_ms` und stabilem `error_code`
+- derselbe V1-Slice-Vertrag traegt jetzt auch ein explizites `provider_profile`; Diagnostics, Preview und Tests duerfen Cloud- oder Local-Modi nicht mehr aus Modellnamen oder lokaler Disk-Config erraten
 
 ## Plattformmodell
 

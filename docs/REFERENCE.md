@@ -19,7 +19,7 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - Release-Linie: `0.2.2-alpha`
 - aktiver Produktpfad: Tauri/React UI plus nativer Rust-Core
 - heute benutzbare Version: Dev-Version aus dem Repo via `npm run tauri dev`
-- aktive Fenster: Overlay und Settings
+- aktive Fenster: Overlay, Settings und das Diagnostics-Pop-out
 - aktive Settings-Tabs: Provider & Models, Input, Text Rules, About, Diagnostics
 
 ## Heute implementierte Kernfunktionen

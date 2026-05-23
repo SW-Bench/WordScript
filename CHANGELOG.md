@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Groq transcription now uses the same bounded profile, dictionary and explicit STT-hint prompt path as the local CLI lane, so STT quality no longer depends on `local_preview` being the only provider with term-aware prompt bias
 - Diagnostics history and decoded runtime-log hints now render through isolated memoized subtrees, so filter edits and background refreshes no longer rebuild every visible diagnostics card on each parent render
 - Text Rules now preserves structural sharing for profile patches and isolates dictionary and snippet cards behind memoized components, so editing one rule no longer forces every unchanged rule card to rerender
+- the V1 runtime slice now carries an explicit `provider_profile` through its native contract and uses hermetic default-config test helpers, so diagnostics and transcript previews no longer depend on disk-config drift or cloud-model name heuristics for the active provider label
 
 ### Changed
 

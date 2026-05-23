@@ -338,8 +338,8 @@ function localPromptStrengthLabel(value: string | null | undefined) {
 }
 
 function runtimeProviderLabel(runtimeContract: SliceRuntimeContract | null | undefined, fallback: string | null | undefined) {
-  if (runtimeContract?.local_preview?.provider_profile) {
-    return humanizeValue(runtimeContract.local_preview.provider_profile, "Local runtime");
+  if (runtimeContract?.provider_profile) {
+    return humanizeValue(runtimeContract.provider_profile, "Runtime provider");
   }
 
   return humanizeValue(fallback, "Cloud Fast");

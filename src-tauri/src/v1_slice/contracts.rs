@@ -96,6 +96,7 @@ pub struct SliceCaptureRuntimeStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct SliceRuntimeContract {
     pub provider: String,
+    pub provider_profile: String,
     pub model: String,
     pub provider_status: SliceProviderRuntimeStatus,
     pub capture_status: SliceCaptureRuntimeStatus,

@@ -140,7 +140,7 @@ Groq vom Einzeladapter zum ersten Provider in einem echten Provider-System mache
 - Konfigurationsschema blockiert spaetere Provider nicht mehr
 - UI und Rust teilen denselben Provider-Vertrag typisiert
 
-Status: erster Provider-Haertungspass umgesetzt. `ProviderStatus` traegt jetzt Capabilities und typisierte Provider-Modi fuer `fast`, `quality`, `local` und spaeter `self_hosted`; `ProviderCommandError` traegt Retrybarkeit und eine konkrete Recovery-Aktion. Groq bleibt der einzige produktive Cloud-Adapter, `local_preview` bleibt STT-only, aber beide Lanes teilen denselben Status- und Fehlervertrag in Rust und TypeScript.
+Status: erster Provider-Haertungspass umgesetzt. `ProviderStatus` traegt jetzt Capabilities und typisierte Provider-Modi fuer `fast`, `quality`, `local` und spaeter `self_hosted`; `ProviderCommandError` traegt Retrybarkeit und eine konkrete Recovery-Aktion. Groq bleibt der erste produktive Cloud-Adapter, und `local_preview` ist inzwischen die Kompatibilitaets-ID fuer eine lokale Runtime-Lane mit STT plus lokalem Cleanup; beide Lanes teilen denselben Status- und Fehlervertrag in Rust und TypeScript.
 
 ## Slice 3 - Insert-Stack fuer Linux / Wayland haerten
 
@@ -307,7 +307,7 @@ Die naechste Produktphase ist deshalb nicht zuerst Notes, MCP oder Assistant-Sco
 - Profile muessen persoenlicher und arbeitsmodusfaehig werden
 - zwischen Sprechen und Insert braucht es mehr Vertrauen und Sichtbarkeit
 - der Provider-Stack muss von einem Adapter zu einem echten Modellsystem wachsen
-- `local_preview` muss von einer Preview-Lane zu einem first-class lokalen Pfad werden
+- die bestehende lokale Runtime-Lane braucht jetzt gefuehrtes Modellmanagement, Pull-/Install-Checks und einen nutzerfaehigen Setup-Pfad
 - Setup, Permissions und Packaging muessen als Produktpfad sichtbar fuehren
 
 ### Produktleitplanken fuer Slice 7 bis 11
@@ -442,11 +442,11 @@ Den Provider-Stack von einem ersten Adapter zu einem echten Produktmodell mit we
 - Moduswahl blockiert spaetere Provider oder lokale Engines nicht mehr
 - UI, Config und Rust sprechen dieselben Provider- und Mode-Begriffe
 
-### Slice 10 - `local_preview` zur echten Local Lane ausbauen
+### Slice 10 - Lokale Runtime-Lane produktisieren
 
 ### Ziel
 
-Den lokalen Pfad von einer externen Preview-Lane zu einer first-class Option fuer privacy, resilience und echte lokale Arbeit weiterziehen.
+Den vorhandenen lokalen Runtime-Pfad von einer env-lastigen Expertenfunktion zu einer gefuehrten first-class Option fuer privacy, resilience und echte lokale Arbeit weiterziehen.
 
 ### Donor-Muster
 
@@ -456,7 +456,7 @@ Den lokalen Pfad von einer externen Preview-Lane zu einer first-class Option fue
 
 ### Was dort gut ist
 
-- lokale Modelle werden als Produktpfad statt nur als Hilfsbinary gedacht
+- lokale STT- und Cleanup-Modelle werden als Produktpfad statt nur als Hilfsprozess gedacht
 - mehrere Engines koennen hinter derselben Produktoberflaeche haengen
 - Dictionary- oder Bias-Prompting bleibt Teil des Transkriptionspfads
 
@@ -470,13 +470,13 @@ Den lokalen Pfad von einer externen Preview-Lane zu einer first-class Option fue
 
 ### Gewuenschte Zielstruktur in WordScript
 
-- Modellmanagement, klare Health-Diagnostics und sichtbare Runtime-Voraussetzungen fuer die lokale Lane
+- Modellmanagement, Pull-/Install-Checks, klare Health-Diagnostics und sichtbare Runtime-Voraussetzungen fuer die lokale Lane
 - Dictionary oder Transcription Context koennen optional als Bias-Prompt in den lokalen Pfad einfliessen
 - Quality-vs-Latency-Presets machen den lokalen Pfad als Produktwahl verstehbar
 
 ### Exit-Kriterien
 
-- lokale Lane ist sichtbar konfigurierbar, testbar und diagnostizierbar
+- lokale Lane ist sichtbar konfigurierbar, testbar, diagnostizierbar und ohne Repo-Wissen erstmalig einrichtbar
 - Nutzer koennen zwischen mehreren sinnvollen lokalen Presets waehlen
 - lokaler Pfad fuehlt sich wie eine echte Produktoption an und nicht wie ein externer Debug-Helper
 

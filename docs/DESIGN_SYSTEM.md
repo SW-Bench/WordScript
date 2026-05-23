@@ -84,6 +84,7 @@ Recovery-Scratchpad aus Input, diagnostische Preview-Transkripte und durable His
 Recovery-Copy soll die native Recovery-Aktion und den Clipboard-Restore-Status erklaeren. Freitext-Fehler wie `fallback_reason` duerfen Details liefern, aber nicht die primaere Nutzerfuehrung ersetzen.
 History-Karten in Diagnostics sollen dieselbe Recovery-Semantik als Chips und Copy zeigen, damit Retry-, Export- und Recovery-Pfade ueber denselben Wortschatz erklaert werden.
 Pipeline-Karten in Diagnostics sollen pro Schritt denselben nativen Wortschatz zeigen: `capture`, `provider`, `transform`, `insert` plus klarer `state`, sichtbare `duration_ms` und ein stabiler `error_code`, falls ein Schritt scheitert.
+Provider-Labels in Diagnostics und Preview muessen aus dem nativen `provider_profile`-Vertrag kommen; Modellnamen-Heuristiken oder Fenster-Draft-Ableitungen sind fuer Cloud- wie Local-Runs ein UI-Fehler.
 Wenn Diagnostics als eigenes Fenster geoeffnet wird, bleibt dieselbe native Fensterdekoration aktiv wie im Settings-Fenster. Auch dieses Pop-out ist eine Utility-Flaeche und darf keine zweite Custom-Chrome-Sprache einfuehren.
 Die eigentliche Diagnostics Preview bleibt eine zusammenhaengende Vorschau: aktueller Transkriptzustand, Insert-Plan und Preview-Editor gehoeren sichtbar zusammen statt als voneinander geloeste Einzelkarten.
 Diagnostische History- und Hint-Listen sollen als isolierte, stabile Teilbaeume implementiert werden. UI-Polish auf diesen Flaechen darf keine sekundaeren Blink- oder Rebuild-Muster beim Scrollen einfuehren.

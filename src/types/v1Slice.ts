@@ -49,6 +49,7 @@ export interface SliceCaptureRuntimeStatus {
 
 export interface SliceRuntimeContract {
   provider: string;
+  provider_profile: string;
   model: string;
   provider_status: SliceProviderRuntimeStatus;
   capture_status: SliceCaptureRuntimeStatus;
