@@ -37,10 +37,13 @@ export function isCuratedTextProfile(profile: TextProfile): boolean {
 
 export function clearTextProfileCuration(profile: TextProfile): TextProfile {
   if (!isCuratedTextProfile(profile)) {
-    return cloneTextProfile(profile);
+    return profile;
   }
 
-  return cloneTextProfile(profile, { curation: createEmptyTextProfileCuration() });
+  return {
+    ...profile,
+    curation: createEmptyTextProfileCuration(),
+  };
 }
 
 export function displayTextProfileLabel(profile: TextProfile): string {
@@ -90,7 +93,7 @@ export function buildTextProfilesPatch(
   nextActiveProfileId?: string,
 ): Partial<AppConfig> {
   const normalizedProfiles = nextProfiles.length
-    ? nextProfiles.map((profile) => cloneTextProfile(profile))
+    ? nextProfiles
     : [resolveActiveTextProfile(config)];
 
   const activeProfile = normalizedProfiles.find((profile) => profile.id === nextActiveProfileId)

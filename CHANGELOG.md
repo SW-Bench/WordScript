@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AI cleanup now receives the active profile context and preferred dictionary spellings as conservative preserve hints, so mixed German/English dictation, colloquial borrowings and product terms are less likely to be flattened or mistranslated during cleanup
 - new and fallback cleanup defaults now use `llama-3.3-70b-versatile` instead of the older `llama-3.1-8b-instant` path when no explicit correction model is configured
 - Groq transcription now uses the same bounded profile, dictionary and explicit STT-hint prompt path as the local CLI lane, so STT quality no longer depends on `local_preview` being the only provider with term-aware prompt bias
+- Diagnostics history and decoded runtime-log hints now render through isolated memoized subtrees, so filter edits and background refreshes no longer rebuild every visible diagnostics card on each parent render
+- Text Rules now preserves structural sharing for profile patches and isolates dictionary and snippet cards behind memoized components, so editing one rule no longer forces every unchanged rule card to rerender
 
 ### Changed
 
@@ -93,7 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - planning docs now also describe the next post-core product phase explicitly: work-mode profiles, live preview plus controlled commit, a product-ready provider stack, a first-class local lane and guided setup/permissions/packaging, while deferring broader openwhispr platform scope like notes, search, sync, MCP and assistant features
 - the core execution plan now treats the macOS-utility UI target and user-facing usability as hard product gates for slices 7 to 11 instead of leaving them implicit in the design docs
 - donor catalogs and benchmark docs now track menu bar utilities, keyboard-first tools and desktop productivity shells as secondary UI/UX references for the macOS-native polish pass
-- Settings now uses a calmer utility-style shell with visible section headers, denser summary surfaces for Provider/Input and a more native-feeling panel hierarchy instead of a flatter web-form layout
+- Settings now uses a calmer utility-style shell with grouped navigation, a persistent profile dock, a compact tab header and one dominant content surface instead of the denser intro-band and context-rail experiment
+- Diagnostics now uses the same calmer panel language inside its dedicated pop-out preview window, instead of a separate decorless shell with a disconnected preview layout
 - the overlay now reads states more clearly through calmer material treatment and a dedicated side-state label for live, paused and processing moments
 - Text Rules now opens with a compact process summary, calmer utility controls and a pinned stage rail so profile setup and starter selection stay secondary to the active editing workspace
 - pull request CI now runs frontend tests and Rust tests on macOS and Windows in addition to Ubuntu
@@ -125,7 +128,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - retry in diagnostics is now a real re-process path through transform and insertion, not only a clipboard restore shortcut
 - the client now exposes release build-up honestly without implying published installers or working in-place updates
 - README, DEVELOPMENT and REFERENCE now include explicit macOS and Windows bootstrap paths instead of a Linux-only quick start
-- Settings nutzen wieder transparente Fensterränder statt schwarzer Window-Fill-Flächen; die Shell bleibt dekorationslos im Fenster statt den gesamten Tauri-Canvas zu füllen
+- das Settings-Fenster nutzt wieder native Fensterdekorationen statt plattformfremder Fake-Controls im Inhalt; die Shell scrollt dadurch auf Linux wieder ruhiger und bleibt bei einer einzigen dominanten Content-Flaeche
+- das Settings-Fenster startet jetzt etwas groesser und hat strengere Mindestgroessen; Sidebar, Footer und Hauptinhalte bleiben dadurch beim Verkleinern sichtbar statt links oder vertikal wegzuclippen
+- die linke Sidebar haelt Profil- und Projektbereich jetzt auch bei kleineren Hoehen sichtbar; nur der Navigationsblock scrollt noch intern, statt den unteren Bereich aus dem Fenster zu schieben
 - About- und Utility-Links zeigen jetzt auf die aktiven SW-Bench-/SW labs-Ziele und werden nativ über den Opener-Plugin geöffnet statt über tote oder falsche Webview-Links
 - Provider-Selects erzwingen jetzt dunkles Native-Styling statt weißer, unleserlicher Browser-Defaults
 - der Groq-Key-Status ist jetzt neutral, solange ein Key nur im Secret Store liegt; grün wird erst nach expliziter erfolgreicher Validierung verwendet

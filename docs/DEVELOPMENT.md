@@ -1,6 +1,6 @@
 # WordScript — Development
 
-Stand: 2026-05-13
+Stand: 2026-05-23
 
 ## Zweck
 
@@ -67,6 +67,8 @@ Wichtiger Plattformhinweis fuer echte Insert-Checks:
 - macOS Dev-Mode kann Accessibility und je nach Launcher auch Input Monitoring fuer Terminal, VS Code oder die spaeter paketierte WordScript-App verlangen
 - Windows-Ziele mit hoeheren Rechten koennen simuliertes Paste blockieren, wenn WordScript nicht auf demselben Privileg-Level laeuft
 - Linux Wayland bleibt ein Clipboard-/Helper-lastiger Experimentalpfad
+- Linux-Checks fuer das Settings-Fenster muessen im nativen Host laufen; Browser-Preview reicht nicht, wenn Fensterdekorationen, Scrollverhalten oder Fensterrand-Verhalten beurteilt werden sollen
+- dasselbe gilt fuer das Diagnostics-Pop-out: native Dekoration, Startgroesse und Resize-Grenzen muessen im Host geprueft werden, nicht nur im eingebetteten Settings-Tab
 
 Optionaler lokaler Preview-Pfad:
 
@@ -98,6 +100,7 @@ Optionaler lokaler Preview-Pfad:
 - Provider-Slices starten bei `src-tauri/src/core/providers/` und duerfen nicht mehr direkt am Groq-Einzelfall vorbei in UI oder Host verdrahtet werden
 - Preview-/Offline-Slices muessen ihre externen Runtime-Voraussetzungen in Settings, README und REFERENCE explizit benennen statt einen eingebetteten Local-Mode vorzutaeuschen
 - Provider-Fehler muessen ueber `ProviderCommandError` laufen und `kind`, `retryable` sowie `user_action` behalten; UI-Copy darf daraus anzeigen, aber keine eigene Fehlersemantik erfinden
+- Settings-Performance-Slices starten am owning Scroll- oder Listenpfad. Bei langen React-Listen zuerst strukturelle Sharing-Brueche, Deep-Clones und parent-driven Re-Renders pruefen, bevor weiter CSS oder Scroll-Physics getunt wird
 
 ### 2. Rust bleibt Runtime-Owner
 
@@ -156,6 +159,9 @@ Wenn es um die konkrete Reihenfolge der naechsten Kern-Slices geht, ist [CORE_EX
 
 1. engsten betroffenen Vitest laufen lassen, fuer Text Rules z. B. `npx vitest run src/components/settings/PromptsTab.test.tsx`
 2. `npm run build`
+3. wenn Shell, Fenstergeometrie oder Tauri-gebundene Statusfuehrung geaendert wurde: die Ansicht im nativen Host pruefen statt nur im Browser-Preview
+4. bei Settings-Chrome-Aenderungen auf Linux explizit pruefen, dass native Fensterdekorationen sichtbar bleiben und keine fake Window-Controls in den Content zurueckkehren
+5. bei Geometrie-Aenderungen sicherstellen, dass Settings-Sidebar, Footer und Diagnostics-Pop-out auch am jeweiligen Minimum noch ohne verschwundene Controls bedienbar bleiben
 
 ### Rust- oder Runtime-Aenderungen
 
@@ -198,7 +204,7 @@ Wichtig fuer den aktuellen Stand:
 ### Frontend
 
 - `src/App.tsx`: Routing fuer Overlay und Settings
-- `src/windows/`: Fenster-Komposition
+- `src/windows/`: Fenster-Komposition, native Settings-Shell, kompakter Tab-Header, dominante Content-Surface und Footer-Statusfuehrung
 - `src/components/settings/`: aktive Settings-Tabs inklusive Profil-Dock, gefuehrtem Text-Rules-Workspace mit Prozesszusammenfassung, kompakter Setup-Zone fuer Profile/kuratierten Baselines, oberer Stage-Navigation und getrennter Hauptarbeitsflaeche fuer Recovery-/Diagnostics-nahe Editoren
 - `src/hooks/`: Runtime-, Provider-, Insert-, Log- und Diagnostics-Hooks inklusive nativer History-Store-Status-Bridge
 - `src/lib/textProfileTemplates.ts`: shared JSON-Seed-Loader und Create/Merge-Helfer fuer kuratierte Text-Profile
@@ -247,7 +253,7 @@ Die naechste Arbeit ist nicht weiterer Scope-Ausbau, sondern V1-Konsolidierung:
 
 Lokale Profile sind jetzt implementiert. Shell und Text-Rules-Editor teilen sich dafuer denselben Profil-Patch-Pfad, und zentrale ICP-Baselines werden einmalig als kuratierte Profile in die User-App-Config geseedet statt als separater Starter-Katalog zur Laufzeit gehalten. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung und spaetere Rewrite-Defaults ueber den aktiven Profilzustand hinaus.
 
-Fuer diesen UI-Pass gelten produktnahe macOS-Donoren wie `VoiceInk`, `FluidVoice` und `OpenSuperWhisper` als primaere Referenzen. Reine React-/TypeScript-Stilreferenzen fuer Window-Chrome, Sidebar-Rhythmus oder Control-Sprache sind sekundaer und duerfen keine fake-desktophafte Spielerei in den aktiven Produktpfad druecken.
+Fuer diesen UI-Pass gelten produktnahe macOS-Donoren wie `VoiceInk`, `FluidVoice` und `OpenSuperWhisper` als primaere Referenzen. Reine React-/TypeScript-Stilreferenzen fuer Window-Chrome, Sidebar-Rhythmus oder Control-Sprache sind sekundaer und duerfen keine fake-desktophafte Spielerei in den aktiven Produktpfad druecken. GPL-Donoren bleiben dabei Stil- und UX-Referenzen, nicht Copy/Paste-Codequellen fuer den aktiven MIT-Pfad.
 
 Was dabei bewusst nicht die naechste Baustelle ist:
 

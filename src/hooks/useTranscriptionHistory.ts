@@ -9,6 +9,16 @@ import type {
 
 const REFRESH_INTERVAL_MS = 1500;
 
+function areHistoryEntriesEqual(current: TranscriptionHistoryEntry[], next: TranscriptionHistoryEntry[]) {
+  if (current.length !== next.length) return false;
+
+  return current.every((entry, index) => JSON.stringify(entry) === JSON.stringify(next[index]));
+}
+
+interface RefreshOptions {
+  background?: boolean;
+}
+
 function sanitizeQuery(query?: TranscriptionHistoryQuery): TranscriptionHistoryQuery {
   if (!query) return {};
 
@@ -41,22 +51,30 @@ export function useTranscriptionHistory(isActive: boolean) {
     }
   }, []);
 
-  const refresh = useCallback(async (query?: TranscriptionHistoryQuery) => {
-    setIsLoading(true);
+  const refresh = useCallback(async (query?: TranscriptionHistoryQuery, options?: RefreshOptions) => {
+    const showLoading = !options?.background;
+
+    if (showLoading) {
+      setIsLoading(true);
+    }
+
     try {
       const nextQuery = sanitizeQuery(query ?? activeQueryRef.current);
       activeQueryRef.current = nextQuery;
       const next = await invoke<TranscriptionHistoryEntry[]>("transcription_history_entries", {
         query: nextQuery,
       });
-      setEntries(next);
-      setError(null);
+      setEntries((current) => (areHistoryEntriesEqual(current, next) ? current : next));
+      setError((current) => (current === null ? current : null));
       return next;
     } catch (cause) {
-      setError(String(cause));
+      const message = String(cause);
+      setError((current) => (current === message ? current : message));
       return null;
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -64,7 +82,7 @@ export function useTranscriptionHistory(isActive: boolean) {
     setIsLoading(true);
     try {
       await invoke<TranscriptionHistoryEntry[]>("clear_transcription_history_entries");
-      const next = await refresh();
+      const next = await refresh(undefined, { background: true });
       setError(null);
       return next;
     } catch (cause) {
@@ -81,7 +99,7 @@ export function useTranscriptionHistory(isActive: boolean) {
       await invoke<TranscriptionHistoryEntry[]>("delete_transcription_history_entry", {
         request: { id },
       });
-      const next = await refresh();
+      const next = await refresh(undefined, { background: true });
       setError(null);
       return next;
     } catch (cause) {
@@ -98,7 +116,7 @@ export function useTranscriptionHistory(isActive: boolean) {
       const next = await invoke<TranscriptionHistoryEntry>("retry_transcription_history_entry", {
         request: { id },
       });
-      await refresh();
+      await refresh(undefined, { background: true });
       setError(null);
       return next;
     } catch (cause) {
@@ -134,9 +152,9 @@ export function useTranscriptionHistory(isActive: boolean) {
     if (!isActive) return;
 
     void refreshStorageStatus();
-    void refresh();
+    void refresh(undefined, { background: true });
     const timer = window.setInterval(() => {
-      void refresh();
+      void refresh(undefined, { background: true });
     }, REFRESH_INTERVAL_MS);
 
     return () => window.clearInterval(timer);

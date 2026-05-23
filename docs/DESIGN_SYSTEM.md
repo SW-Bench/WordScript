@@ -1,6 +1,6 @@
 # WordScript — Design System
 
-Stand: 2026-05-13
+Stand: 2026-05-23
 
 ## Zweck
 
@@ -17,10 +17,10 @@ Das Design System beschreibt die aktive Produktsprache von WordScript. Es ist ke
 ## Aktuelles UI-Zielbild
 
 - Das aktuelle Problem ist nicht mehr fehlende Flaeche, sondern fehlende Ruhe, Hierarchie und Produktklarheit.
-- Das Zielbild fuer Settings und Overlay ist eine kleine, fokussierte Utility-App mit Apple-artiger Praezision: klare Fensterchromatik, stabile Sidebar/Main-Struktur, wenige visuelle Ebenen und knappe, weiche Motion.
-- macOS ist dafuer die Referenz fuer Produktpolish, nicht die Einladung, generische OS-Mockups oder verspielte Desktop-Parodien in WordScript zu ziehen.
-- Die bestehende Settings-Shell und das Overlay sind eine gute Basis, muessen aber vor weiterem Scope-Ausbau in Informationsarchitektur, Spacing, Zustandsklarheit und wahrgenommener Smoothness noch einmal bewusst ueberarbeitet werden.
-- Der aktive UI-Pass hat diese Richtung bereits begonnen: sichtbare Panel-Header, klarere Sidebar-/Main-Trennung, verdichtete Summary-Flaechen fuer kritische Tabs und ein Overlay mit expliziterer Zustandslesbarkeit statt rein dekorativer Reduktion.
+- Das Zielbild fuer Settings und Overlay ist eine kleine, fokussierte Utility-App mit klarer Sidebar/Main-Struktur, wenigen visuellen Ebenen und knapper, weicher Motion.
+- macOS bleibt eine Referenz fuer Produktpolish, ist aber keine Einladung fuer generische OS-Mockups, fake Traffic-Lights oder andere plattformfremde Desktop-Parodien in WordScript.
+- Die bestehende Settings-Shell und das Overlay sind eine gute Basis, muessen aber vor weiterem Scope-Ausbau in Informationsarchitektur, Spacing, Zustandsklarheit und wahrgenommener Smoothness bewusst ruhig gehalten werden.
+- Der aktive UI-Pass fuehrt diese Richtung jetzt ueber eine gruppierte Utility-Sidebar, native Fensterkontrollen im Host, einen kompakten Tab-Header und genau eine dominante Content-Surface pro Tab fort.
 
 ## UI-Donoren und Stilreferenzen
 
@@ -59,6 +59,10 @@ Die Settings sind die eigentliche Produktoberflaeche. Sie fuehren durch:
 
 Jeder Tab braucht einen klaren owning purpose. Globale Banner oder doppelte Erklaerflaechen ueber mehrere Tabs hinweg sind zu vermeiden.
 
+Die aktive Shell nutzt jetzt eine klare Utility-Orientierung: gruppierte Sidebar links fuer Navigation und Profilstatus, ein kompakter Tab-Header mit Runtime- und Save-Zustand oben und darunter genau eine dominante Content-Surface. Diese Flaechen sind erlaubt, solange sie nur den aktiven Tab erklaeren und keine zweite App in der App erzeugen.
+
+Fuer scrollende Utility-Flaechen gilt zusaetzlich: lange Kartenlisten muessen ruhig bleiben. Wiederholte Diagnostics- oder Text-Rules-Karten duerfen nicht ueber per-render Deep-Clones oder unnötige Parent-Renders permanent neu aufgebaut werden.
+
 Die naechste geplante Vertiefung dieser Shell ist, Profile als sichtbare Arbeitsmodi mit spaeteren Defaults fuer Rewrite, Insert und Recovery zu fuehren. Solange das nicht aktiv ist, bleibt die echte Profilrealitaet bei lokalem Context, optionalen STT-Hints, Dictionary und Snippets.
 Provider & Models muss Provider-Faehigkeiten, STT-only-Grenzen und Recovery-Aktionen aus dem nativen Provider-Status anzeigen. Der Tab darf nicht aus Modellnamen raten, ob Cleanup, Prompt-Bias, Segments oder Local-Setup verfuegbar sind.
 Fuer `local_preview` muessen Runner-, Modell- und Combined-Setup-Probleme ueber den nativen `local_setup`-Vertrag sichtbar werden. Labels wie `Runner path invalid`, `Runner probe failed` oder `Model not found` sind Produkttext, keine UI-Erfindungen.
@@ -69,7 +73,7 @@ Der lokale Mode-Label darf nicht generisch `local` bleiben, wenn das native Prof
 Diagnostics braucht fuer `local_preview` eine sichtbare Local-STT-Kontraktflaeche, die Provider-Profil, Prompt-Bias-Staerke, Carry-Flag, Beam Size und Best Of zusammen zeigt. Diese Werte duerfen nicht nur im Provider-Tab existieren.
 Diese Diagnostics-Flaeche muss jetzt ausserdem echte Live-Setup-Wahrheit zeigen: Provider-Readiness, aufgeloester Runnerpfad, aufgeloester Modellpfad und aktueller nativer Capture-State gehoeren in denselben Snapshot statt in getrennte UI-Heuristiken.
 Transcription-History-Karten muessen dieselben Local-Metadaten in der Karten-Chip-Reihe zeigen, damit ein lokaler Run nicht nur als `local_preview` plus Modell sichtbar bleibt, sondern als vollstaendiger Decode- und Prompt-Zustand gelesen werden kann.
-Wenn das Settings-Fenster unsaved lokale Aenderungen traegt, muss Diagnostics die Abweichung zwischen Draft und nativer Runtime explizit als Warning zeigen. Ein einzelner Kartenblock fuer den Fensterzustand reicht nicht mehr.
+Wenn das Settings-Fenster unsaved lokale Aenderungen traegt, darf die Shell das bereits in ihrer Window-State-Flaeche markieren, aber Diagnostics muss die Abweichung zwischen Draft und nativer Runtime weiterhin explizit als Warning zeigen.
 Der Provider-Tab muss lokale Decode-Regler profilgebunden behandeln. Wechselt der Nutzer zwischen `...-fast` und `...-quality`, muessen die fuer dieses Profil gespeicherten Decoderwerte erscheinen statt eines zuletzt global geaenderten lokalen Werts.
 
 ### Diagnostics
@@ -80,13 +84,17 @@ Recovery-Scratchpad aus Input, diagnostische Preview-Transkripte und durable His
 Recovery-Copy soll die native Recovery-Aktion und den Clipboard-Restore-Status erklaeren. Freitext-Fehler wie `fallback_reason` duerfen Details liefern, aber nicht die primaere Nutzerfuehrung ersetzen.
 History-Karten in Diagnostics sollen dieselbe Recovery-Semantik als Chips und Copy zeigen, damit Retry-, Export- und Recovery-Pfade ueber denselben Wortschatz erklaert werden.
 Pipeline-Karten in Diagnostics sollen pro Schritt denselben nativen Wortschatz zeigen: `capture`, `provider`, `transform`, `insert` plus klarer `state`, sichtbare `duration_ms` und ein stabiler `error_code`, falls ein Schritt scheitert.
+Wenn Diagnostics als eigenes Fenster geoeffnet wird, bleibt dieselbe native Fensterdekoration aktiv wie im Settings-Fenster. Auch dieses Pop-out ist eine Utility-Flaeche und darf keine zweite Custom-Chrome-Sprache einfuehren.
+Die eigentliche Diagnostics Preview bleibt eine zusammenhaengende Vorschau: aktueller Transkriptzustand, Insert-Plan und Preview-Editor gehoeren sichtbar zusammen statt als voneinander geloeste Einzelkarten.
+Diagnostische History- und Hint-Listen sollen als isolierte, stabile Teilbaeume implementiert werden. UI-Polish auf diesen Flaechen darf keine sekundaeren Blink- oder Rebuild-Muster beim Scrollen einfuehren.
 
 ## Layout-Regeln
 
 - Overlay-Fenster: `236x44` logisch, pill-foermig, keine sichtbare Aussenflaeche
-- Settings-Fenster: `880x620`, Mindestgroesse `760x560`
+- Settings-Fenster: `1080x820`, Mindestgroesse `980x760`
+- Diagnostics-Pop-out: `1040x780`, Mindestgroesse `900x680`
 - Sidebar + Main-Panel statt frei schwebender Card-Landschaft
-- kompakter Header mit Status, keine Marketing-Hero-Sektion
+- kompakter Header mit Status und ein einziges Hauptpanel statt Hero-/Rail-Verschachtelung
 
 ## Typografie
 
@@ -122,8 +130,12 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 
 ## Settings-Regeln
 
-- dekorationslose Chrome mit klarer Drag-Region
+- native Fensterdekorationen im Settings-Fenster; keine plattformfremden Fake-Controls im Content
+- dieselbe native Dekorationsregel gilt fuer das Diagnostics-Pop-out
 - Sidebar fuer Orientierung, Main-Panel fuer Inhalt
+- gruppierte Sidebar-Navigation darf `Configure` und `Inspect` sichtbar trennen, solange die Reihenfolge stabil bleibt
+- der kompakte Tab-Header darf genau einen Snapshot aus Runtime-Status und Save-Zustand zeigen; er ist Orientierung, nicht Marketing
+- Fenster-Minima muessen gross genug bleiben, damit Sidebar, Footer und Hauptinhalte beim nativen Resize nicht visuell verschwinden oder in mobileartige Notlayouts kippen
 - Section-Blurb nur dort, wo er echte Entscheidungsunterstuetzung liefert
 - Formkarten muessen die Runtime-Wahrheit abbilden, nicht Platzhalter simulieren
 - Save-Bar bleibt ruhig und funktional

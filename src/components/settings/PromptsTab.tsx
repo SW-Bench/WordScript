@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { BadgeCheck, SquarePen } from "lucide-react";
 import type { AppConfig, DictionaryEntry, SnippetEntry, TextProfile } from "../../types/ipc";
 import {
   buildTextProfilesPatch,
@@ -10,7 +11,6 @@ import {
   displayTextProfileLabel,
   isCuratedTextProfile,
   resolveActiveTextProfile,
-  textProfileInitials,
 } from "../../lib/textProfiles";
 import {
   createTextProfileFromTemplate,
@@ -31,6 +31,8 @@ interface Props {
 }
 
 const DEFAULT_SAMPLE_TEXT = "word script follow up note";
+const ANALYSIS_DEBOUNCE_MS = 120;
+const EMPTY_ISSUES: TextRulesIssue[] = [];
 
 interface RuleSummary {
   id: string;
@@ -182,11 +184,200 @@ function makeSnippetEntry(): SnippetEntry {
   };
 }
 
+interface RuleCardRefRegistrar {
+  (ruleId: string, element: HTMLElement | null): void;
+}
+
+interface DictionaryRuleCardProps {
+  entry: DictionaryEntry;
+  index: number;
+  totalCount: number;
+  isActive: boolean;
+  issues: TextRulesIssue[];
+  registerRef: RuleCardRefRegistrar;
+  onMove: (id: string, direction: -1 | 1) => void;
+  onChange: (id: string, key: keyof DictionaryEntry, value: string) => void;
+  onRemove: (id: string) => void;
+}
+
+const DictionaryRuleCard = memo(function DictionaryRuleCard({
+  entry,
+  index,
+  totalCount,
+  isActive,
+  issues,
+  registerRef,
+  onMove,
+  onChange,
+  onRemove,
+}: DictionaryRuleCardProps) {
+  const cardClassName = `settings__rule-card${isActive ? " settings__rule-card--active" : ""}${hasSeverity(issues, "error") ? " settings__rule-card--error" : hasSeverity(issues, "warning") ? " settings__rule-card--warning" : ""}`;
+
+  return (
+    <article
+      ref={(element) => {
+        registerRef(entry.id, element);
+      }}
+      className={cardClassName}
+    >
+      <div className="settings__rule-card-head">
+        <div className="settings__rule-card-heading">
+          <strong className="settings__rule-card-title">Dictionary term {index + 1}</strong>
+          <span className="settings__rule-meta">
+            Runs in order. Later rules see the output of earlier ones.
+          </span>
+        </div>
+        <div className="settings__rule-card-buttons">
+          <button className="settings__rule-mini-btn" type="button" onClick={() => onMove(entry.id, -1)} disabled={index === 0}>
+            Move up
+          </button>
+          <button className="settings__rule-mini-btn" type="button" onClick={() => onMove(entry.id, 1)} disabled={index === totalCount - 1}>
+            Move down
+          </button>
+        </div>
+      </div>
+      <div className="settings__rule-grid">
+        <label className="settings__rule-field">
+          <span>Heard as</span>
+          <input
+            type="text"
+            value={entry.phrase}
+            onChange={(event) => onChange(entry.id, "phrase", event.target.value)}
+            placeholder="e.g. word script"
+          />
+        </label>
+        <label className="settings__rule-field">
+          <span>Replace with</span>
+          <input
+            type="text"
+            value={entry.replace_with}
+            onChange={(event) => onChange(entry.id, "replace_with", event.target.value)}
+            placeholder="e.g. WordScript"
+          />
+        </label>
+      </div>
+      <div className="settings__rule-actions">
+        <span className="settings__rule-meta">Literal whole-phrase match, case-insensitive. Add separate entries for variants.</span>
+        <button className="btn btn--cancel" type="button" onClick={() => onRemove(entry.id)}>
+          Remove
+        </button>
+      </div>
+      {issues.length > 0 && (
+        <div className="settings__rule-inline-issues">
+          {issues.map((issue) => (
+            <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
+              <strong>{issue.severity}</strong>
+              <span>{issue.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+});
+
+interface SnippetRuleCardProps {
+  entry: SnippetEntry;
+  index: number;
+  totalCount: number;
+  isActive: boolean;
+  issues: TextRulesIssue[];
+  registerRef: RuleCardRefRegistrar;
+  onMove: (id: string, direction: -1 | 1) => void;
+  onChange: (id: string, key: keyof SnippetEntry, value: string) => void;
+  onRemove: (id: string) => void;
+}
+
+const SnippetRuleCard = memo(function SnippetRuleCard({
+  entry,
+  index,
+  totalCount,
+  isActive,
+  issues,
+  registerRef,
+  onMove,
+  onChange,
+  onRemove,
+}: SnippetRuleCardProps) {
+  const cardClassName = `settings__rule-card${isActive ? " settings__rule-card--active" : ""}${hasSeverity(issues, "error") ? " settings__rule-card--error" : hasSeverity(issues, "warning") ? " settings__rule-card--warning" : ""}`;
+
+  return (
+    <article
+      ref={(element) => {
+        registerRef(entry.id, element);
+      }}
+      className={cardClassName}
+    >
+      <div className="settings__rule-card-head">
+        <div className="settings__rule-card-heading">
+          <strong className="settings__rule-card-title">Snippet {index + 1}</strong>
+          <span className="settings__rule-meta">
+            Runs after Dictionary. Reorder when triggers overlap or one snippet should win over another.
+          </span>
+        </div>
+        <div className="settings__rule-card-buttons">
+          <button className="settings__rule-mini-btn" type="button" onClick={() => onMove(entry.id, -1)} disabled={index === 0}>
+            Move up
+          </button>
+          <button className="settings__rule-mini-btn" type="button" onClick={() => onMove(entry.id, 1)} disabled={index === totalCount - 1}>
+            Move down
+          </button>
+        </div>
+      </div>
+      <div className="settings__rule-grid settings__rule-grid--three">
+        <label className="settings__rule-field">
+          <span>Label</span>
+          <input
+            type="text"
+            value={entry.label}
+            onChange={(event) => onChange(entry.id, "label", event.target.value)}
+            placeholder="e.g. Support follow-up"
+          />
+        </label>
+        <label className="settings__rule-field">
+          <span>Trigger phrase</span>
+          <input
+            type="text"
+            value={entry.trigger}
+            onChange={(event) => onChange(entry.id, "trigger", event.target.value)}
+            placeholder="e.g. follow up note"
+          />
+        </label>
+        <label className="settings__rule-field settings__rule-field--wide">
+          <span>Expansion</span>
+          <textarea
+            value={entry.expansion}
+            onChange={(event) => onChange(entry.id, "expansion", event.target.value)}
+            placeholder="e.g. Thanks for the update. We will send the next status tomorrow morning."
+            rows={4}
+          />
+        </label>
+      </div>
+      <div className="settings__rule-actions">
+        <span className="settings__rule-meta">Literal trigger phrase match, case-insensitive, in the final transcript.</span>
+        <button className="btn btn--cancel" type="button" onClick={() => onRemove(entry.id)}>
+          Remove
+        </button>
+      </div>
+      {issues.length > 0 && (
+        <div className="settings__rule-inline-issues">
+          {issues.map((issue) => (
+            <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
+              <strong>{issue.severity}</strong>
+              <span>{issue.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+});
+
 export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const textProfiles = config.text_profiles?.length
-    ? config.text_profiles.map((profile) => cloneTextProfile(profile))
+    ? config.text_profiles
     : [resolveActiveTextProfile(config)];
-  const activeTextProfile = resolveActiveTextProfile(config);
+  const activeTextProfile = textProfiles.find((profile) => profile.id === config.active_text_profile_id) ?? textProfiles[0];
   const sttHints = activeTextProfile.stt_hints ?? "";
   const dictionaryEntries = activeTextProfile.dictionary_entries ?? [];
   const snippetEntries = activeTextProfile.snippet_entries ?? [];
@@ -205,8 +396,15 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const [showStarterDetails, setShowStarterDetails] = useState(false);
   const [pendingFocusRuleId, setPendingFocusRuleId] = useState<string | null>(null);
   const ruleCardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const configRef = useRef(config);
+  const textProfilesRef = useRef(textProfiles);
+  const activeTextProfileIdRef = useRef(activeTextProfile.id);
   const curatedProfiles = textProfiles.filter((profile) => isCuratedTextProfile(profile));
   const selectedTemplate = curatedProfiles.find((profile) => profile.id === selectedTemplateId) ?? curatedProfiles[0] ?? null;
+
+  configRef.current = config;
+  textProfilesRef.current = textProfiles;
+  activeTextProfileIdRef.current = activeTextProfile.id;
 
   useEffect(() => {
     if (curatedProfiles.length === 0) {
@@ -223,47 +421,51 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-
-    void invoke<TextRulesAnalysis>("analyze_text_rules", {
-      request: {
-        prompt: activeTextProfile.prompt,
-        stt_hints: sttHints,
-        dictionary_entries: dictionaryEntries,
-        snippet_entries: snippetEntries,
-        sample_text: sampleText,
-      },
-    }).then((next) => {
-      if (cancelled) return;
-      setAnalysis(next);
-      onValidationChange?.(next);
-    }).catch((error) => {
-      if (cancelled) return;
-      setAnalysis(null);
-      onValidationChange?.(null);
-      setFeedback({ ok: false, text: `Text-rule validation failed: ${error}` });
-    });
+    const timeoutId = window.setTimeout(() => {
+      void invoke<TextRulesAnalysis>("analyze_text_rules", {
+        request: {
+          prompt: activeTextProfile.prompt,
+          stt_hints: sttHints,
+          dictionary_entries: dictionaryEntries,
+          snippet_entries: snippetEntries,
+          sample_text: sampleText,
+        },
+      }).then((next) => {
+        if (cancelled) return;
+        setAnalysis(next);
+        onValidationChange?.(next);
+      }).catch((error) => {
+        if (cancelled) return;
+        setAnalysis(null);
+        onValidationChange?.(null);
+        setFeedback({ ok: false, text: `Text-rule validation failed: ${error}` });
+      });
+    }, ANALYSIS_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timeoutId);
     };
   }, [activeTextProfile.prompt, dictionaryEntries, onValidationChange, sampleText, snippetEntries, sttHints]);
 
-  const applyProfiles = (nextProfiles: TextProfile[], nextActiveProfileId = activeTextProfile.id) => {
-    onChange(buildTextProfilesPatch(config, nextProfiles, nextActiveProfileId));
-  };
+  const applyProfiles = useCallback((nextProfiles: TextProfile[], nextActiveProfileId = activeTextProfileIdRef.current) => {
+    onChange(buildTextProfilesPatch(configRef.current, nextProfiles, nextActiveProfileId));
+  }, [onChange]);
 
-  const updateActiveProfile = (update: Partial<TextProfile> | ((profile: TextProfile) => TextProfile)) => {
-    const nextProfiles = textProfiles.map((profile) => {
-      if (profile.id !== activeTextProfile.id) return profile;
+  const updateActiveProfile = useCallback((update: Partial<TextProfile> | ((profile: TextProfile) => TextProfile)) => {
+    const activeProfileId = activeTextProfileIdRef.current;
+    const nextProfiles = textProfilesRef.current.map((profile) => {
+      if (profile.id !== activeProfileId) return profile;
+
       const nextProfile = typeof update === "function"
         ? update(profile)
-        : cloneTextProfile(profile, update);
+        : { ...profile, ...update };
 
       return clearTextProfileCuration(nextProfile);
     });
 
-    applyProfiles(nextProfiles, activeTextProfile.id);
-  };
+    applyProfiles(nextProfiles, activeProfileId);
+  }, [applyProfiles]);
 
   const createProfile = () => {
     const nextProfile = createTextProfile();
@@ -310,57 +512,69 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     applyProfiles(nextProfiles, nextProfiles[0]?.id);
   };
 
-  const updateDictionaryEntry = (id: string, key: keyof DictionaryEntry, value: string) => {
-    updateActiveProfile({
-      dictionary_entries: dictionaryEntries.map((entry) => (
+  const updateDictionaryEntry = useCallback((id: string, key: keyof DictionaryEntry, value: string) => {
+    updateActiveProfile((profile) => ({
+      ...profile,
+      dictionary_entries: (profile.dictionary_entries ?? []).map((entry) => (
         entry.id === id ? { ...entry, [key]: value } : entry
       )),
-    });
-  };
+    }));
+  }, [updateActiveProfile]);
 
-  const removeDictionaryEntry = (id: string) => {
-    updateActiveProfile({
-      dictionary_entries: dictionaryEntries.filter((entry) => entry.id !== id),
-    });
-  };
+  const removeDictionaryEntry = useCallback((id: string) => {
+    updateActiveProfile((profile) => ({
+      ...profile,
+      dictionary_entries: (profile.dictionary_entries ?? []).filter((entry) => entry.id !== id),
+    }));
+  }, [updateActiveProfile]);
 
-  const moveDictionaryEntry = (id: string, direction: -1 | 1) => {
-    const index = dictionaryEntries.findIndex((entry) => entry.id === id);
-    if (index < 0) return;
+  const moveDictionaryEntry = useCallback((id: string, direction: -1 | 1) => {
+    updateActiveProfile((profile) => {
+      const entries = profile.dictionary_entries ?? [];
+      const index = entries.findIndex((entry) => entry.id === id);
+      if (index < 0) return profile;
 
-    updateActiveProfile({
-      dictionary_entries: moveItem(dictionaryEntries, index, direction),
+      return {
+        ...profile,
+        dictionary_entries: moveItem(entries, index, direction),
+      };
     });
     setActiveRuleId(id);
-  };
+  }, [updateActiveProfile]);
 
-  const updateSnippetEntry = (id: string, key: keyof SnippetEntry, value: string) => {
-    updateActiveProfile({
-      snippet_entries: snippetEntries.map((entry) => (
+  const updateSnippetEntry = useCallback((id: string, key: keyof SnippetEntry, value: string) => {
+    updateActiveProfile((profile) => ({
+      ...profile,
+      snippet_entries: (profile.snippet_entries ?? []).map((entry) => (
         entry.id === id ? { ...entry, [key]: value } : entry
       )),
-    });
-  };
+    }));
+  }, [updateActiveProfile]);
 
-  const removeSnippetEntry = (id: string) => {
-    updateActiveProfile({
-      snippet_entries: snippetEntries.filter((entry) => entry.id !== id),
-    });
-  };
+  const removeSnippetEntry = useCallback((id: string) => {
+    updateActiveProfile((profile) => ({
+      ...profile,
+      snippet_entries: (profile.snippet_entries ?? []).filter((entry) => entry.id !== id),
+    }));
+  }, [updateActiveProfile]);
 
-  const moveSnippetEntry = (id: string, direction: -1 | 1) => {
-    const index = snippetEntries.findIndex((entry) => entry.id === id);
-    if (index < 0) return;
+  const moveSnippetEntry = useCallback((id: string, direction: -1 | 1) => {
+    updateActiveProfile((profile) => {
+      const entries = profile.snippet_entries ?? [];
+      const index = entries.findIndex((entry) => entry.id === id);
+      if (index < 0) return profile;
 
-    updateActiveProfile({
-      snippet_entries: moveItem(snippetEntries, index, direction),
+      return {
+        ...profile,
+        snippet_entries: moveItem(entries, index, direction),
+      };
     });
     setActiveRuleId(id);
-  };
+  }, [updateActiveProfile]);
 
-  const setMessage = (ok: boolean, text: string) => {
+  const setMessage = useCallback((ok: boolean, text: string) => {
     setFeedback({ ok, text });
-  };
+  }, []);
 
   const startImport = async (resolution: TextRulesConflictResolution) => {
     setIsBusy(true);
@@ -440,13 +654,25 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   };
 
   const previewSource = pendingImport?.payload.analysis ?? analysis;
-  const issueList = previewSource?.issues ?? [];
+  const issueList = previewSource?.issues ?? EMPTY_ISSUES;
   const previewDictionaryEntries = pendingImport?.payload.document.dictionary_entries ?? dictionaryEntries;
   const previewSnippetEntries = pendingImport?.payload.document.snippet_entries ?? snippetEntries;
-  const previewRuleLookup = buildRuleLookup(previewDictionaryEntries, previewSnippetEntries);
-  const currentRuleLookup = buildRuleLookup(dictionaryEntries, snippetEntries);
-  const currentIssueMap = buildIssueMap(analysis?.issues ?? []);
-  const previewRuleChips = (previewSource?.preview.applied_rules ?? []).map((rule) => buildPreviewRuleChip(rule, previewRuleLookup));
+  const previewRuleLookup = useMemo(
+    () => buildRuleLookup(previewDictionaryEntries, previewSnippetEntries),
+    [previewDictionaryEntries, previewSnippetEntries],
+  );
+  const currentRuleLookup = useMemo(
+    () => buildRuleLookup(dictionaryEntries, snippetEntries),
+    [dictionaryEntries, snippetEntries],
+  );
+  const currentIssueMap = useMemo(
+    () => buildIssueMap(analysis?.issues ?? EMPTY_ISSUES),
+    [analysis?.issues],
+  );
+  const previewRuleChips = useMemo(
+    () => (previewSource?.preview.applied_rules ?? []).map((rule) => buildPreviewRuleChip(rule, previewRuleLookup)),
+    [previewRuleLookup, previewSource?.preview.applied_rules],
+  );
   const hasImportedOnlyIssues = Boolean(pendingImport && issueList.some((entry) => entry.rule_ids.some((ruleId) => !currentRuleLookup.has(ruleId))));
   const activePromptLineCount = countPromptLines(activeTextProfile.prompt);
   const activeSttHintLineCount = countPromptLines(activeTextProfile.stt_hints);
@@ -481,13 +707,16 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
         note: "Only use snippet triggers you are comfortable saying almost verbatim. They are literal phrase matches, not semantic intents.",
       };
 
+  const registerRuleCardRef = useCallback((ruleId: string, element: HTMLElement | null) => {
+    ruleCardRefs.current[ruleId] = element;
+  }, []);
+
   useEffect(() => {
     if (!pendingFocusRuleId) return;
 
     const target = ruleCardRefs.current[pendingFocusRuleId];
     if (!target) return;
 
-    target.scrollIntoView?.({ behavior: "smooth", block: "center" });
     target.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea")?.focus();
     setPendingFocusRuleId(null);
   }, [activeWorkspacePanel, dictionaryEntries, pendingFocusRuleId, snippetEntries]);
@@ -582,13 +811,27 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
       <div className="settings__editor-shell">
         <div className="settings__editor-setup-grid">
           <article className="settings__editor-setup-card">
-            <div className="settings__editor-setup-head">
+            <div className="settings__editor-setup-head settings__editor-profile-head">
               <div className="settings__editor-setup-copy">
                 <span className="settings__template-kicker">Profile setup</span>
                 <strong>Pick the profile you want to shape</strong>
                 <p>Keep switching and renaming here. Everything below edits the active profile only.</p>
               </div>
-              <div className="settings__editor-profile-badge" aria-hidden="true">{textProfileInitials(activeTextProfile)}</div>
+              <div className="settings__editor-setup-indicator" aria-label={`Active profile ${activeTextProfile.label}`}>
+                <div className="settings__editor-profile-badge" aria-hidden="true">
+                  <SquarePen className="settings__editor-profile-icon" size={18} strokeWidth={2} />
+                </div>
+                <div className="settings__editor-profile-button-copy">
+                  <strong>{activeTextProfile.label}</strong>
+                  <span>{isCuratedTextProfile(activeTextProfile) ? "Curated profile" : "Active writing mode"}</span>
+                </div>
+                {isCuratedTextProfile(activeTextProfile) ? (
+                  <span className="settings__editor-profile-status">
+                    <BadgeCheck className="settings__editor-profile-status-icon" size={14} strokeWidth={2} />
+                    Curated
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-setup-pills">
               <span className="settings__template-highlight">{activeTextProfile.label}</span>
@@ -598,7 +841,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
               <span className="settings__template-highlight">{dictionaryEntries.length} terms</span>
               <span className="settings__template-highlight">{snippetEntries.length} snippets</span>
             </div>
-            <div className="settings__editor-setup-fields">
+            <div className="settings__editor-setup-fields settings__editor-profile-fields">
               <div className="form-row">
                 <label htmlFor="text-profile-select">Active profile</label>
                 <select
@@ -622,7 +865,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                 />
               </label>
             </div>
-            <div className="settings__editor-setup-actions">
+            <div className="settings__editor-setup-actions settings__editor-profile-actions">
               <button className="btn btn--cancel" type="button" onClick={createProfile}>
                 New profile
               </button>
@@ -985,70 +1228,19 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                     No dictionary entries yet. Add the phrases Groq hears wrong and the exact output WordScript should insert instead.
                   </div>
                 ) : dictionaryEntries.map((entry, index) => {
-                  const entryIssues = currentIssueMap.get(entry.id) ?? [];
-                  const cardClassName = `settings__rule-card${activeRuleId === entry.id ? " settings__rule-card--active" : ""}${hasSeverity(entryIssues, "error") ? " settings__rule-card--error" : hasSeverity(entryIssues, "warning") ? " settings__rule-card--warning" : ""}`;
-
                   return (
-                    <article
+                    <DictionaryRuleCard
                       key={entry.id}
-                      ref={(element) => {
-                        ruleCardRefs.current[entry.id] = element;
-                      }}
-                      className={cardClassName}
-                    >
-                      <div className="settings__rule-card-head">
-                        <div className="settings__rule-card-heading">
-                          <strong className="settings__rule-card-title">Dictionary term {index + 1}</strong>
-                          <span className="settings__rule-meta">
-                            Runs in order. Later rules see the output of earlier ones.
-                          </span>
-                        </div>
-                        <div className="settings__rule-card-buttons">
-                          <button className="settings__rule-mini-btn" type="button" onClick={() => moveDictionaryEntry(entry.id, -1)} disabled={index === 0}>
-                            Move up
-                          </button>
-                          <button className="settings__rule-mini-btn" type="button" onClick={() => moveDictionaryEntry(entry.id, 1)} disabled={index === dictionaryEntries.length - 1}>
-                            Move down
-                          </button>
-                        </div>
-                      </div>
-                      <div className="settings__rule-grid">
-                        <label className="settings__rule-field">
-                          <span>Heard as</span>
-                          <input
-                            type="text"
-                            value={entry.phrase}
-                            onChange={(event) => updateDictionaryEntry(entry.id, "phrase", event.target.value)}
-                            placeholder="e.g. word script"
-                          />
-                        </label>
-                        <label className="settings__rule-field">
-                          <span>Replace with</span>
-                          <input
-                            type="text"
-                            value={entry.replace_with}
-                            onChange={(event) => updateDictionaryEntry(entry.id, "replace_with", event.target.value)}
-                            placeholder="e.g. WordScript"
-                          />
-                        </label>
-                      </div>
-                      <div className="settings__rule-actions">
-                        <span className="settings__rule-meta">Literal whole-phrase match, case-insensitive. Add separate entries for variants.</span>
-                        <button className="btn btn--cancel" type="button" onClick={() => removeDictionaryEntry(entry.id)}>
-                          Remove
-                        </button>
-                      </div>
-                      {entryIssues.length > 0 && (
-                        <div className="settings__rule-inline-issues">
-                          {entryIssues.map((issue) => (
-                            <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
-                              <strong>{issue.severity}</strong>
-                              <span>{issue.message}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </article>
+                      entry={entry}
+                      index={index}
+                      totalCount={dictionaryEntries.length}
+                      isActive={activeRuleId === entry.id}
+                      issues={currentIssueMap.get(entry.id) ?? EMPTY_ISSUES}
+                      registerRef={registerRuleCardRef}
+                      onMove={moveDictionaryEntry}
+                      onChange={updateDictionaryEntry}
+                      onRemove={removeDictionaryEntry}
+                    />
                   );
                 })}
               </div>
@@ -1083,79 +1275,19 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                     No snippets yet. Add a trigger phrase and the full expansion WordScript should drop into the final transcript.
                   </div>
                 ) : snippetEntries.map((entry, index) => {
-                  const entryIssues = currentIssueMap.get(entry.id) ?? [];
-                  const cardClassName = `settings__rule-card${activeRuleId === entry.id ? " settings__rule-card--active" : ""}${hasSeverity(entryIssues, "error") ? " settings__rule-card--error" : hasSeverity(entryIssues, "warning") ? " settings__rule-card--warning" : ""}`;
-
                   return (
-                    <article
+                    <SnippetRuleCard
                       key={entry.id}
-                      ref={(element) => {
-                        ruleCardRefs.current[entry.id] = element;
-                      }}
-                      className={cardClassName}
-                    >
-                      <div className="settings__rule-card-head">
-                        <div className="settings__rule-card-heading">
-                          <strong className="settings__rule-card-title">Snippet {index + 1}</strong>
-                          <span className="settings__rule-meta">
-                            Runs after Dictionary. Reorder when triggers overlap or one snippet should win over another.
-                          </span>
-                        </div>
-                        <div className="settings__rule-card-buttons">
-                          <button className="settings__rule-mini-btn" type="button" onClick={() => moveSnippetEntry(entry.id, -1)} disabled={index === 0}>
-                            Move up
-                          </button>
-                          <button className="settings__rule-mini-btn" type="button" onClick={() => moveSnippetEntry(entry.id, 1)} disabled={index === snippetEntries.length - 1}>
-                            Move down
-                          </button>
-                        </div>
-                      </div>
-                      <div className="settings__rule-grid settings__rule-grid--three">
-                        <label className="settings__rule-field">
-                          <span>Label</span>
-                          <input
-                            type="text"
-                            value={entry.label}
-                            onChange={(event) => updateSnippetEntry(entry.id, "label", event.target.value)}
-                            placeholder="e.g. Support follow-up"
-                          />
-                        </label>
-                        <label className="settings__rule-field">
-                          <span>Trigger phrase</span>
-                          <input
-                            type="text"
-                            value={entry.trigger}
-                            onChange={(event) => updateSnippetEntry(entry.id, "trigger", event.target.value)}
-                            placeholder="e.g. follow up note"
-                          />
-                        </label>
-                        <label className="settings__rule-field settings__rule-field--wide">
-                          <span>Expansion</span>
-                          <textarea
-                            value={entry.expansion}
-                            onChange={(event) => updateSnippetEntry(entry.id, "expansion", event.target.value)}
-                            placeholder="e.g. Thanks for the update. We will send the next status tomorrow morning."
-                            rows={4}
-                          />
-                        </label>
-                      </div>
-                      <div className="settings__rule-actions">
-                        <span className="settings__rule-meta">Literal trigger phrase match, case-insensitive, in the final transcript.</span>
-                        <button className="btn btn--cancel" type="button" onClick={() => removeSnippetEntry(entry.id)}>
-                          Remove
-                        </button>
-                      </div>
-                      {entryIssues.length > 0 && (
-                        <div className="settings__rule-inline-issues">
-                          {entryIssues.map((issue) => (
-                            <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
-                              <strong>{issue.severity}</strong>
-                              <span>{issue.message}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </article>
+                      entry={entry}
+                      index={index}
+                      totalCount={snippetEntries.length}
+                      isActive={activeRuleId === entry.id}
+                      issues={currentIssueMap.get(entry.id) ?? EMPTY_ISSUES}
+                      registerRef={registerRuleCardRef}
+                      onMove={moveSnippetEntry}
+                      onChange={updateSnippetEntry}
+                      onRemove={removeSnippetEntry}
+                    />
                   );
                 })}
               </div>

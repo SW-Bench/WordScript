@@ -1,10 +1,17 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  ActivitySquare,
+  Info,
+  Keyboard,
+  Settings2,
+  SquarePen,
+} from "lucide-react";
 import { useProvider } from "../hooks/useProvider";
 import { useRuntime } from "../hooks/useRuntime";
 import { getHotkeyValidationMessage, normalizeManualHotkey } from "../lib/hotkeys";
-import { APP_ORGANIZATION_URL, APP_REPOSITORY_URL, APP_SITE_URL, APP_VERSION } from "../lib/appMeta";
+import { APP_VERSION } from "../lib/appMeta";
 import type { AppConfig } from "../types/ipc";
 import type { ProviderId } from "../types/providers";
 import type { TextRulesAnalysis } from "../types/textRules";
@@ -19,8 +26,17 @@ import swBenchWordmark from "../../assets/SW bench_wordmark.png";
 import wordmark from "../../assets/wordscript_wordmark.png";
 import "../styles/settings.css";
 
+const NAV_ICONS = {
+  gear: Settings2,
+  key: Keyboard,
+  panel: SquarePen,
+  info: Info,
+  diagnostics: ActivitySquare,
+} as const;
+
 const TABS = [
   {
+    section: "Configure",
     label: "Provider",
     id: "Provider & Models",
     icon: "gear",
@@ -28,6 +44,7 @@ const TABS = [
     blurb: "Cloud BYOK, local preview lane, language, model choice and post-correction.",
   },
   {
+    section: "Configure",
     label: "Input",
     id: "Input",
     icon: "key",
@@ -35,6 +52,7 @@ const TABS = [
     blurb: "Shortcut, microphone, delivery and capture recovery.",
   },
   {
+    section: "Configure",
     label: "Text Rules",
     id: "Text Rules",
     icon: "panel",
@@ -42,6 +60,7 @@ const TABS = [
     blurb: "Personal dictionary, snippets and transform preview.",
   },
   {
+    section: "Inspect",
     label: "About",
     id: "About",
     icon: "info",
@@ -49,6 +68,7 @@ const TABS = [
     blurb: "Version, installer flow, platform support and project links.",
   },
   {
+    section: "Inspect",
     label: "Diagnostics",
     id: "Rebuild Lab",
     icon: "diagnostics",
@@ -56,6 +76,8 @@ const TABS = [
     blurb: "Native capture, transform, recovery and insert diagnostics.",
   },
 ] as const;
+
+type SettingsTab = (typeof TABS)[number];
 type Tab = (typeof TABS)[number]["id"];
 
 interface ConfiguredTriggerStatus {
@@ -108,6 +130,16 @@ export default function SettingsWindow() {
     setForm((prev) => (prev ? { ...prev, ...partial } : prev));
 
   const activeTab = TABS.find((tab) => tab.id === active) ?? TABS[0];
+  const groupedTabs = useMemo(() => {
+    const groups = new Map<string, SettingsTab[]>();
+
+    for (const tab of TABS) {
+      const existing = groups.get(tab.section) ?? [];
+      groups.set(tab.section, [...existing, tab]);
+    }
+
+    return Array.from(groups.entries()).map(([label, items]) => ({ label, items }));
+  }, []);
   const readiness = state.error
     ? { label: "Error", title: state.error, ok: false }
     : state.status === "processing"
@@ -129,6 +161,7 @@ export default function SettingsWindow() {
                 : "Add a Groq key before transcription can run.",
               ok: false,
             };
+  const isDirty = Boolean(state.config && form && JSON.stringify(form) !== JSON.stringify(state.config));
 
   const handleSave = async () => {
     if (!form) return;
@@ -232,24 +265,32 @@ export default function SettingsWindow() {
             <span className="settings__brand-kicker">WordScript utility</span>
             <img className="settings__brand-mark" src={wordmark} alt="WordScript" />
             <p className="settings__brand-copy">
-              Local-first dictation settings for provider, capture, profiles and recovery.
+              Native settings shell for provider truth, capture reliability, profiles and recovery.
             </p>
             <span>v{APP_VERSION}</span>
           </div>
 
-          <span className="settings__sidebar-label">Workspace</span>
-
           <nav className="settings__nav" aria-label="Settings sections">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={`settings__nav-item${active === tab.id ? " settings__nav-item--active" : ""}`}
-                onClick={() => setActive(tab.id)}
-              >
-                <span className={`settings__nav-icon settings__nav-icon--${tab.icon}`} aria-hidden="true" />
-                <span>{tab.label}</span>
-              </button>
+            {groupedTabs.map((group) => (
+              <section key={group.label} className="settings__nav-group" aria-label={group.label}>
+                <span className="settings__nav-group-label">{group.label}</span>
+                <div className="settings__nav-group-stack">
+                  {group.items.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className={`settings__nav-item${active === tab.id ? " settings__nav-item--active" : ""}`}
+                      onClick={() => setActive(tab.id)}
+                    >
+                      {(() => {
+                        const NavIcon = NAV_ICONS[tab.icon];
+                        return <NavIcon className="settings__nav-icon" size={16} strokeWidth={1.9} />;
+                      })()}
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
             ))}
           </nav>
 
@@ -259,7 +300,6 @@ export default function SettingsWindow() {
             <div className="settings__project">
               <span className="settings__project-kicker">Open-source brand by SW labs</span>
               <img className="settings__project-mark" src={swBenchWordmark} alt="SW Bench" />
-              <small>Community-built open-source dictation.</small>
             </div>
           </div>
         </aside>
@@ -267,60 +307,67 @@ export default function SettingsWindow() {
         <main className="settings__main">
           <WindowChrome
             title="Settings"
-            subtitle={activeTab.label}
+            subtitle={activeTab.eyebrow}
             status={(
               <span className={`settings__runtime-pill${readiness.ok ? " settings__runtime-pill--ok" : ""}`} title={readiness.title}>
                 {readiness.label}
               </span>
             )}
-            actions={active === "Rebuild Lab" ? (
-              <button
-                className="btn btn--cancel"
-                type="button"
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={() => void handleOpenDiagnosticsWindow()}
-              >
-                Open diagnostics window
-              </button>
-            ) : null}
+            actions={(
+              <>
+                <span className={`settings__runtime-pill${isDirty ? " settings__runtime-pill--warn" : " settings__runtime-pill--sync"}`}>
+                  {isDirty ? "Unsaved" : "Synced"}
+                </span>
+                {active === "Rebuild Lab" ? (
+                  <button
+                    className="btn btn--cancel"
+                    type="button"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={() => void handleOpenDiagnosticsWindow()}
+                  >
+                    Open diagnostics window
+                  </button>
+                ) : null}
+              </>
+            )}
           />
           <div className="settings__body">
             <section className="settings__panel">
-            <header className="settings__panel-header">
-              <div className="settings__panel-heading">
-                <span className="settings__panel-eyebrow">{activeTab.eyebrow}</span>
-                <div className="settings__panel-title-row">
-                  <h2 className="settings__panel-title">{activeTab.label}</h2>
-                  <div className="settings__panel-meta" aria-label="Section meta">
-                    <span className={`settings__panel-chip${readiness.ok ? " settings__panel-chip--ok" : ""}`}>
-                      {readiness.label}
-                    </span>
-                    <span className="settings__panel-chip settings__panel-chip--muted">
-                      Local save window
-                    </span>
+              <header className="settings__panel-header">
+                <div className="settings__panel-heading">
+                  <span className="settings__panel-eyebrow">{activeTab.eyebrow}</span>
+                  <div className="settings__panel-title-row">
+                    <h2 className="settings__panel-title">{activeTab.label}</h2>
+                    <div className="settings__panel-meta" aria-label="Section meta">
+                      <span className={`settings__panel-chip${readiness.ok ? " settings__panel-chip--ok" : ""}`}>
+                        {readiness.label}
+                      </span>
+                      <span className={`settings__panel-chip${isDirty ? " settings__panel-chip--warn" : " settings__panel-chip--muted"}`}>
+                        {isDirty ? "Unsaved local draft" : "Local save window"}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <p className="settings__panel-blurb">{activeTab.blurb}</p>
-            </header>
+                <p className="settings__panel-blurb">{activeTab.blurb}</p>
+              </header>
 
-            <div className="settings__content">
-              <div className={`tab${active === "Provider & Models" ? " tab--active" : ""}`}>
-                <ApiModelsTab config={form} onChange={patch} onOpenDiagnostics={() => setActive("Rebuild Lab")} />
+              <div className="settings__content">
+                <div className={`tab${active === "Provider & Models" ? " tab--active" : ""}`}>
+                  <ApiModelsTab config={form} onChange={patch} onOpenDiagnostics={() => setActive("Rebuild Lab")} />
+                </div>
+                <div className={`tab${active === "Input" ? " tab--active" : ""}`}>
+                  <InputTab config={form} onChange={patch} />
+                </div>
+                <div className={`tab${active === "Text Rules" ? " tab--active" : ""}`}>
+                  <PromptsTab config={form} onChange={patch} onValidationChange={setTextRulesAnalysis} />
+                </div>
+                <div className={`tab${active === "About" ? " tab--active" : ""}`}>
+                  <AboutTab isActive={active === "About"} />
+                </div>
+                <div className={`tab${active === "Rebuild Lab" ? " tab--active" : ""}`}>
+                  <RebuildLabTab isActive={active === "Rebuild Lab"} config={form} onChange={patch} />
+                </div>
               </div>
-              <div className={`tab${active === "Input" ? " tab--active" : ""}`}>
-                <InputTab config={form} onChange={patch} />
-              </div>
-              <div className={`tab${active === "Text Rules" ? " tab--active" : ""}`}>
-                <PromptsTab config={form} onChange={patch} onValidationChange={setTextRulesAnalysis} />
-              </div>
-              <div className={`tab${active === "About" ? " tab--active" : ""}`}>
-                <AboutTab isActive={active === "About"} />
-              </div>
-              <div className={`tab${active === "Rebuild Lab" ? " tab--active" : ""}`}>
-                <RebuildLabTab isActive={active === "Rebuild Lab"} config={form} onChange={patch} />
-              </div>
-            </div>
             </section>
           </div>
 
@@ -334,7 +381,9 @@ export default function SettingsWindow() {
             }`}>
               {status?.msg ?? (textRulesAnalysis?.blocking
                 ? "Fix blocking text-rule issues before saving this window."
-                : "Changes stay local until you save this window.")}
+                : isDirty
+                  ? "Changes stay local to this window until you save them into the runtime config."
+                  : "This settings window is currently in sync with the persisted runtime config.")}
             </span>
             <div className="settings__footer-btns">
               <button className="btn btn--cancel" onClick={handleCancel}>Cancel</button>

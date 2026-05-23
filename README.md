@@ -40,9 +40,11 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - transform pipeline with hallucination guardrails, profile-aware AI cleanup, and profile/dictionary-guided transcription prompts across Groq and the local CLI lane so mixed-language and technical terms survive more reliably, plus local text profiles with explicit STT hints, seeded curated baselines, dictionary and snippets
 - native insertion with direct paste, clipboard fallback, typed recovery actions, clipboard-restore status, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
 - native transcription history with retention policy, server-side filters, JSON export, retry and persisted insert-recovery semantics, plus a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
+- diagnostics history, decoded runtime-log hints and long Text Rules card lists now keep stable render boundaries, so routine filter edits and rule changes no longer force every visible card to rebuild at once
 - platform diagnostics and runtime logs, including a stage timeline for capture, provider, transform and insert with per-step state, duration and stable error-code truth
-- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a persistent sidebar profile dock for manual profile switching and a sequenced Text Rules workspace with a compact process summary, profile/setup deck, curated-profile overview, pinned stage navigation and one dominant working canvas at a time
-- a calmer utility-style Settings shell with visible section hierarchy, denser Provider/Input summaries and a more legible overlay state treatment
+- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a grouped utility sidebar with a persistent profile dock for manual profile switching and a sequenced Text Rules workspace with a compact process summary, profile/setup deck, curated-profile overview, pinned stage navigation and one dominant working canvas at a time
+- a calmer utility-style Settings shell with native window controls, grouped navigation, a compact tab header, explicit runtime/save-state chips and one dominant content surface that behaves more predictably on Linux
+- a dedicated native diagnostics preview window that reuses the same Rebuild Lab surface in a calmer pop-out instead of falling back to a separate fake-chrome shell
 - manual release build-up lanes for Linux, macOS and Windows
 
 ## What still needs work
@@ -56,7 +58,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - a live-preview and controlled-commit overlay that shows raw text, cleaned text, the active work mode and quick recovery actions
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
 - a first-class local lane with model management, health diagnostics, bias prompting and quality/latency presets instead of an external-helper-only preview path
-- final cross-window polish and runtime-state verification so the calmer macOS-utility direction stays consistent across every settings and overlay state on Windows and Linux too
+- final live-host verification and cross-window polish so the calmer utility direction stays consistent across settings and overlay states on Windows, macOS and Linux without platform-fake chrome
 - guided setup, permissions and packaging that get users from install to first useful dictation without having to reverse-engineer diagnostics output
 
 ## Planning references

@@ -1,6 +1,6 @@
 # WordScript — Architecture
 
-Stand: 2026-05-13
+Stand: 2026-05-23
 
 ## Zweck
 
@@ -34,15 +34,17 @@ Rust core
 
 ## UI-Schicht
 
-Die aktive UI besteht derzeit aus zwei Fenstern in der Tauri-Konfiguration:
+Die aktive UI besteht derzeit aus drei Fenstern in der Tauri-Konfiguration:
 
 - `overlay`: transparente Pill fuer Aufnahmezustand
-- `settings`: Shell mit den Tabs Provider & Models, Input, Text Rules, About und Diagnostics sowie einem persistenten Profil-Dock in der Sidebar
+- `settings`: native-dekorierte Shell mit den Tabs Provider & Models, Input, Text Rules, About und Diagnostics, gruppierter Sidebar-Navigation, persistentem Profil-Dock, kompaktem Tab-Header, einer dominanten Content-Surface und Footer-Save-Bar
+- `rebuild-lab`: native-dekoriertes Diagnostics-Pop-out mit demselben Rebuild-Lab-Panel, kompaktem Preview-Header und einer einzelnen scrollbaren Content-Surface fuer den technischen Check ausserhalb des Settings-Fensters
 
 Wichtige Frontend-Bausteine:
 
 - `src/windows/OverlayWindow.tsx`
 - `src/windows/SettingsWindow.tsx`
+- `src/windows/RebuildLabWindow.tsx`
 - `src/hooks/useRuntime.ts`
 - `src/hooks/useProvider.ts`
 - `src/hooks/useNativeInsertion.ts`
@@ -54,9 +56,11 @@ Die UI ist verantwortlich fuer:
 - Anzeige von Runtime-Status, Waveform und Fehlermeldungen
 - Pflege der Config-Werte
 - global sichtbare manuelle Profilumschaltung in der Sidebar plus seeded kuratierte Profile, Preview, Validation und Import/Export in den Text Rules
+- tab-spezifische Orientierung ueber kompakten Header, Runtime-/Save-State-Chips und Section-Blurb, ohne neue UI-Heuristiken neben dem nativen Vertrag einzufuehren
 - Text Rules als Workspace mit knapper Prozesszusammenfassung, kompakter Setup-/Curated-Zone und praesent bleibender Schritt-Navigation; darunter steht immer nur eine dominante Bearbeitungsstufe fuer Context/Preview, Dictionary oder Snippets
 - Sichtbare Recovery-Aktionen und Diagnostics
 - getrennte Darstellung von transienten Runtime-Logs und dauerhaftem nativen Transkriptverlauf inklusive Filter, Export und sichtbarem History-Store-Pfad; Recovery-Scratchpad bleibt davon getrennt
+- render-sensible Settings-Teilbaeume muessen strukturell stabil bleiben: lange Listen wie Diagnostics-History, decoded Runtime-Log-Hints sowie Dictionary-/Snippet-Karten werden als isolierte Subtrees gehalten und duerfen nicht durch per-render Deep-Clones aller Profile oder Eintraege wieder unnoetig invalidiert werden
 
 Die UI ist nicht verantwortlich fuer:
 

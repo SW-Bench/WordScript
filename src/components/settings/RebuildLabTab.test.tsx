@@ -367,8 +367,10 @@ describe("RebuildLabTab", () => {
   it("renders native transcription history separately from runtime logs", () => {
     render(<RebuildLabTab isActive config={createAppConfig()} onChange={vi.fn()} />);
 
+    expect(screen.getByText("Diagnostics Preview")).toBeInTheDocument();
     expect(screen.getByText("Transcription History")).toBeInTheDocument();
     expect(screen.getByText(/this preview belongs to the active diagnostics lane/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/insert plan/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/history is stored natively and survives the diagnostics ui/i)).toBeInTheDocument();
     expect(screen.getByText("History store")).toBeInTheDocument();
     expect(screen.getByText(/capture · completed/i)).toBeInTheDocument();

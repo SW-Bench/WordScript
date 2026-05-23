@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useTranscriptionHistory } from "../../hooks/useTranscriptionHistory";
 import { useRuntimeLogs } from "../../hooks/useRuntimeLogs";
@@ -459,6 +459,168 @@ function parseRuntimeLogRuleHints(entries: string[]): RuntimeLogRuleHint[] {
     });
 }
 
+interface HistoryEntryCardProps {
+  entry: TranscriptionHistoryEntry;
+  isLoading: boolean;
+  onRetry: (id: string) => void | Promise<unknown>;
+  onRemove: (id: string) => void | Promise<unknown>;
+}
+
+const HistoryEntryCard = memo(function HistoryEntryCard({ entry, isLoading, onRetry, onRemove }: HistoryEntryCardProps) {
+  return (
+    <div className="settings__rule-issue">
+      <strong>{historyStatusLabel(entry.status)} · {humanizeValue(entry.provider, "Provider")}</strong>
+      <p className="form-dim" style={{ margin: "4px 0 0" }}>
+        {formatHistoryTimestamp(entry.created_at_ms)} · {historySourceLabel(entry.source)}
+        {entry.retry_of ? ` · retry of ${entry.retry_of}` : ""}
+      </p>
+      <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
+        <span className="settings__rule-chip">{entry.model ?? "default model"}</span>
+        {entry.provider_profile && <span className="settings__rule-chip">{entry.provider_profile}</span>}
+        {entry.local_prompt_strength && (
+          <span className="settings__rule-chip">
+            {localPromptStrengthLabel(entry.local_prompt_strength) ?? entry.local_prompt_strength}
+          </span>
+        )}
+        {entry.local_prompt_carry !== null && entry.local_prompt_carry !== undefined && (
+          <span className="settings__rule-chip">
+            {entry.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}
+          </span>
+        )}
+        {entry.local_beam_size !== null && entry.local_beam_size !== undefined && (
+          <span className="settings__rule-chip">{`Beam ${entry.local_beam_size}`}</span>
+        )}
+        {entry.local_best_of !== null && entry.local_best_of !== undefined && (
+          <span className="settings__rule-chip">{`Best of ${entry.local_best_of}`}</span>
+        )}
+        {entry.insert_mode && <span className="settings__rule-chip">{humanizeValue(entry.insert_mode, "Insert mode")}</span>}
+        {entry.active_driver && <span className="settings__rule-chip">{humanizeValue(entry.active_driver, "Driver")}</span>}
+        {entry.recovery_action && <span className="settings__rule-chip">{historyRecoveryActionLabel(entry.recovery_action)}</span>}
+        {entry.clipboard_restore && <span className="settings__rule-chip">{historyClipboardRestoreLabel(entry.clipboard_restore)}</span>}
+        <span className="settings__rule-chip">{entry.active_profile ?? "Global rules"}</span>
+      </div>
+      <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+        <div>
+          <strong>Raw transcript</strong>
+          <p className="form-dim" style={{ margin: "4px 0 0" }}>
+            {entry.raw_transcript ?? "No raw transcript stored."}
+          </p>
+        </div>
+        <div>
+          <strong>Final transcript</strong>
+          <p className="form-dim" style={{ margin: "4px 0 0" }}>
+            {entry.transformed_transcript ?? entry.error ?? "No transformed transcript stored."}
+          </p>
+        </div>
+        {(entry.recovery_message || entry.fallback_reason || entry.clipboard_restore) && (
+          <div>
+            <strong>Recovery</strong>
+            <p className="form-dim" style={{ margin: "4px 0 0" }}>
+              {entry.recovery_message ?? entry.fallback_reason ?? "No recovery guidance stored."}
+            </p>
+            {entry.clipboard_restore && (
+              <p className="form-dim" style={{ margin: "4px 0 0" }}>
+                {historyClipboardRestoreLabel(entry.clipboard_restore)}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="settings__provider-actions settings__provider-actions--compact">
+        <button
+          className="btn btn--cancel"
+          type="button"
+          aria-label={`Retry history entry ${entry.id}`}
+          disabled={isLoading || !canRetryHistoryEntry(entry)}
+          onClick={() => void onRetry(entry.id)}
+        >
+          Retry
+        </button>
+        <button
+          className="btn btn--cancel"
+          type="button"
+          aria-label={`Delete history entry ${entry.id}`}
+          disabled={isLoading}
+          onClick={() => void onRemove(entry.id)}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+});
+
+interface HistoryEntriesListProps {
+  entries: TranscriptionHistoryEntry[];
+  isLoading: boolean;
+  onRetry: (id: string) => void | Promise<unknown>;
+  onRemove: (id: string) => void | Promise<unknown>;
+}
+
+const HistoryEntriesList = memo(function HistoryEntriesList({ entries, isLoading, onRetry, onRemove }: HistoryEntriesListProps) {
+  if (!entries.length) {
+    return <p className="form-dim">No history entries match the current filters.</p>;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {entries.map((entry) => (
+        <HistoryEntryCard
+          key={entry.id}
+          entry={entry}
+          isLoading={isLoading}
+          onRetry={onRetry}
+          onRemove={onRemove}
+        />
+      ))}
+    </div>
+  );
+});
+
+interface RuntimeRuleHintListProps {
+  hints: RuntimeLogRuleHint[];
+}
+
+const RuntimeRuleHintList = memo(function RuntimeRuleHintList({ hints }: RuntimeRuleHintListProps) {
+  if (!hints.length) {
+    return null;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+      <div>
+        <strong className="settings__about-title">Decoded transform rules</strong>
+        <p className="form-dim" style={{ margin: "4px 0 0" }}>
+          Raw logs stay unchanged in the textarea above. Known transform rules from recent entries are translated here for faster reading.
+        </p>
+      </div>
+      {hints.map((hint, index) => (
+        <div key={`${hint.entry}-${index}`}>
+          <strong>{describeCorrectionOutcome(hint.corrected)}</strong>
+          <p className="form-dim" style={{ margin: "4px 0 0" }}>
+            {hint.entry}
+          </p>
+          <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
+            {hint.rules.map((rule) => (
+              <span key={`${hint.entry}:${rule.id}`} className="settings__rule-chip" title={rule.id}>{rule.label}</span>
+            ))}
+          </div>
+          <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+            {hint.rules.map((rule) => (
+              <div key={`${hint.entry}:${rule.id}:details`}>
+                <strong>{rule.label}</strong>
+                <p className="form-dim" style={{ margin: "4px 0 0" }}>
+                  {rule.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+});
+
 interface RebuildLabTabProps {
   isActive: boolean;
   config: AppConfig;
@@ -522,11 +684,25 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
   const runtimeDraftDifferences = describeRuntimeDraftDifferences(runtimeContract, config);
 
   const stage = status?.stage;
-  const runtimeLogText = runtimeLogs.entries.length
-    ? runtimeLogs.entries.join("\n")
-    : "No runtime logs yet.";
+  const runtimeLogText = useMemo(
+    () => (runtimeLogs.entries.length ? runtimeLogs.entries.join("\n") : "No runtime logs yet."),
+    [runtimeLogs.entries],
+  );
   const canStartSession = !isPending && stage !== "capturing" && stage !== "processing";
   const canCompleteSession = !isPending && stage === "capturing";
+  const previewTranscript = result?.transcript.final_text ?? status?.last_transcript ?? "No transcript yet.";
+  const previewProfileLabel = optionLabel(
+    PROFILE_OPTIONS,
+    result?.transcript.profile ?? profile,
+    humanizeValue(result?.transcript.profile ?? profile, "Developer"),
+  );
+  const previewTargetLabel = optionLabel(
+    INSERT_TARGET_OPTIONS,
+    result?.insertion.target ?? insertTarget,
+    humanizeValue(result?.insertion.target ?? insertTarget, "Editor preview"),
+  );
+  const previewModeLabel = humanizeValue(result?.insertion.mode, "Pending");
+  const previewFallbackLabel = humanizeValue(result?.insertion.fallback, "Clipboard fallback planned");
 
   useEffect(() => {
     if (!isActive) return;
@@ -818,22 +994,67 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
         Start capture opens a fresh native session. Complete step resolves the current session with the sample text below. End-to-end does both in one go and appends the final insert preview.
       </p>
 
-      <div className="form-section">Transcript Output</div>
-      <div className="settings__about-card">
-        <strong className="settings__about-title">Current diagnostic transcript</strong>
-        <p className="form-dim" style={{ margin: 0 }}>
-          This preview belongs to the active diagnostics lane in this window. It is not the recovery scratchpad from Input and not the persisted history store below.
-        </p>
-        <p className="form-dim" style={{ margin: 0 }}>
-          {result?.transcript.final_text ?? status?.last_transcript ?? "No transcript yet."}
-        </p>
+      <div className="form-section">Diagnostics Preview</div>
+      <div className="settings__about-card settings__about-card--highlight">
+        <div className="settings__about-head">
+          <div>
+            <strong className="settings__about-title">Current diagnostic transcript</strong>
+            <p className="form-dim" style={{ margin: "4px 0 0" }}>
+              This preview belongs to the active diagnostics lane in this window. It is not the recovery scratchpad from Input and not the persisted history store below.
+            </p>
+          </div>
+          <div className="settings__rule-chip-row">
+            <span className="settings__rule-chip">{previewProfileLabel}</span>
+            <span className="settings__rule-chip">{previewTargetLabel}</span>
+            <span className="settings__rule-chip">{previewModeLabel}</span>
+          </div>
+        </div>
+
+        <div className="settings__diagnostic-preview-grid">
+          <div className="settings__diagnostic-preview-card">
+            <span className="settings__rule-preview-label">Transcript</span>
+            <p className="settings__diagnostic-preview-copy">{previewTranscript}</p>
+          </div>
+
+          <div className="settings__diagnostic-preview-card">
+            <span className="settings__rule-preview-label">Insert plan</span>
+            <div className="settings__rule-issues">
+              <div className="settings__rule-issue">
+                <strong>Target</strong>
+                <span>{previewTargetLabel}</span>
+              </div>
+              <div className="settings__rule-issue">
+                <strong>Insert mode</strong>
+                <span>{previewModeLabel}</span>
+              </div>
+              <div className="settings__rule-issue">
+                <strong>Fallback path</strong>
+                <span>{previewFallbackLabel}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="settings__diagnostic-preview-editor">
+          <strong className="settings__about-title">Preview editor</strong>
+          <p className="form-dim" style={{ margin: "4px 0 0" }}>
+            This editor mirrors the current insert plan. It is diagnostic, but it already reflects the real fallback contract coming back from the native runtime.
+          </p>
+          <textarea className="form-textarea" value={editorValue} onChange={(event) => setEditorValue(event.target.value)} rows={8} placeholder="No preview text yet." />
+        </div>
+
+        <div className="form-row">
+          <label>Profile used</label>
+          <div className="provider-status"><span>{previewProfileLabel}</span></div>
+        </div>
+
         <div className="settings__rule-chip-row">
           {transcriptRules.map((rule) => (
             <span key={rule.id} className="settings__rule-chip" title={rule.id}>{rule.label}</span>
           ))}
         </div>
         {transcriptRules.length > 0 && (
-          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+          <div style={{ display: "grid", gap: 10 }}>
             {transcriptRules.map((rule) => (
               <div key={rule.id}>
                 <strong>{rule.label}</strong>
@@ -844,30 +1065,6 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
             ))}
           </div>
         )}
-        <div className="form-row" style={{ marginTop: 12 }}>
-          <label>Profile used</label>
-          <div className="provider-status"><span>{optionLabel(PROFILE_OPTIONS, result?.transcript.profile ?? profile, humanizeValue(result?.transcript.profile ?? profile, "Developer"))}</span></div>
-        </div>
-      </div>
-
-      <div className="form-section">Insertion Preview</div>
-      <div className="settings__about-card">
-        <p className="form-dim" style={{ marginTop: 0 }}>
-          This editor mirrors the current insert plan. It is diagnostic, but it already reflects the real fallback contract coming back from the native runtime.
-        </p>
-        <textarea className="form-textarea" value={editorValue} onChange={(event) => setEditorValue(event.target.value)} rows={8} placeholder="No preview text yet." />
-        <div className="form-row">
-          <label>Target</label>
-          <div className="provider-status"><span>{optionLabel(INSERT_TARGET_OPTIONS, result?.insertion.target ?? insertTarget, humanizeValue(result?.insertion.target ?? insertTarget, "Editor preview"))}</span></div>
-        </div>
-        <div className="form-row">
-          <label>Insert mode</label>
-          <div className="provider-status"><span>{humanizeValue(result?.insertion.mode, "Pending")}</span></div>
-        </div>
-        <div className="form-row">
-          <label>Fallback path</label>
-          <div className="provider-status"><span>{humanizeValue(result?.insertion.fallback, "Clipboard fallback planned")}</span></div>
-        </div>
       </div>
 
       <div className="form-section">Transcription History</div>
@@ -937,8 +1134,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
             ))}
           </select>
         </div>
-        <div className="form-row">
-          <label htmlFor="history-errors-only">Only failed entries</label>
+        <label className="form-check" htmlFor="history-errors-only">
           <input
             id="history-errors-only"
             aria-label="Only failed history entries"
@@ -946,7 +1142,8 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
             checked={historyErrorsOnly}
             onChange={(event) => setHistoryErrorsOnly(event.target.checked)}
           />
-        </div>
+          <span>Only failed entries</span>
+        </label>
         <div className="form-section">History Policy</div>
         <div className="form-row">
           <label htmlFor="history-limit">Stored entries</label>
@@ -978,93 +1175,12 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
             Clear history
           </button>
         </div>
-        {visibleHistoryEntries.length > 0 ? (
-          <div style={{ display: "grid", gap: 12 }}>
-            {visibleHistoryEntries.map((entry) => (
-              <div key={entry.id} className="settings__rule-issue">
-                <strong>{historyStatusLabel(entry.status)} · {humanizeValue(entry.provider, "Provider")}</strong>
-                <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                  {formatHistoryTimestamp(entry.created_at_ms)} · {historySourceLabel(entry.source)}
-                  {entry.retry_of ? ` · retry of ${entry.retry_of}` : ""}
-                </p>
-                <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
-                  <span className="settings__rule-chip">{entry.model ?? "default model"}</span>
-                  {entry.provider_profile && <span className="settings__rule-chip">{entry.provider_profile}</span>}
-                  {entry.local_prompt_strength && (
-                    <span className="settings__rule-chip">
-                      {localPromptStrengthLabel(entry.local_prompt_strength) ?? entry.local_prompt_strength}
-                    </span>
-                  )}
-                  {entry.local_prompt_carry !== null && entry.local_prompt_carry !== undefined && (
-                    <span className="settings__rule-chip">
-                      {entry.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}
-                    </span>
-                  )}
-                  {entry.local_beam_size !== null && entry.local_beam_size !== undefined && (
-                    <span className="settings__rule-chip">{`Beam ${entry.local_beam_size}`}</span>
-                  )}
-                  {entry.local_best_of !== null && entry.local_best_of !== undefined && (
-                    <span className="settings__rule-chip">{`Best of ${entry.local_best_of}`}</span>
-                  )}
-                  {entry.insert_mode && <span className="settings__rule-chip">{humanizeValue(entry.insert_mode, "Insert mode")}</span>}
-                  {entry.active_driver && <span className="settings__rule-chip">{humanizeValue(entry.active_driver, "Driver")}</span>}
-                  {entry.recovery_action && <span className="settings__rule-chip">{historyRecoveryActionLabel(entry.recovery_action)}</span>}
-                  {entry.clipboard_restore && <span className="settings__rule-chip">{historyClipboardRestoreLabel(entry.clipboard_restore)}</span>}
-                  <span className="settings__rule-chip">{entry.active_profile ?? "Global rules"}</span>
-                </div>
-                <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                  <div>
-                    <strong>Raw transcript</strong>
-                    <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                      {entry.raw_transcript ?? "No raw transcript stored."}
-                    </p>
-                  </div>
-                  <div>
-                    <strong>Final transcript</strong>
-                    <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                      {entry.transformed_transcript ?? entry.error ?? "No transformed transcript stored."}
-                    </p>
-                  </div>
-                  {(entry.recovery_message || entry.fallback_reason || entry.clipboard_restore) && (
-                    <div>
-                      <strong>Recovery</strong>
-                      <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                        {entry.recovery_message ?? entry.fallback_reason ?? "No recovery guidance stored."}
-                      </p>
-                      {entry.clipboard_restore && (
-                        <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                          {historyClipboardRestoreLabel(entry.clipboard_restore)}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="settings__provider-actions settings__provider-actions--compact">
-                  <button
-                    className="btn btn--cancel"
-                    type="button"
-                    aria-label={`Retry history entry ${entry.id}`}
-                    disabled={transcriptionHistory.isLoading || !canRetryHistoryEntry(entry)}
-                    onClick={() => void transcriptionHistory.retry(entry.id)}
-                  >
-                    Retry
-                  </button>
-                  <button
-                    className="btn btn--cancel"
-                    type="button"
-                    aria-label={`Delete history entry ${entry.id}`}
-                    disabled={transcriptionHistory.isLoading}
-                    onClick={() => void transcriptionHistory.remove(entry.id)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="form-dim">No history entries match the current filters.</p>
-        )}
+        <HistoryEntriesList
+          entries={visibleHistoryEntries}
+          isLoading={transcriptionHistory.isLoading}
+          onRetry={transcriptionHistory.retry}
+          onRemove={transcriptionHistory.remove}
+        />
         <p className={`form-dim${transcriptionHistory.error ? " form-dim--error" : ""}`}>
           {transcriptionHistory.error ?? historyFeedback ?? `${transcriptionHistory.entries.length} history entries match the current filters.`}
         </p>
@@ -1084,39 +1200,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
           </button>
         </div>
         <textarea className="form-textarea" value={runtimeLogText} readOnly rows={10} />
-        {runtimeRuleHints.length > 0 && (
-          <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
-            <div>
-              <strong className="settings__about-title">Decoded transform rules</strong>
-              <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                Raw logs stay unchanged in the textarea above. Known transform rules from recent entries are translated here for faster reading.
-              </p>
-            </div>
-            {runtimeRuleHints.map((hint, index) => (
-              <div key={`${hint.entry}-${index}`}>
-                <strong>{describeCorrectionOutcome(hint.corrected)}</strong>
-                <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                  {hint.entry}
-                </p>
-                <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
-                  {hint.rules.map((rule) => (
-                    <span key={`${hint.entry}:${rule.id}`} className="settings__rule-chip" title={rule.id}>{rule.label}</span>
-                  ))}
-                </div>
-                <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                  {hint.rules.map((rule) => (
-                    <div key={`${hint.entry}:${rule.id}:details`}>
-                      <strong>{rule.label}</strong>
-                      <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                        {rule.description}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <RuntimeRuleHintList hints={runtimeRuleHints} />
         <p className={`form-dim${runtimeLogs.error ? " form-dim--error" : ""}`}>
           {runtimeLogs.error ?? `${runtimeLogs.entries.length} runtime log entries buffered.`}
         </p>

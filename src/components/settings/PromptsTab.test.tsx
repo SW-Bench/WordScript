@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppConfig } from "../../test/factories";
@@ -99,8 +99,8 @@ describe("PromptsTab", () => {
 
     await user.click(screen.getByRole("tab", { name: /open dictionary workspace/i }));
     await user.click(screen.getByRole("button", { name: /add dictionary term/i }));
-    await user.type(screen.getByRole("textbox", { name: /heard as/i }), "word script");
-    await user.type(screen.getByRole("textbox", { name: /replace with/i }), "WordScript");
+    fireEvent.change(screen.getByRole("textbox", { name: /heard as/i }), { target: { value: "word script" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /replace with/i }), { target: { value: "WordScript" } });
 
     expect(screen.getByRole("textbox", { name: /heard as/i })).toHaveValue("word script");
     expect(screen.getByRole("textbox", { name: /replace with/i })).toHaveValue("WordScript");
@@ -110,12 +110,9 @@ describe("PromptsTab", () => {
     const snippetCard = screen.getByText("Snippet 1").closest("article");
     expect(snippetCard).not.toBeNull();
 
-    await user.type(within(snippetCard as HTMLElement).getByRole("textbox", { name: /label/i }), "Support follow-up");
-    await user.type(screen.getByRole("textbox", { name: /trigger phrase/i }), "follow up note");
-    await user.type(
-      screen.getByRole("textbox", { name: /expansion/i }),
-      "Thanks for the update. We will send the next status tomorrow morning.",
-    );
+    fireEvent.change(within(snippetCard as HTMLElement).getByRole("textbox", { name: /label/i }), { target: { value: "Support follow-up" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /trigger phrase/i }), { target: { value: "follow up note" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /expansion/i }), { target: { value: "Thanks for the update. We will send the next status tomorrow morning." } });
 
     expect(within(snippetCard as HTMLElement).getByRole("textbox", { name: /label/i })).toHaveValue("Support follow-up");
     expect(within(snippetCard as HTMLElement).getByRole("textbox", { name: /trigger phrase/i })).toHaveValue("follow up note");
