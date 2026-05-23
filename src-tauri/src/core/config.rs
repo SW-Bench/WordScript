@@ -8,6 +8,8 @@ use super::providers::{
 };
 use super::runtime_log;
 
+pub const DEFAULT_CORRECTION_MODEL: &str = "llama-3.3-70b-versatile";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DictionaryEntry {
     pub id: String,
@@ -23,13 +25,36 @@ pub struct SnippetEntry {
     pub expansion: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct TextProfileCuration {
+    pub curated: bool,
+    pub audience: String,
+    pub summary: String,
+    pub highlights: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextProfile {
     pub id: String,
     pub label: String,
     pub prompt: String,
+    pub stt_hints: String,
+    #[serde(default)]
+    pub curation: TextProfileCuration,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct LegacyTextRules {
+    #[serde(default)]
+    prompt: String,
+    #[serde(default)]
+    stt_hints: String,
+    #[serde(default)]
+    dictionary_entries: Vec<DictionaryEntry>,
+    #[serde(default)]
+    snippet_entries: Vec<SnippetEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -53,11 +78,9 @@ pub struct AppConfig {
     pub legacy_groq_api_key: String,
     pub model: String,
     pub language: String,
-    pub prompt: String,
-    pub dictionary_entries: Vec<DictionaryEntry>,
-    pub snippet_entries: Vec<SnippetEntry>,
     pub active_text_profile_id: String,
     pub text_profiles: Vec<TextProfile>,
+    pub curated_profiles_seeded: bool,
     pub post_process: bool,
     pub correction_model: String,
     pub filter_fillers: bool,
@@ -101,17 +124,11 @@ impl Default for AppConfig {
             legacy_groq_api_key: String::new(),
             model: "whisper-large-v3-turbo".to_string(),
             language: String::new(),
-            prompt: String::new(),
-            dictionary_entries: Vec::new(),
-            snippet_entries: Vec::new(),
             active_text_profile_id: default_text_profile_id().to_string(),
-            text_profiles: vec![default_text_profile(
-                String::new(),
-                Vec::new(),
-                Vec::new(),
-            )],
+            text_profiles: default_seeded_text_profiles(),
+            curated_profiles_seeded: true,
             post_process: true,
-            correction_model: "llama-3.1-8b-instant".to_string(),
+            correction_model: DEFAULT_CORRECTION_MODEL.to_string(),
             filter_fillers: true,
             professionalize: false,
             provider: default_provider_id().to_string(),
@@ -157,12 +174,9 @@ impl AppConfig {
             .iter()
             .find(|profile| profile.id == self.active_text_profile_id)
             .cloned()
+            .or_else(|| self.text_profiles.first().cloned())
             .unwrap_or_else(|| {
-                default_text_profile(
-                    self.prompt.clone(),
-                    self.dictionary_entries.clone(),
-                    self.snippet_entries.clone(),
-                )
+                default_text_profile(String::new(), String::new(), Vec::new(), Vec::new())
             })
     }
 
@@ -184,7 +198,13 @@ impl AppConfig {
             return Self::default();
         };
 
-        serde_json::from_str::<Self>(&raw).unwrap_or_default()
+        let Ok(raw_value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return Self::default();
+        };
+
+        let mut config = serde_json::from_value::<Self>(raw_value.clone()).unwrap_or_default();
+        apply_legacy_text_rules_from_value(&mut config, &raw_value);
+        config
     }
 
     fn has_pending_legacy_secret(&self) -> bool {
@@ -293,10 +313,16 @@ impl AppConfig {
     fn normalize_text_profiles(&mut self) {
         if self.text_profiles.is_empty() {
             self.text_profiles.push(default_text_profile(
-                self.prompt.clone(),
-                self.dictionary_entries.clone(),
-                self.snippet_entries.clone(),
+                String::new(),
+                String::new(),
+                Vec::new(),
+                Vec::new(),
             ));
+        }
+
+        if !self.curated_profiles_seeded {
+            append_missing_curated_text_profiles(&mut self.text_profiles);
+            self.curated_profiles_seeded = true;
         }
 
         for (index, profile) in self.text_profiles.iter_mut().enumerate() {
@@ -324,14 +350,6 @@ impl AppConfig {
             .unwrap_or(0);
 
         self.active_text_profile_id = self.text_profiles[active_index].id.clone();
-        self.text_profiles[active_index].prompt = self.prompt.clone();
-        self.text_profiles[active_index].dictionary_entries = self.dictionary_entries.clone();
-        self.text_profiles[active_index].snippet_entries = self.snippet_entries.clone();
-
-        let active_profile = self.text_profiles[active_index].clone();
-        self.prompt = active_profile.prompt;
-        self.dictionary_entries = active_profile.dictionary_entries;
-        self.snippet_entries = active_profile.snippet_entries;
     }
 
     pub fn load_from_disk() -> Self {
@@ -733,6 +751,7 @@ fn default_text_profile_label() -> &'static str {
 
 fn default_text_profile(
     prompt: String,
+    stt_hints: String,
     dictionary_entries: Vec<DictionaryEntry>,
     snippet_entries: Vec<SnippetEntry>,
 ) -> TextProfile {
@@ -740,9 +759,72 @@ fn default_text_profile(
         id: default_text_profile_id().to_string(),
         label: default_text_profile_label().to_string(),
         prompt,
+        stt_hints,
+        curation: TextProfileCuration::default(),
         dictionary_entries,
         snippet_entries,
     }
+}
+
+fn curated_text_profile_seeds() -> Vec<TextProfile> {
+    serde_json::from_str(include_str!("../../../src/data/curatedTextProfiles.json"))
+        .expect("curated text profile seed data must stay valid")
+}
+
+fn default_seeded_text_profiles() -> Vec<TextProfile> {
+    let mut profiles = vec![default_text_profile(
+        String::new(),
+        String::new(),
+        Vec::new(),
+        Vec::new(),
+    )];
+    profiles.extend(curated_text_profile_seeds());
+    profiles
+}
+
+fn append_missing_curated_text_profiles(text_profiles: &mut Vec<TextProfile>) {
+    for seed in curated_text_profile_seeds() {
+        if text_profiles.iter().any(|profile| profile.id == seed.id) {
+            continue;
+        }
+
+        text_profiles.push(seed);
+    }
+}
+
+fn legacy_text_rules_present(legacy: &LegacyTextRules) -> bool {
+    !legacy.prompt.trim().is_empty()
+        || !legacy.stt_hints.trim().is_empty()
+        || !legacy.dictionary_entries.is_empty()
+        || !legacy.snippet_entries.is_empty()
+}
+
+fn raw_has_persisted_text_profiles(raw_value: &serde_json::Value) -> bool {
+    raw_value
+        .get("text_profiles")
+        .and_then(|profiles| profiles.as_array())
+        .map(|profiles| !profiles.is_empty())
+        .unwrap_or(false)
+}
+
+fn apply_legacy_text_rules_from_value(config: &mut AppConfig, raw_value: &serde_json::Value) {
+    if raw_has_persisted_text_profiles(raw_value) {
+        return;
+    }
+
+    let legacy = serde_json::from_value::<LegacyTextRules>(raw_value.clone()).unwrap_or_default();
+    if !legacy_text_rules_present(&legacy) {
+        return;
+    }
+
+    config.text_profiles = vec![default_text_profile(
+        legacy.prompt,
+        legacy.stt_hints,
+        legacy.dictionary_entries,
+        legacy.snippet_entries,
+    )];
+    config.active_text_profile_id = default_text_profile_id().to_string();
+    config.curated_profiles_seeded = false;
 }
 
 #[cfg(test)]
@@ -937,64 +1019,88 @@ mod tests {
 
     #[test]
     fn migrates_legacy_text_rules_into_the_default_profile() {
+        let raw_value = serde_json::json!({
+            "prompt": "Product names and internal jargon",
+            "stt_hints": "status update\nincident review",
+            "dictionary_entries": [
+                {
+                    "id": "dict-brand",
+                    "phrase": "word script",
+                    "replace_with": "WordScript"
+                }
+            ],
+            "snippet_entries": [
+                {
+                    "id": "snippet-follow-up",
+                    "label": "Follow-up",
+                    "trigger": "follow up",
+                    "expansion": "Thanks for the update."
+                }
+            ]
+        });
+
         let mut config = AppConfig {
-            prompt: "Product names and internal jargon".to_string(),
-            dictionary_entries: vec![DictionaryEntry {
-                id: "dict-brand".to_string(),
-                phrase: "word script".to_string(),
-                replace_with: "WordScript".to_string(),
-            }],
-            snippet_entries: vec![SnippetEntry {
-                id: "snippet-follow-up".to_string(),
-                label: "Follow-up".to_string(),
-                trigger: "follow up".to_string(),
-                expansion: "Thanks for the update.".to_string(),
-            }],
             active_text_profile_id: String::new(),
             text_profiles: Vec::new(),
+            curated_profiles_seeded: false,
             ..AppConfig::default()
         };
 
+        apply_legacy_text_rules_from_value(&mut config, &raw_value);
         config.normalize_for_runtime();
 
         assert_eq!(config.active_text_profile_id, "general");
-        assert_eq!(config.text_profiles.len(), 1);
-        assert_eq!(config.text_profiles[0].label, "General writing");
-        assert_eq!(config.text_profiles[0].prompt, "Product names and internal jargon");
-        assert_eq!(config.text_profiles[0].dictionary_entries.len(), 1);
-        assert_eq!(config.text_profiles[0].snippet_entries.len(), 1);
+        assert!(config.curated_profiles_seeded);
+        assert!(config.text_profiles.len() >= 6);
+
+        let general_profile = config
+            .text_profiles
+            .iter()
+            .find(|profile| profile.id == "general")
+            .expect("general profile");
+
+        assert_eq!(general_profile.label, "General writing");
+        assert_eq!(general_profile.prompt, "Product names and internal jargon");
+        assert_eq!(general_profile.stt_hints, "status update\nincident review");
+        assert_eq!(general_profile.dictionary_entries.len(), 1);
+        assert_eq!(general_profile.snippet_entries.len(), 1);
+        assert!(config
+            .text_profiles
+            .iter()
+            .any(|profile| profile.curation.curated));
     }
 
     #[test]
-    fn syncs_active_text_profile_from_top_level_fields() {
+    fn keeps_existing_active_text_profile_as_runtime_owner() {
         let mut config = AppConfig {
-            prompt: "Support tone and escalation names".to_string(),
-            dictionary_entries: vec![DictionaryEntry {
-                id: "dict-escalation".to_string(),
-                phrase: "sev one".to_string(),
-                replace_with: "SEV-1".to_string(),
-            }],
-            snippet_entries: vec![SnippetEntry {
-                id: "snippet-status".to_string(),
-                label: "Status".to_string(),
-                trigger: "status update".to_string(),
-                expansion: "We will send the next status at 10:00.".to_string(),
-            }],
             active_text_profile_id: "support".to_string(),
             text_profiles: vec![
                 TextProfile {
                     id: "general".to_string(),
                     label: "General writing".to_string(),
                     prompt: "General".to_string(),
+                    stt_hints: String::new(),
+                    curation: TextProfileCuration::default(),
                     dictionary_entries: Vec::new(),
                     snippet_entries: Vec::new(),
                 },
                 TextProfile {
                     id: "support".to_string(),
                     label: "Support reply".to_string(),
-                    prompt: "Old support prompt".to_string(),
-                    dictionary_entries: Vec::new(),
-                    snippet_entries: Vec::new(),
+                    prompt: "Support tone and escalation names".to_string(),
+                    stt_hints: "status update\ntriage summary".to_string(),
+                    curation: TextProfileCuration::default(),
+                    dictionary_entries: vec![DictionaryEntry {
+                        id: "dict-escalation".to_string(),
+                        phrase: "sev one".to_string(),
+                        replace_with: "SEV-1".to_string(),
+                    }],
+                    snippet_entries: vec![SnippetEntry {
+                        id: "snippet-status".to_string(),
+                        label: "Status".to_string(),
+                        trigger: "status update".to_string(),
+                        expansion: "We will send the next status at 10:00.".to_string(),
+                    }],
                 },
             ],
             ..AppConfig::default()
@@ -1006,8 +1112,127 @@ mod tests {
         assert_eq!(active_profile.id, "support");
         assert_eq!(active_profile.label, "Support reply");
         assert_eq!(active_profile.prompt, "Support tone and escalation names");
+        assert_eq!(active_profile.stt_hints, "status update\ntriage summary");
         assert_eq!(active_profile.dictionary_entries.len(), 1);
         assert_eq!(active_profile.snippet_entries.len(), 1);
         assert_eq!(config.active_text_profile_label().as_deref(), Some("Support reply"));
+    }
+
+    #[test]
+    fn seeds_curated_profiles_once_for_existing_configs() {
+        let mut config = AppConfig {
+            curated_profiles_seeded: false,
+            active_text_profile_id: "general".to_string(),
+            text_profiles: vec![TextProfile {
+                id: "general".to_string(),
+                label: "General writing".to_string(),
+                prompt: String::new(),
+                stt_hints: String::new(),
+                curation: TextProfileCuration::default(),
+                dictionary_entries: Vec::new(),
+                snippet_entries: Vec::new(),
+            }],
+            ..AppConfig::default()
+        };
+
+        config.normalize_for_runtime();
+
+        assert!(config.curated_profiles_seeded);
+        assert!(config
+            .text_profiles
+            .iter()
+            .any(|profile| profile.id == "curated-customer-success" && profile.curation.curated));
+
+        let profile_count = config.text_profiles.len();
+        config.normalize_for_runtime();
+        assert_eq!(config.text_profiles.len(), profile_count);
+    }
+
+    #[test]
+    fn active_text_profile_falls_back_to_first_profile_without_legacy_mirrors() {
+        let config = AppConfig {
+            active_text_profile_id: "missing".to_string(),
+            text_profiles: vec![TextProfile {
+                id: "general".to_string(),
+                label: "General writing".to_string(),
+                prompt: "profile prompt".to_string(),
+                stt_hints: "profile hint".to_string(),
+                curation: TextProfileCuration::default(),
+                dictionary_entries: Vec::new(),
+                snippet_entries: Vec::new(),
+            }],
+            ..AppConfig::default()
+        };
+
+        let active_profile = config.active_text_profile();
+
+        assert_eq!(active_profile.id, "general");
+        assert_eq!(active_profile.prompt, "profile prompt");
+        assert_eq!(active_profile.stt_hints, "profile hint");
+        assert!(active_profile.dictionary_entries.is_empty());
+        assert!(active_profile.snippet_entries.is_empty());
+    }
+
+    #[test]
+    fn ignores_legacy_text_rules_when_profiles_are_already_persisted() {
+        let raw_value = serde_json::json!({
+            "prompt": "legacy prompt should stay unused",
+            "stt_hints": "legacy hint",
+            "dictionary_entries": [
+                {
+                    "id": "legacy-dict",
+                    "phrase": "word script",
+                    "replace_with": "WordScript"
+                }
+            ],
+            "snippet_entries": [
+                {
+                    "id": "legacy-snippet",
+                    "label": "Status",
+                    "trigger": "status update",
+                    "expansion": "Legacy expansion"
+                }
+            ],
+            "text_profiles": [
+                {
+                    "id": "general",
+                    "label": "General writing",
+                    "prompt": "profile prompt",
+                    "stt_hints": "profile hint",
+                    "dictionary_entries": [],
+                    "snippet_entries": []
+                }
+            ]
+        });
+
+        let mut config = AppConfig {
+            active_text_profile_id: "general".to_string(),
+            text_profiles: vec![TextProfile {
+                id: "general".to_string(),
+                label: "General writing".to_string(),
+                prompt: "profile prompt".to_string(),
+                stt_hints: "profile hint".to_string(),
+                curation: TextProfileCuration::default(),
+                dictionary_entries: Vec::new(),
+                snippet_entries: Vec::new(),
+            }],
+            curated_profiles_seeded: true,
+            ..AppConfig::default()
+        };
+
+        apply_legacy_text_rules_from_value(&mut config, &raw_value);
+
+        let active_profile = config.active_text_profile();
+        assert_eq!(active_profile.prompt, "profile prompt");
+        assert_eq!(active_profile.stt_hints, "profile hint");
+        assert!(active_profile.dictionary_entries.is_empty());
+        assert!(active_profile.snippet_entries.is_empty());
+    }
+
+    #[test]
+    fn defaults_to_high_accuracy_correction_model() {
+        let config = AppConfig::default();
+
+        assert_eq!(config.correction_model, DEFAULT_CORRECTION_MODEL);
     }
 }

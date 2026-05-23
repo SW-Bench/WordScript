@@ -29,7 +29,8 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - Silence-Timeout und Max-Duration-Autostop
 - Groq-BYOK mit OS secret store
 - `local_preview` als STT-only Preview-Lane ueber externes `whisper-cli` und lokale ggml-Modelle
-- Halluzinationsfilter und optionale AI-Nachkorrektur
+- bounded STT-Promptbias fuer Groq und `local_preview` aus aktivem Profil-Context, Dictionary-Schreibweisen und wahrscheinlichen Phrasen
+- Halluzinationsfilter und optionale AI-Nachkorrektur mit konservativen Preserve-Hinweisen aus aktivem Profil-Context und Dictionary-Schreibweisen
 - lokale Textprofile fuer Transcription Context, Dictionary und Snippets im nativen Transform-Pfad
 - persistenter nativer Transkriptverlauf mit Retry, Delete/Clear, serverseitigen Filtern, JSON-Export und separater Diagnostics-Darstellung neben Runtime-Logs
 - Text-Rules-Validation, Preview, Import/Export und Konfliktbehandlung

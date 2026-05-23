@@ -40,7 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - core execution plan that maps donor files to the next WordScript kernel slices
 - native transcription history with persistence, retention, delete/clear commands and retry-based re-processing from stored raw transcripts
 - local text profiles that bundle transcription context, dictionary and snippets into native runtime config and active Text Rules UI
-- curated local profile starters for core ICPs with Customer Success, Sales, Founder/Ops, Recruiting and Product/Engineering baselines
+- curated local profiles for core ICPs with Customer Success, Sales, Founder/Ops, Recruiting and Product/Engineering baselines, seeded directly into the app config on first run
+
+### Fixed
+
+- AI cleanup now receives the active profile context and preferred dictionary spellings as conservative preserve hints, so mixed German/English dictation, colloquial borrowings and product terms are less likely to be flattened or mistranslated during cleanup
+- new and fallback cleanup defaults now use `llama-3.3-70b-versatile` instead of the older `llama-3.1-8b-instant` path when no explicit correction model is configured
+- Groq transcription now uses the same bounded profile, dictionary and explicit STT-hint prompt path as the local CLI lane, so STT quality no longer depends on `local_preview` being the only provider with term-aware prompt bias
 
 ### Changed
 
@@ -75,9 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rebuild Lab now separates durable transcription history from transient runtime logs while reading both from the same native runtime truth
 - Rebuild Lab runtime snapshots now expose a machine-readable capture/provider/transform/insert timeline with per-step state, duration and stable error codes instead of a single coarse stage plus free-text failure only
 - Text Rules now scopes transcription context, dictionary and snippets to the selected local text profile while keeping preview, import/export and diagnostics tied to that active profile
+- Text Rules profiles now also carry explicit optional `stt_hints`, and import/export preserves those hints alongside context, dictionary and snippets
 - Settings now exposes the active text profile globally in the sidebar with a manual switcher, avatar badge and quick path into the Text Rules editor, while shared helper logic keeps shell and editor profile patches aligned
-- Text Rules now includes a local starter-template library with curated ICP profiles plus `create profile` and `merge into active` flows, where merge adds missing context, dictionary terms and snippets without overwriting existing authored rules
-- Text Rules now uses a sequenced workspace layout with a compact setup deck for profile editing and starter picks, top stage navigation and one dominant editing surface at a time instead of stacking profile, starter and rule-editing surfaces together
+- curated ICP baselines are now seeded once into the persisted app config and shown as normal profiles with a temporary `Curated` status instead of living as a separate hardcoded starter catalog
+- Text Rules now uses a sequenced workspace layout with a compact setup deck for profile editing and curated-profile picks, top stage navigation and one dominant editing surface at a time instead of stacking profile, starter and rule-editing surfaces together
+- snippet triggers no longer leak into automatic STT bias; the Text Rules context workspace now exposes a separate explicit field for short spoken cues that should actually be forwarded to the transcription request
 - Input and Diagnostics now name scratchpad recovery, diagnostic preview transcript and persistent transcription history as separate native data surfaces, and Diagnostics exposes the native history store path directly in the UI
 - VISION, DEVELOPMENT and README now describe long-term assistant / computer-use expansion as a later platform stage without widening the active V1 scope
 - Text Rules documentation now reflects the real native order `active profile -> transcription context -> dictionary -> snippets`

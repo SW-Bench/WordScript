@@ -63,6 +63,7 @@ describe("PromptsTab", () => {
           document: {
             schema_version: 1,
             prompt: "Imported prompt",
+            stt_hints: "imported stt hint",
             dictionary_entries: [],
             snippet_entries: [],
           },
@@ -164,6 +165,18 @@ describe("PromptsTab", () => {
     expect(screen.getByRole("tab", { name: /open snippets workspace/i })).toBeInTheDocument();
   });
 
+  it("keeps explicit stt hints separate from snippets in the context workspace", async () => {
+    const user = userEvent.setup();
+
+    render(<Harness />);
+
+    const hintsField = screen.getByRole("textbox", { name: /optional stt hints/i });
+    await user.type(hintsField, "status update{enter}handoff summary");
+
+    expect(hintsField).toHaveValue("status update\nhandoff summary");
+    expect(screen.getByText(/snippet triggers do not feed stt automatically anymore/i)).toBeInTheDocument();
+  });
+
   it("reorders dictionary entries so the current sequence matches the authored priority", async () => {
     const user = userEvent.setup();
 
@@ -197,14 +210,14 @@ describe("PromptsTab", () => {
   it("shows readable applied-rule labels and lets diagnostics jump to the affected rule", async () => {
     const user = userEvent.setup();
     const initialConfig = createAppConfig();
-    initialConfig.dictionary_entries = [
+    initialConfig.text_profiles[0].dictionary_entries = [
       {
         id: "dict-1",
         phrase: "word script",
         replace_with: "WordScript",
       },
     ];
-    initialConfig.snippet_entries = [
+    initialConfig.text_profiles[0].snippet_entries = [
       {
         id: "snippet-1",
         label: "Support follow-up",
@@ -291,10 +304,10 @@ describe("PromptsTab", () => {
 
     render(<Harness />);
 
-    await user.click(screen.getByRole("button", { name: /select customer success replies starter/i }));
-    await user.click(screen.getByRole("button", { name: /create profile from starter/i }));
+    await user.click(screen.getByRole("button", { name: /select customer success replies curated profile/i }));
+    await user.click(screen.getByRole("button", { name: /create working copy/i }));
 
-    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies");
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies 2");
 
     expect((screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement).value).toContain("ticket IDs");
 
@@ -310,10 +323,10 @@ describe("PromptsTab", () => {
     await user.clear(promptField);
     await user.type(promptField, "custom org names");
 
-    await user.click(screen.getByRole("button", { name: /select product and engineering starter/i }));
-    await user.click(screen.getByRole("button", { name: /merge starter into active/i }));
+    await user.click(screen.getByRole("button", { name: /select product and engineering curated profile/i }));
+    await user.click(screen.getByRole("button", { name: /merge into active/i }));
 
-    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies");
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies 2");
 
     const mergedPrompt = screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement;
     expect(mergedPrompt.value).toContain("custom org names");

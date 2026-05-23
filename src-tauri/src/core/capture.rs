@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use super::{
-    config::{AppConfig, DictionaryEntry, SnippetEntry},
+    config::{AppConfig, DictionaryEntry, SnippetEntry, DEFAULT_CORRECTION_MODEL},
     paths::user_data_dir,
     providers::default_provider_id,
     runtime_log,
@@ -39,6 +39,7 @@ pub struct NativeCaptureConfig {
     pub local_best_of: u8,
     pub language: String,
     pub prompt: String,
+    pub stt_hints: String,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
     pub post_process: bool,
@@ -63,10 +64,11 @@ impl Default for NativeCaptureConfig {
             local_best_of: 1,
             language: String::new(),
             prompt: String::new(),
+            stt_hints: String::new(),
             dictionary_entries: Vec::new(),
             snippet_entries: Vec::new(),
             post_process: true,
-            correction_model: "llama-3.1-8b-instant".to_string(),
+            correction_model: DEFAULT_CORRECTION_MODEL.to_string(),
             filter_fillers: true,
             professionalize: false,
             audio_device: String::new(),
@@ -80,6 +82,7 @@ impl Default for NativeCaptureConfig {
 impl NativeCaptureConfig {
     pub fn load_from_disk() -> Self {
         let app_config = AppConfig::load_from_disk();
+        let active_profile = app_config.active_text_profile();
         let provider = app_config.provider;
         let model = if provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID {
             if app_config.local_model.trim().is_empty() {
@@ -100,9 +103,10 @@ impl NativeCaptureConfig {
             local_beam_size: app_config.local_beam_size,
             local_best_of: app_config.local_best_of,
             language: app_config.language,
-            prompt: app_config.prompt,
-            dictionary_entries: app_config.dictionary_entries,
-            snippet_entries: app_config.snippet_entries,
+            prompt: active_profile.prompt,
+            stt_hints: active_profile.stt_hints,
+            dictionary_entries: active_profile.dictionary_entries,
+            snippet_entries: active_profile.snippet_entries,
             post_process: app_config.post_process,
             correction_model: app_config.correction_model,
             filter_fillers: app_config.filter_fillers,
@@ -516,6 +520,7 @@ pub fn stop_native_capture<R: Runtime>(
             "model": active.config.model,
             "language": active.config.language,
             "prompt": active.config.prompt,
+            "stt_hints": active.config.stt_hints,
             "dictionary_entries": active.config.dictionary_entries,
             "snippet_entries": active.config.snippet_entries,
             "post_process": active.config.post_process,

@@ -75,6 +75,8 @@ Optionaler lokaler Preview-Pfad:
 - dazu `WORDSCRIPT_LOCAL_MODEL_PATH` fuer eine ggml-Datei oder `WORDSCRIPT_LOCAL_MODEL_DIR` fuer `ggml-<model>.bin`
 - der native Provider-Status bewertet die Lane gegen das aktuell ausgewaehlte lokale Modell und liefert die Modellliste aus nativer Discovery statt aus einer statischen UI-Annahme
 - dieselbe Lane reicht den aktiven Transkriptions-Context als `whisper-cli --prompt` durch; `local_prompt_strength` und `local_prompt_carry` leben jetzt explizit in Config und muessen als nativer Request-Vertrag behandelt werden
+- der Cloud-Pfad nutzt denselben aktiven Profil-Context inzwischen ebenfalls fuer bounded STT-Hinweise aus Dictionary und expliziten `stt_hints`. Snippet-Trigger gehoeren nicht mehr implizit in diesen Bias. Wer Transkriptionsprompting aendert, muss Cloud- und Local-Lane zusammen betrachten statt nur `local_preview` zu verbessern
+- kuratierte Profile werden jetzt einmalig in die User-App-Config geseedet und danach wie normale Profile behandelt. Neue UI oder Migrationen duerfen deshalb keinen separaten hartcodierten Starter-Katalog mehr als zweite Ownership-Flaeche einfuehren
 - lokale Profile werden als echte `...-fast`- und `...-quality`-IDs gespeichert und im Provider-Request weitergereicht; Decode-Presets duerfen nicht mehr implizit nur aus dem Modellnamen rekonstruiert werden
 - `local_beam_size` und `local_best_of` sind jetzt ebenfalls persistierte Runtime-Werte; wer lokale Decode-Semantik aendert, muss Config-Normalisierung, Request-Building, whisper-cli-Args und Settings gemeinsam aktualisieren
 - dieselbe Regel gilt jetzt fuer `local_prompt_strength` und `local_prompt_carry`, aber profilgebunden: wer lokale Prompt-Bias-Semantik aendert, muss die Profilsammlung pflegen und darf die aktiven Mirror-Felder nicht mehr als einzige Persistenz behandeln
@@ -115,6 +117,7 @@ Provider-Capabilities und Provider-Modi kommen aus dem nativen Provider-Vertrag.
 Insert-Recovery muss ueber den nativen Insert-Outcome laufen. Neue UI darf `recovery_action`, `recovery_message` und `clipboard_restore` anzeigen, aber nicht aus `fallback_reason` eigene Recovery-States ableiten.
 Dasselbe gilt fuer durable History und Export: `TranscriptionHistoryEntry` ist eine Weitergabe des nativen Recovery-Vertrags und keine zweite, vereinfachte Recovery-Projektion.
 Dasselbe gilt fuer Diagnostics-Stage-Telemetrie: Wenn Rebuild Lab Capture-, Provider-, Transform- oder Insert-Fortschritt anzeigt, muessen `state`, `duration_ms` und `error_code` aus dem nativen Slice-Vertrag kommen und nicht aus UI-Timern, Log-Parsing oder Text-Heuristiken rekonstruiert werden.
+Transform-Aenderungen muessen code-switching, Umgangssprache und technische Tokens konservativ behandeln. Der aktive Profil-Context und Dictionary-Schreibweisen duerfen als Preserve-Hinweise in die Nachkorrektur eingehen, aber nie als Freifahrtschein fuer halluzinierte Fachwoerter oder semantische Regeln missverstanden werden.
 
 ### 3. Kleine, pruefbare Slices bauen
 
@@ -196,9 +199,9 @@ Wichtig fuer den aktuellen Stand:
 
 - `src/App.tsx`: Routing fuer Overlay und Settings
 - `src/windows/`: Fenster-Komposition
-- `src/components/settings/`: aktive Settings-Tabs inklusive Profil-Dock, gefuehrtem Text-Rules-Workspace mit Prozesszusammenfassung, kompakter Setup-Zone fuer Profile/Starter, oberer Stage-Navigation und getrennter Hauptarbeitsflaeche fuer Recovery-/Diagnostics-nahe Editoren
+- `src/components/settings/`: aktive Settings-Tabs inklusive Profil-Dock, gefuehrtem Text-Rules-Workspace mit Prozesszusammenfassung, kompakter Setup-Zone fuer Profile/kuratierten Baselines, oberer Stage-Navigation und getrennter Hauptarbeitsflaeche fuer Recovery-/Diagnostics-nahe Editoren
 - `src/hooks/`: Runtime-, Provider-, Insert-, Log- und Diagnostics-Hooks inklusive nativer History-Store-Status-Bridge
-- `src/lib/textProfileTemplates.ts`: kuratierte lokale Starterprofile und Create/Merge-Helfer fuer Text Profiles
+- `src/lib/textProfileTemplates.ts`: shared JSON-Seed-Loader und Create/Merge-Helfer fuer kuratierte Text-Profile
 - `src/types/`: getypte UI-Vertraege fuer Runtime, Text Rules, Insertion und Release-Status
 
 ### Backend
@@ -242,7 +245,7 @@ Die naechste Arbeit ist nicht weiterer Scope-Ausbau, sondern V1-Konsolidierung:
 6. `local_preview` weiter ueber die jetzt vorhandenen Bausteine fuer Modellmanagement, initiales Prompt-Bias, Fast/Quality-Presets und ehrliche Health-Diagnostics hinaus mit tieferen Prompt-Reglern und expliziten Quality-vs-Latency-Controls zu einer volleren Local Lane ausbauen
 7. Setup, Permissions und Packaging als gefuehrten Produktpfad ohne falsche Verfuegbarkeitssignale sauber mitfuehren
 
-Lokale Profile sind jetzt implementiert. Shell und Text-Rules-Editor teilen sich dafuer denselben Profil-Patch-Pfad, und die Text-Rules-Flaeche bringt eine lokale Starter-Library fuer zentrale ICPs mit. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung und spaetere Rewrite-Defaults ueber den aktiven Profilzustand hinaus.
+Lokale Profile sind jetzt implementiert. Shell und Text-Rules-Editor teilen sich dafuer denselben Profil-Patch-Pfad, und zentrale ICP-Baselines werden einmalig als kuratierte Profile in die User-App-Config geseedet statt als separater Starter-Katalog zur Laufzeit gehalten. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung und spaetere Rewrite-Defaults ueber den aktiven Profilzustand hinaus.
 
 Fuer diesen UI-Pass gelten produktnahe macOS-Donoren wie `VoiceInk`, `FluidVoice` und `OpenSuperWhisper` als primaere Referenzen. Reine React-/TypeScript-Stilreferenzen fuer Window-Chrome, Sidebar-Rhythmus oder Control-Sprache sind sekundaer und duerfen keine fake-desktophafte Spielerei in den aktiven Produktpfad druecken.
 

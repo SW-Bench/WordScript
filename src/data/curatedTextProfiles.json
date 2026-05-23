@@ -1,0 +1,235 @@
+[
+  {
+    "id": "curated-customer-success",
+    "label": "Customer success replies",
+    "prompt": "customer names\nticket IDs\nincident severity\nSLA commitments\nnext update time\naccount owner names\nproduct plan names\nrefund policy",
+    "stt_hints": "status update\nescalation needed\nclosing note\nhandoff summary",
+    "dictionary_entries": [
+      { "id": "curated-customer-success-dict-sev-one", "phrase": "sev one", "replace_with": "SEV-1" },
+      { "id": "curated-customer-success-dict-sev-two", "phrase": "sev two", "replace_with": "SEV-2" },
+      { "id": "curated-customer-success-dict-sla", "phrase": "s l a", "replace_with": "SLA" },
+      { "id": "curated-customer-success-dict-rca", "phrase": "r c a", "replace_with": "RCA" },
+      { "id": "curated-customer-success-dict-kb", "phrase": "k b", "replace_with": "KB" },
+      { "id": "curated-customer-success-dict-wordscript", "phrase": "word script", "replace_with": "WordScript" }
+    ],
+    "snippet_entries": [
+      {
+        "id": "curated-customer-success-snippet-status-update",
+        "label": "Status update",
+        "trigger": "status update",
+        "expansion": "Thanks for the update. We are reviewing this now and will send the next status by the agreed time."
+      },
+      {
+        "id": "curated-customer-success-snippet-escalation-note",
+        "label": "Escalation note",
+        "trigger": "escalation needed",
+        "expansion": "Escalating this now and will return with the next update as soon as the owning team responds."
+      },
+      {
+        "id": "curated-customer-success-snippet-closing-note",
+        "label": "Closing note",
+        "trigger": "closing note",
+        "expansion": "Thanks again for the details. We are closing this now, but if anything changes you can reply here and we will reopen it."
+      },
+      {
+        "id": "curated-customer-success-snippet-handoff-summary",
+        "label": "Handoff summary",
+        "trigger": "handoff summary",
+        "expansion": "Handoff summary: current customer impact, latest findings, next update owner and communication deadline are captured here for the next responder."
+      }
+    ],
+    "curation": {
+      "curated": true,
+      "audience": "Customer success",
+      "summary": "Inbox-ready support follow-ups, escalation language and status updates for customer-facing work.",
+      "highlights": ["Status updates", "Escalations", "Incident comms", "Closing notes"]
+    }
+  },
+  {
+    "id": "curated-sales",
+    "label": "Sales follow-ups",
+    "prompt": "account names\npipeline stage\ndecision makers\nprocurement timing\nrenewal scope\nsecurity review\nmutual action plan\ncontract terms",
+    "stt_hints": "demo follow up\nnext steps recap\npricing handoff\nsecurity review follow up",
+    "dictionary_entries": [
+      { "id": "curated-sales-dict-crm", "phrase": "c r m", "replace_with": "CRM" },
+      { "id": "curated-sales-dict-mrr", "phrase": "m r r", "replace_with": "MRR" },
+      { "id": "curated-sales-dict-acv", "phrase": "a c v", "replace_with": "ACV" },
+      { "id": "curated-sales-dict-poc", "phrase": "p o c", "replace_with": "POC" },
+      { "id": "curated-sales-dict-roi", "phrase": "r o i", "replace_with": "ROI" },
+      { "id": "curated-sales-dict-msa", "phrase": "m s a", "replace_with": "MSA" },
+      { "id": "curated-sales-dict-wordscript", "phrase": "word script", "replace_with": "WordScript" }
+    ],
+    "snippet_entries": [
+      {
+        "id": "curated-sales-snippet-demo-follow-up",
+        "label": "Demo follow-up",
+        "trigger": "demo follow up",
+        "expansion": "Thanks for the time today. Attached is the recap from the demo along with the open questions and next proposed steps."
+      },
+      {
+        "id": "curated-sales-snippet-next-step-recap",
+        "label": "Next-step recap",
+        "trigger": "next steps recap",
+        "expansion": "Next steps: confirm internal stakeholders, align on evaluation criteria and book the follow-up once the team has reviewed the material."
+      },
+      {
+        "id": "curated-sales-snippet-pricing-handoff",
+        "label": "Pricing handoff",
+        "trigger": "pricing handoff",
+        "expansion": "Sharing the pricing outline here so the team can review scope, rollout assumptions and commercial timing in one pass."
+      },
+      {
+        "id": "curated-sales-snippet-security-review-follow-up",
+        "label": "Security review follow-up",
+        "trigger": "security review follow up",
+        "expansion": "Following up on the security review items here so legal, security and the buyer team can close the remaining blockers without losing momentum."
+      }
+    ],
+    "curation": {
+      "curated": true,
+      "audience": "Sales",
+      "summary": "Discovery recaps, demo follow-ups and next-step language for pipeline and deal work.",
+      "highlights": ["Discovery", "Demo recaps", "Procurement blockers", "Next steps"]
+    }
+  },
+  {
+    "id": "curated-founder-ops",
+    "label": "Founder ops notes",
+    "prompt": "company priorities\nboard updates\nowner names\ndeadlines\nfinancial terms\nquarter goals\nbudget variance\nhiring plan",
+    "stt_hints": "decision log\nweekly update\naction items\nrisk review",
+    "dictionary_entries": [
+      { "id": "curated-founder-ops-dict-pl", "phrase": "p and l", "replace_with": "P&L" },
+      { "id": "curated-founder-ops-dict-okr", "phrase": "o k r", "replace_with": "OKR" },
+      { "id": "curated-founder-ops-dict-qbr", "phrase": "q b r", "replace_with": "QBR" },
+      { "id": "curated-founder-ops-dict-sop", "phrase": "s o p", "replace_with": "SOP" },
+      { "id": "curated-founder-ops-dict-one-on-one", "phrase": "one on one", "replace_with": "1:1" },
+      { "id": "curated-founder-ops-dict-wordscript", "phrase": "word script", "replace_with": "WordScript" }
+    ],
+    "snippet_entries": [
+      {
+        "id": "curated-founder-ops-snippet-decision-log",
+        "label": "Decision log",
+        "trigger": "decision log",
+        "expansion": "Decision: move forward on this path. Owner: confirm rollout details and report back with risks, timeline and dependencies."
+      },
+      {
+        "id": "curated-founder-ops-snippet-weekly-update",
+        "label": "Weekly update",
+        "trigger": "weekly update",
+        "expansion": "This week: progress is on track, key blockers are listed below and the next owner updates are due before the next operating review."
+      },
+      {
+        "id": "curated-founder-ops-snippet-action-items",
+        "label": "Action items",
+        "trigger": "action items",
+        "expansion": "Action items: confirm owner, due date and success signal for each item before the meeting closes."
+      },
+      {
+        "id": "curated-founder-ops-snippet-risk-review",
+        "label": "Risk review",
+        "trigger": "risk review",
+        "expansion": "Risk review: top risk, current exposure, mitigation owner and next checkpoint are captured here so follow-up does not drift."
+      }
+    ],
+    "curation": {
+      "curated": true,
+      "audience": "Founder / Ops",
+      "summary": "Decision logs, weekly updates and action-item language for operating reviews and internal syncs.",
+      "highlights": ["Decision log", "Weekly update", "Board notes", "Action items"]
+    }
+  },
+  {
+    "id": "curated-recruiting",
+    "label": "Hiring pipeline",
+    "prompt": "candidate names\nrole titles\ninterview stages\nhiring manager feedback\noffer timing\nlevelling\nsalary band\nstart date",
+    "stt_hints": "interview debrief\ncandidate update\noffer follow up\nhiring manager recap",
+    "dictionary_entries": [
+      { "id": "curated-recruiting-dict-hr", "phrase": "human resources", "replace_with": "HR" },
+      { "id": "curated-recruiting-dict-ats", "phrase": "a t s", "replace_with": "ATS" },
+      { "id": "curated-recruiting-dict-hm", "phrase": "h m", "replace_with": "HM" },
+      { "id": "curated-recruiting-dict-eod", "phrase": "e o d", "replace_with": "EOD" },
+      { "id": "curated-recruiting-dict-one-on-one", "phrase": "one on one", "replace_with": "1:1" },
+      { "id": "curated-recruiting-dict-scorecard", "phrase": "score card", "replace_with": "scorecard" },
+      { "id": "curated-recruiting-dict-wordscript", "phrase": "word script", "replace_with": "WordScript" }
+    ],
+    "snippet_entries": [
+      {
+        "id": "curated-recruiting-snippet-interview-debrief",
+        "label": "Interview debrief",
+        "trigger": "interview debrief",
+        "expansion": "Debrief summary: strengths, open concerns and recommended next step are captured here so the hiring team can decide quickly."
+      },
+      {
+        "id": "curated-recruiting-snippet-candidate-update",
+        "label": "Candidate update",
+        "trigger": "candidate update",
+        "expansion": "Thanks again for the conversation. We are aligning internally and will send the next update once the panel feedback is complete."
+      },
+      {
+        "id": "curated-recruiting-snippet-offer-follow-up",
+        "label": "Offer follow-up",
+        "trigger": "offer follow up",
+        "expansion": "Following up on the offer details here. If anything feels unclear, reply with the questions and we will walk through them together."
+      },
+      {
+        "id": "curated-recruiting-snippet-hiring-manager-recap",
+        "label": "Hiring manager recap",
+        "trigger": "hiring manager recap",
+        "expansion": "Hiring manager recap: panel signal, open concerns, timeline risk and recommended next step are summarized here for fast alignment."
+      }
+    ],
+    "curation": {
+      "curated": true,
+      "audience": "Recruiting / People ops",
+      "summary": "Interview debriefs, candidate updates and hiring-manager coordination for recruiting workflows.",
+      "highlights": ["Debriefs", "Candidate updates", "Offer loop", "Hiring syncs"]
+    }
+  },
+  {
+    "id": "curated-product-engineering",
+    "label": "Product and engineering",
+    "prompt": "feature names\nbug IDs\nrelease scope\nAPI names\nplatform constraints\nservice names\nmigration steps\ninfra constraints",
+    "stt_hints": "triage summary\nrelease note\nqa handoff\nincident update",
+    "dictionary_entries": [
+      { "id": "curated-product-engineering-dict-api", "phrase": "api", "replace_with": "API" },
+      { "id": "curated-product-engineering-dict-sdk", "phrase": "sdk", "replace_with": "SDK" },
+      { "id": "curated-product-engineering-dict-sql", "phrase": "s q l", "replace_with": "SQL" },
+      { "id": "curated-product-engineering-dict-ci-cd", "phrase": "ci cd", "replace_with": "CI/CD" },
+      { "id": "curated-product-engineering-dict-slo", "phrase": "s l o", "replace_with": "SLO" },
+      { "id": "curated-product-engineering-dict-pr", "phrase": "pull request", "replace_with": "PR" },
+      { "id": "curated-product-engineering-dict-wordscript", "phrase": "word script", "replace_with": "WordScript" }
+    ],
+    "snippet_entries": [
+      {
+        "id": "curated-product-engineering-snippet-triage-summary",
+        "label": "Triage summary",
+        "trigger": "triage summary",
+        "expansion": "Triage summary: confirmed scope, current impact, likely owner and the next debugging step are listed below."
+      },
+      {
+        "id": "curated-product-engineering-snippet-release-note",
+        "label": "Release note",
+        "trigger": "release note",
+        "expansion": "Release note: this change improves the main workflow, keeps the active limitations explicit and documents any rollout caveats."
+      },
+      {
+        "id": "curated-product-engineering-snippet-qa-handoff",
+        "label": "QA handoff",
+        "trigger": "qa handoff",
+        "expansion": "QA handoff: please verify the main happy path, the known edge case and the regression check noted here before sign-off."
+      },
+      {
+        "id": "curated-product-engineering-snippet-incident-update",
+        "label": "Incident update",
+        "trigger": "incident update",
+        "expansion": "Incident update: current impact, likely root cause, mitigation status and next checkpoint are captured here for the active response loop."
+      }
+    ],
+    "curation": {
+      "curated": true,
+      "audience": "Product / Engineering",
+      "summary": "Triage, release and QA handoff language for product, engineering and debugging conversations.",
+      "highlights": ["Triage", "Release notes", "QA handoff", "Incident update"]
+    }
+  }
+]

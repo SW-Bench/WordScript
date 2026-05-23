@@ -1,24 +1,27 @@
 import type { AppConfig } from "../types/ipc";
+import { buildCuratedTextProfiles } from "../lib/textProfileTemplates";
+import { createEmptyTextProfileCuration } from "../lib/textProfiles";
 
 export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     model: "whisper-large-v3-turbo",
     language: "",
-    prompt: "",
-    dictionary_entries: [],
-    snippet_entries: [],
     active_text_profile_id: "general",
     text_profiles: [
       {
         id: "general",
         label: "General writing",
         prompt: "",
+        stt_hints: "",
+        curation: createEmptyTextProfileCuration(),
         dictionary_entries: [],
         snippet_entries: [],
       },
+      ...buildCuratedTextProfiles(),
     ],
+    curated_profiles_seeded: true,
     post_process: true,
-    correction_model: "llama-3.1-8b-instant",
+    correction_model: "llama-3.3-70b-versatile",
     filter_fillers: true,
     professionalize: false,
     provider: "groq",

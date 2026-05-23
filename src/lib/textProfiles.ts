@@ -1,4 +1,4 @@
-import type { AppConfig, TextProfile } from "../types/ipc";
+import type { AppConfig, TextProfile, TextProfileCuration } from "../types/ipc";
 
 function createProfileId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -8,13 +8,45 @@ function createProfileId() {
   return `profile-${Date.now()}-${Math.round(Math.random() * 100000)}`;
 }
 
+function cloneTextProfileCuration(curation?: TextProfileCuration): TextProfileCuration {
+  return {
+    curated: curation?.curated ?? false,
+    audience: curation?.audience ?? "",
+    summary: curation?.summary ?? "",
+    highlights: [...(curation?.highlights ?? [])],
+  };
+}
+
+export function createEmptyTextProfileCuration(): TextProfileCuration {
+  return cloneTextProfileCuration();
+}
+
 export function cloneTextProfile(profile: TextProfile, overrides: Partial<TextProfile> = {}): TextProfile {
   return {
     ...profile,
     ...overrides,
+    curation: cloneTextProfileCuration(overrides.curation ?? profile.curation),
     dictionary_entries: (overrides.dictionary_entries ?? profile.dictionary_entries).map((entry) => ({ ...entry })),
     snippet_entries: (overrides.snippet_entries ?? profile.snippet_entries).map((entry) => ({ ...entry })),
   };
+}
+
+export function isCuratedTextProfile(profile: TextProfile): boolean {
+  return Boolean(profile.curation?.curated);
+}
+
+export function clearTextProfileCuration(profile: TextProfile): TextProfile {
+  if (!isCuratedTextProfile(profile)) {
+    return cloneTextProfile(profile);
+  }
+
+  return cloneTextProfile(profile, { curation: createEmptyTextProfileCuration() });
+}
+
+export function displayTextProfileLabel(profile: TextProfile): string {
+  return isCuratedTextProfile(profile)
+    ? `${profile.label} (curated)`
+    : profile.label;
 }
 
 export function resolveActiveTextProfile(config: AppConfig): TextProfile {
@@ -32,9 +64,11 @@ export function resolveActiveTextProfile(config: AppConfig): TextProfile {
   return {
     id: config.active_text_profile_id || "general",
     label: "General writing",
-    prompt: config.prompt,
-    dictionary_entries: config.dictionary_entries.map((entry) => ({ ...entry })),
-    snippet_entries: config.snippet_entries.map((entry) => ({ ...entry })),
+    prompt: "",
+    stt_hints: "",
+    curation: createEmptyTextProfileCuration(),
+    dictionary_entries: [],
+    snippet_entries: [],
   };
 }
 
@@ -43,6 +77,8 @@ export function createTextProfile(): TextProfile {
     id: createProfileId(),
     label: "New profile",
     prompt: "",
+    stt_hints: "",
+    curation: createEmptyTextProfileCuration(),
     dictionary_entries: [],
     snippet_entries: [],
   };
@@ -63,9 +99,6 @@ export function buildTextProfilesPatch(
   return {
     active_text_profile_id: activeProfile.id,
     text_profiles: normalizedProfiles,
-    prompt: activeProfile.prompt,
-    dictionary_entries: activeProfile.dictionary_entries,
-    snippet_entries: activeProfile.snippet_entries,
   };
 }
 

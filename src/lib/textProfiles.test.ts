@@ -1,0 +1,64 @@
+import { describe, expect, it } from "vitest";
+import { createAppConfig } from "../test/factories";
+import {
+  buildTextProfilesPatch,
+  createEmptyTextProfileCuration,
+  resolveActiveTextProfile,
+} from "./textProfiles";
+
+describe("textProfiles", () => {
+  it("falls back to the first persisted profile instead of legacy top-level mirrors", () => {
+    const config = createAppConfig({
+      active_text_profile_id: "missing-profile",
+      text_profiles: [
+        {
+          id: "general",
+          label: "General writing",
+          prompt: "profile prompt",
+          stt_hints: "profile hint",
+          curation: createEmptyTextProfileCuration(),
+          dictionary_entries: [],
+          snippet_entries: [],
+        },
+      ],
+    });
+
+    const profile = resolveActiveTextProfile(config);
+
+    expect(profile.id).toBe("general");
+    expect(profile.prompt).toBe("profile prompt");
+    expect(profile.stt_hints).toBe("profile hint");
+    expect(profile.dictionary_entries).toEqual([]);
+    expect(profile.snippet_entries).toEqual([]);
+  });
+
+  it("builds profile patches without reintroducing top-level mirror fields", () => {
+    const config = createAppConfig();
+    const patch = buildTextProfilesPatch(config, [
+      {
+        id: "general",
+        label: "General writing",
+        prompt: "owned by profile",
+        stt_hints: "owned hint",
+        curation: createEmptyTextProfileCuration(),
+        dictionary_entries: [],
+        snippet_entries: [],
+      },
+    ]);
+
+    expect(patch).toEqual({
+      active_text_profile_id: "general",
+      text_profiles: [
+        expect.objectContaining({
+          id: "general",
+          prompt: "owned by profile",
+          stt_hints: "owned hint",
+        }),
+      ],
+    });
+    expect(patch).not.toHaveProperty("prompt");
+    expect(patch).not.toHaveProperty("stt_hints");
+    expect(patch).not.toHaveProperty("dictionary_entries");
+    expect(patch).not.toHaveProperty("snippet_entries");
+  });
+});

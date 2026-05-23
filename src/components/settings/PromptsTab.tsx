@@ -4,13 +4,15 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import type { AppConfig, DictionaryEntry, SnippetEntry, TextProfile } from "../../types/ipc";
 import {
   buildTextProfilesPatch,
+  clearTextProfileCuration,
   cloneTextProfile,
   createTextProfile,
+  displayTextProfileLabel,
+  isCuratedTextProfile,
   resolveActiveTextProfile,
   textProfileInitials,
 } from "../../lib/textProfiles";
 import {
-  TEXT_PROFILE_TEMPLATES,
   createTextProfileFromTemplate,
   mergeTemplateIntoTextProfile,
 } from "../../lib/textProfileTemplates";
@@ -185,8 +187,9 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     ? config.text_profiles.map((profile) => cloneTextProfile(profile))
     : [resolveActiveTextProfile(config)];
   const activeTextProfile = resolveActiveTextProfile(config);
-  const dictionaryEntries = config.dictionary_entries ?? [];
-  const snippetEntries = config.snippet_entries ?? [];
+  const sttHints = activeTextProfile.stt_hints ?? "";
+  const dictionaryEntries = activeTextProfile.dictionary_entries ?? [];
+  const snippetEntries = activeTextProfile.snippet_entries ?? [];
   const [sampleText, setSampleText] = useState(DEFAULT_SAMPLE_TEXT);
   const [analysis, setAnalysis] = useState<TextRulesAnalysis | null>(null);
   const [pendingImport, setPendingImport] = useState<{
@@ -197,19 +200,34 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(TEXT_PROFILE_TEMPLATES[0]?.id ?? "");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<"context" | "dictionary" | "snippets">("context");
   const [showStarterDetails, setShowStarterDetails] = useState(false);
   const [pendingFocusRuleId, setPendingFocusRuleId] = useState<string | null>(null);
   const ruleCardRefs = useRef<Record<string, HTMLElement | null>>({});
-  const selectedTemplate = TEXT_PROFILE_TEMPLATES.find((template) => template.id === selectedTemplateId) ?? TEXT_PROFILE_TEMPLATES[0] ?? null;
+  const curatedProfiles = textProfiles.filter((profile) => isCuratedTextProfile(profile));
+  const selectedTemplate = curatedProfiles.find((profile) => profile.id === selectedTemplateId) ?? curatedProfiles[0] ?? null;
+
+  useEffect(() => {
+    if (curatedProfiles.length === 0) {
+      if (selectedTemplateId) {
+        setSelectedTemplateId("");
+      }
+      return;
+    }
+
+    if (!curatedProfiles.some((profile) => profile.id === selectedTemplateId)) {
+      setSelectedTemplateId(curatedProfiles[0].id);
+    }
+  }, [curatedProfiles, selectedTemplateId]);
 
   useEffect(() => {
     let cancelled = false;
 
     void invoke<TextRulesAnalysis>("analyze_text_rules", {
       request: {
-        prompt: config.prompt,
+        prompt: activeTextProfile.prompt,
+        stt_hints: sttHints,
         dictionary_entries: dictionaryEntries,
         snippet_entries: snippetEntries,
         sample_text: sampleText,
@@ -228,7 +246,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [config.prompt, dictionaryEntries, onValidationChange, sampleText, snippetEntries]);
+  }, [activeTextProfile.prompt, dictionaryEntries, onValidationChange, sampleText, snippetEntries, sttHints]);
 
   const applyProfiles = (nextProfiles: TextProfile[], nextActiveProfileId = activeTextProfile.id) => {
     onChange(buildTextProfilesPatch(config, nextProfiles, nextActiveProfileId));
@@ -237,9 +255,11 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const updateActiveProfile = (update: Partial<TextProfile> | ((profile: TextProfile) => TextProfile)) => {
     const nextProfiles = textProfiles.map((profile) => {
       if (profile.id !== activeTextProfile.id) return profile;
-      return typeof update === "function"
+      const nextProfile = typeof update === "function"
         ? update(profile)
         : cloneTextProfile(profile, update);
+
+      return clearTextProfileCuration(nextProfile);
     });
 
     applyProfiles(nextProfiles, activeTextProfile.id);
@@ -261,7 +281,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
 
     applyProfiles([...textProfiles, nextProfile], nextProfile.id);
     setActiveWorkspacePanel("context");
-    setMessage(true, `Created profile from ${selectedTemplate.label}.`);
+    setMessage(true, `Created working copy from ${selectedTemplate.label}.`);
   };
 
   const mergeStarterIntoActiveProfile = () => {
@@ -277,6 +297,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     const nextProfile = cloneTextProfile(activeTextProfile, {
       id: nextProfileId,
       label: activeTextProfile.label.trim() ? `${activeTextProfile.label} copy` : "Profile copy",
+      curation: createTextProfile().curation,
     });
     applyProfiles([...textProfiles, nextProfile], nextProfile.id);
     setActiveWorkspacePanel("context");
@@ -354,7 +375,8 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
       const payload = await invoke<ImportTextRulesResponse>("import_text_rules", {
         request: {
           path: selected,
-          current_prompt: config.prompt,
+          current_prompt: activeTextProfile.prompt,
+          current_stt_hints: sttHints,
           current_dictionary_entries: dictionaryEntries,
           current_snippet_entries: snippetEntries,
           sample_text: sampleText,
@@ -376,6 +398,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     if (!pendingImport) return;
     updateActiveProfile({
       prompt: pendingImport.payload.document.prompt,
+      stt_hints: pendingImport.payload.document.stt_hints,
       dictionary_entries: pendingImport.payload.document.dictionary_entries,
       snippet_entries: pendingImport.payload.document.snippet_entries,
     });
@@ -401,7 +424,8 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
       const result = await invoke<ExportTextRulesResponse>("export_text_rules", {
         request: {
           path: target,
-          prompt: config.prompt,
+          prompt: activeTextProfile.prompt,
+          stt_hints: sttHints,
           dictionary_entries: dictionaryEntries,
           snippet_entries: snippetEntries,
         },
@@ -425,8 +449,11 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const previewRuleChips = (previewSource?.preview.applied_rules ?? []).map((rule) => buildPreviewRuleChip(rule, previewRuleLookup));
   const hasImportedOnlyIssues = Boolean(pendingImport && issueList.some((entry) => entry.rule_ids.some((ruleId) => !currentRuleLookup.has(ruleId))));
   const activePromptLineCount = countPromptLines(activeTextProfile.prompt);
+  const activeSttHintLineCount = countPromptLines(activeTextProfile.stt_hints);
   const selectedTemplatePromptLines = selectedTemplate ? countPromptLines(selectedTemplate.prompt) : 0;
+  const selectedTemplateSttHintLines = selectedTemplate ? countPromptLines(selectedTemplate.stt_hints) : 0;
   const selectedTemplateContextLines = selectedTemplate?.prompt.split(/\r?\n/).filter(Boolean) ?? [];
+  const selectedTemplateSttHintPreview = selectedTemplate?.stt_hints.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
   const selectedTemplateDictionaryPreview = selectedTemplate?.dictionary_entries.slice(0, 4) ?? [];
   const selectedTemplateSnippetPreview = selectedTemplate?.snippet_entries.slice(0, 4) ?? [];
   const totalRuleCount = dictionaryEntries.length + snippetEntries.length;
@@ -434,9 +461,9 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     ? {
       step: "Step 1 of 3",
       title: "Context & Preview",
-      summary: "Teach the recognizer your names and jargon, then verify the literal rule pass on a likely transcript.",
-      status: `${activePromptLineCount} context lines`,
-      note: "Start here. Keep the context concrete, then test with a transcript the model is actually likely to produce.",
+      summary: "Teach the recognizer your names, jargon and a few explicit spoken cues, then verify the literal rule pass on a likely transcript.",
+      status: `${activePromptLineCount} context lines · ${activeSttHintLineCount} STT hints`,
+      note: "Start here. Keep the context concrete, and only add a handful of explicit STT hints you really want forwarded into the transcription request.",
     }
     : activeWorkspacePanel === "dictionary"
       ? {
@@ -512,8 +539,8 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
               <strong>Pending import preview</strong>
               <p>
                 {pendingImport.resolution === "replace_current"
-                  ? "Replace mode overwrites the current prompt, dictionary and snippets with the imported file."
-                  : "Merge mode preserves the current prompt unless it is empty and lets imported phrase/trigger matches replace existing rules."}
+                  ? "Replace mode overwrites the current prompt, STT hints, dictionary and snippets with the imported file."
+                  : "Merge mode preserves the current prompt and STT hints unless they are empty and lets imported phrase/trigger matches replace existing rules."}
               </p>
             </div>
             <span>{pendingImport.path.split(/[\\/]/).pop() ?? pendingImport.path}</span>
@@ -538,7 +565,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
         <article className="settings__summary-item">
           <span>Active profile</span>
           <strong>{activeTextProfile.label}</strong>
-          <small>{activePromptLineCount} context lines and {totalRuleCount} authored rules in this local mode.</small>
+          <small>{activePromptLineCount} context lines, {activeSttHintLineCount} STT hints and {totalRuleCount} authored rules in this local mode{isCuratedTextProfile(activeTextProfile) ? ". Still marked curated until you edit it." : "."}</small>
         </article>
         <article className="settings__summary-item">
           <span>Rule order</span>
@@ -565,7 +592,9 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
             </div>
             <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-setup-pills">
               <span className="settings__template-highlight">{activeTextProfile.label}</span>
+              {isCuratedTextProfile(activeTextProfile) && <span className="settings__template-highlight">Curated</span>}
               <span className="settings__template-highlight">{activePromptLineCount} context lines</span>
+              <span className="settings__template-highlight">{activeSttHintLineCount} STT hints</span>
               <span className="settings__template-highlight">{dictionaryEntries.length} terms</span>
               <span className="settings__template-highlight">{snippetEntries.length} snippets</span>
             </div>
@@ -579,7 +608,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                   onChange={(event) => applyProfiles(textProfiles, event.target.value)}
                 >
                   {textProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>{profile.label}</option>
+                    <option key={profile.id} value={profile.id}>{displayTextProfileLabel(profile)}</option>
                   ))}
                 </select>
               </div>
@@ -604,38 +633,40 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                 Delete profile
               </button>
             </div>
-            <p className="settings__editor-setup-note">Each profile carries its own context, dictionary and snippets. Preview, import/export and runtime all follow the same active profile.</p>
+            <p className="settings__editor-setup-note">Each profile carries its own context, optional STT hints, dictionary and snippets. Curated profiles ship inside this app config on first run, but the first real edit turns them into normal user-owned profiles. Preview, import/export and runtime all follow the same active profile.</p>
           </article>
 
           <article className="settings__editor-setup-card settings__editor-setup-card--starter">
             <div className="settings__editor-setup-head">
               <div className="settings__editor-setup-copy">
-                <span className="settings__template-kicker">Starter library</span>
-                <strong>Start from a real working baseline</strong>
-                <p>Select a starter, then create a profile from it or merge missing building blocks into the active one.</p>
+                <span className="settings__template-kicker">Curated profiles</span>
+                <strong>Use the built-in baselines already in your app</strong>
+                <p>These profiles are persisted like any other profile. They keep a curated label only until you edit them.</p>
               </div>
             </div>
-            {selectedTemplate && (
+            {selectedTemplate ? (
               <div className="settings__editor-starter-summary">
                 <div className="settings__editor-starter-summary-copy">
-                  <span className="settings__template-kicker">Selected starter</span>
+                  <span className="settings__template-kicker">Selected curated profile</span>
                   <strong>{selectedTemplate.label}</strong>
-                  <p>{selectedTemplate.summary}</p>
+                  <p>{selectedTemplate.curation.summary}</p>
                 </div>
                 <div className="settings__template-highlight-row settings__template-highlight-row--compact">
+                  <span className="settings__template-highlight">Curated</span>
                   <span className="settings__template-highlight">{selectedTemplatePromptLines} context lines</span>
+                  <span className="settings__template-highlight">{selectedTemplateSttHintLines} STT hints</span>
                   <span className="settings__template-highlight">{selectedTemplate.dictionary_entries.length} terms</span>
                   <span className="settings__template-highlight">{selectedTemplate.snippet_entries.length} snippets</span>
                 </div>
                 <div className="settings__editor-setup-actions settings__editor-setup-actions--starter">
                   <button className="settings__rule-mini-btn" type="button" onClick={createProfileFromStarter}>
-                    Create profile from starter
+                    Create working copy
                   </button>
                   <button className="settings__rule-mini-btn" type="button" onClick={mergeStarterIntoActiveProfile}>
-                    Merge starter into active
+                    Merge into active
                   </button>
                   <button className="settings__rule-mini-btn" type="button" onClick={() => setShowStarterDetails((current) => !current)}>
-                    {showStarterDetails ? "Hide starter details" : "Show starter details"}
+                    {showStarterDetails ? "Hide curated details" : "Show curated details"}
                   </button>
                 </div>
                 {showStarterDetails && (
@@ -644,6 +675,14 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                       <span className="settings__rule-preview-label">Context focus</span>
                       <ul className="settings__template-list">
                         {selectedTemplateContextLines.slice(0, 4).map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    </article>
+                    <article className="settings__editor-starter-detail-card">
+                      <span className="settings__rule-preview-label">Optional STT hints</span>
+                      <ul className="settings__template-list">
+                        {selectedTemplateSttHintPreview.slice(0, 4).map((line) => (
                           <li key={line}>{line}</li>
                         ))}
                       </ul>
@@ -667,20 +706,29 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                   </div>
                 )}
               </div>
+            ) : (
+              <div className="settings__editor-starter-summary">
+                <div className="settings__editor-starter-summary-copy">
+                  <span className="settings__template-kicker">Curated profiles exhausted</span>
+                  <strong>No untouched curated profiles left</strong>
+                  <p>Every built-in baseline in this app has already been edited. They now behave like regular user-owned profiles.</p>
+                </div>
+              </div>
             )}
-            <div className="settings__editor-template-list" role="list" aria-label="Curated profile starters">
-              {TEXT_PROFILE_TEMPLATES.map((template) => (
+            <div className="settings__editor-template-list" role="list" aria-label="Curated profiles in this app">
+              {curatedProfiles.map((template) => (
                 <button
                   key={template.id}
                   type="button"
                   className={`settings__template-tile settings__template-tile--compact${selectedTemplate?.id === template.id ? " settings__template-tile--active" : ""}`}
-                  aria-label={`Select ${template.label} starter`}
+                  aria-label={`Select ${template.label} curated profile`}
                   aria-pressed={selectedTemplate?.id === template.id}
                   onClick={() => setSelectedTemplateId(template.id)}
                 >
-                  <span className="settings__template-kicker">{template.audience}</span>
+                  <span className="settings__template-kicker">{template.curation.audience}</span>
                   <strong>{template.label}</strong>
                   <div className="settings__rule-chip-row">
+                    <span className="settings__rule-chip">Curated</span>
                     <span className="settings__rule-chip">{template.dictionary_entries.length} terms</span>
                     <span className="settings__rule-chip">{template.snippet_entries.length} snippets</span>
                   </div>
@@ -698,6 +746,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
           </div>
           <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-workspace-pills">
             <span className="settings__template-highlight">{activeTextProfile.label}</span>
+            {isCuratedTextProfile(activeTextProfile) && <span className="settings__template-highlight">Curated</span>}
             <span className="settings__template-highlight">{activeWorkspaceCopy.status}</span>
           </div>
         </article>
@@ -715,7 +764,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                 <span className="settings__editor-step-index" aria-hidden="true">1</span>
                 <div className="settings__editor-step-button-copy">
                   <strong>Context & Preview</strong>
-                  <span>{activePromptLineCount} context lines</span>
+                  <span>{activePromptLineCount} context lines · {activeSttHintLineCount} STT hints</span>
                 </div>
               </div>
             </button>
@@ -767,12 +816,26 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
               </p>
               <textarea
                 className="form-textarea settings__editor-context-input"
-                value={config.prompt}
+                value={activeTextProfile.prompt}
                 aria-label="Transcription context"
                 rows={12}
                 onChange={(event) => updateActiveProfile({ prompt: event.target.value })}
                 placeholder={"WordScript\nGroq\nTauri\nCPAL\ncustomer names\ninternal product terms"}
               />
+              <label className="settings__rule-field settings__rule-field--wide">
+                <span>Optional STT hints</span>
+                <textarea
+                  className="form-textarea settings__editor-context-input"
+                  value={sttHints}
+                  aria-label="Optional STT hints"
+                  rows={5}
+                  onChange={(event) => updateActiveProfile({ stt_hints: event.target.value })}
+                  placeholder={"status update\nhandoff summary\ncustomer follow up"}
+                />
+              </label>
+              <p className="form-dim">
+                Use this only for a few spoken cues or alternate phrasings you explicitly want in STT bias. These lines go into the transcription request. Snippet triggers do not feed STT automatically anymore.
+              </p>
               <div className="settings__editor-context-notes">
                 <div className="settings__editor-context-note">
                   <strong>What belongs here</strong>
@@ -781,6 +844,10 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                 <div className="settings__editor-context-note">
                   <strong>Good starting size</strong>
                   <span>Start with 5 to 10 high-value terms. Add more only when preview still misses obvious vocabulary.</span>
+                </div>
+                <div className="settings__editor-context-note">
+                  <strong>What not to put here</strong>
+                  <span>Do not mirror whole snippets or long macros. If you want expansion behavior, keep that in Snippets; STT hints should stay short and intentional.</span>
                 </div>
               </div>
             </article>

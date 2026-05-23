@@ -21,6 +21,7 @@ const OVERLAY_BOTTOM_INSET: f64 = 76.0;
 const MIN_TRANSCRIPTION_TIMEOUT_MS: u64 = 18_000;
 const MAX_TRANSCRIPTION_TIMEOUT_MS: u64 = 35_000;
 const TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS: u64 = 800;
+const CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS: usize = 896;
 const LOCAL_PREVIEW_PROMPT_MAX_CHARS: usize = 480;
 
 fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>) {
@@ -728,7 +729,16 @@ fn transcription_prompt_for_request(
         return local_preview_prompt_for_request(value);
     }
 
-    optional_string(value, "prompt")
+    cloud_transcription_prompt_for_request(value)
+}
+
+fn cloud_transcription_prompt_for_request(value: &serde_json::Value) -> Option<String> {
+    build_transcription_prompt(
+        optional_string(value, "prompt"),
+        transcription_dictionary_hints(value),
+        transcription_stt_hints(value),
+        CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS,
+    )
 }
 
 fn local_preview_prompt_for_request(value: &serde_json::Value) -> Option<String> {
@@ -739,32 +749,14 @@ fn local_preview_prompt_for_request(value: &serde_json::Value) -> Option<String>
 
     match strength {
         "off" => None,
-        "profile_and_terms" => {
-            let mut sections = Vec::new();
-
-            if let Some(prompt) = optional_string(value, "prompt") {
-                sections.push(prompt);
-            }
-
-            let dictionary_hints = local_preview_dictionary_hints(value);
-            if !dictionary_hints.is_empty() {
-                sections.push(format!(
-                    "Preferred terms: {}",
-                    dictionary_hints.join("; ")
-                ));
-            }
-
-            let snippet_hints = local_preview_snippet_hints(value);
-            if !snippet_hints.is_empty() {
-                sections.push(format!(
-                    "Likely phrases: {}",
-                    snippet_hints.join("; ")
-                ));
-            }
-
-            truncate_local_preview_prompt(sections.join("\n"))
-        }
-        _ => optional_string(value, "prompt").and_then(truncate_local_preview_prompt),
+        "profile_and_terms" => build_transcription_prompt(
+            optional_string(value, "prompt"),
+            transcription_dictionary_hints(value),
+            transcription_stt_hints(value),
+            LOCAL_PREVIEW_PROMPT_MAX_CHARS,
+        ),
+        _ => optional_string(value, "prompt")
+            .and_then(|prompt| truncate_transcription_prompt(prompt, LOCAL_PREVIEW_PROMPT_MAX_CHARS)),
     }
 }
 
@@ -775,7 +767,30 @@ fn local_preview_prompt_carry(value: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-fn local_preview_dictionary_hints(value: &serde_json::Value) -> Vec<String> {
+fn build_transcription_prompt(
+    base_prompt: Option<String>,
+    dictionary_hints: Vec<String>,
+    stt_hints: Vec<String>,
+    max_chars: usize,
+) -> Option<String> {
+    let mut sections = Vec::new();
+
+    if let Some(prompt) = base_prompt {
+        sections.push(prompt);
+    }
+
+    if !dictionary_hints.is_empty() {
+        sections.push(format!("Preferred terms: {}", dictionary_hints.join("; ")));
+    }
+
+    if !stt_hints.is_empty() {
+        sections.push(format!("STT hints: {}", stt_hints.join("; ")));
+    }
+
+    truncate_transcription_prompt(sections.join("\n"), max_chars)
+}
+
+fn transcription_dictionary_hints(value: &serde_json::Value) -> Vec<String> {
     value
         .get("dictionary_entries")
         .and_then(|entries| entries.as_array())
@@ -794,29 +809,26 @@ fn local_preview_dictionary_hints(value: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
-fn local_preview_snippet_hints(value: &serde_json::Value) -> Vec<String> {
+fn transcription_stt_hints(value: &serde_json::Value) -> Vec<String> {
     value
-        .get("snippet_entries")
-        .and_then(|entries| entries.as_array())
+        .get("stt_hints")
+        .and_then(|hints| hints.as_str())
         .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.get("trigger")?.as_str().map(str::trim))
-        .filter(|trigger| !trigger.is_empty())
+        .flat_map(|hints| hints.lines())
+        .map(str::trim)
+        .filter(|hint| !hint.is_empty())
         .take(6)
         .map(ToString::to_string)
         .collect()
 }
 
-fn truncate_local_preview_prompt(prompt: String) -> Option<String> {
+fn truncate_transcription_prompt(prompt: String, max_chars: usize) -> Option<String> {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {
         return None;
     }
 
-    let truncated = trimmed
-        .chars()
-        .take(LOCAL_PREVIEW_PROMPT_MAX_CHARS)
-        .collect::<String>();
+    let truncated = trimmed.chars().take(max_chars).collect::<String>();
 
     Some(truncated.trim().to_string())
 }
@@ -1055,16 +1067,12 @@ mod tests {
     fn local_preview_prompt_strength_can_enrich_bias_with_terms() {
         let payload = json!({
             "prompt": "Support escalations and product names",
+            "stt_hints": "status update\nhandoff summary",
             "local_prompt_strength": "profile_and_terms",
             "dictionary_entries": [
                 {
                     "phrase": "word script",
                     "replace_with": "WordScript"
-                }
-            ],
-            "snippet_entries": [
-                {
-                    "trigger": "status update"
                 }
             ]
         });
@@ -1077,6 +1085,71 @@ mod tests {
 
         assert!(prompt.contains("Support escalations and product names"));
         assert!(prompt.contains("Preferred terms: word script -> WordScript"));
-        assert!(prompt.contains("Likely phrases: status update"));
+        assert!(prompt.contains("STT hints: status update; handoff summary"));
+    }
+
+    #[test]
+    fn cloud_transcription_prompt_includes_profile_terms_and_phrases() {
+        let payload = json!({
+            "prompt": "German and English customer support terminology",
+            "stt_hints": "status update\ntriage summary",
+            "dictionary_entries": [
+                {
+                    "phrase": "word script",
+                    "replace_with": "WordScript"
+                },
+                {
+                    "phrase": "sev one",
+                    "replace_with": "SEV-1"
+                }
+            ]
+        });
+
+        let prompt = transcription_prompt_for_request("groq", &payload).expect("cloud prompt");
+
+        assert!(prompt.contains("German and English customer support terminology"));
+        assert!(prompt.contains("Preferred terms: word script -> WordScript; sev one -> SEV-1"));
+        assert!(prompt.contains("STT hints: status update; triage summary"));
+    }
+
+    #[test]
+    fn snippet_triggers_no_longer_feed_automatic_transcription_bias() {
+        let payload = json!({
+            "prompt": "Support language",
+            "stt_hints": "status update",
+            "dictionary_entries": [
+                {
+                    "phrase": "word script",
+                    "replace_with": "WordScript"
+                }
+            ],
+            "snippet_entries": [
+                {
+                    "trigger": "should not leak"
+                }
+            ]
+        });
+
+        let prompt = transcription_prompt_for_request("groq", &payload).expect("cloud prompt");
+
+        assert!(prompt.contains("STT hints: status update"));
+        assert!(!prompt.contains("should not leak"));
+    }
+
+    #[test]
+    fn cloud_transcription_prompt_respects_conservative_size_limit() {
+        let payload = json!({
+            "prompt": "a".repeat(CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS * 2),
+            "dictionary_entries": [
+                {
+                    "phrase": "word script",
+                    "replace_with": "WordScript"
+                }
+            ]
+        });
+
+        let prompt = transcription_prompt_for_request("groq", &payload).expect("cloud prompt");
+
+        assert!(prompt.chars().count() <= CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS);
     }
 }

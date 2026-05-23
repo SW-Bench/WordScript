@@ -17,6 +17,8 @@ const DEFAULT_PREVIEW_TEXT: &str = "word script follow up note";
 pub struct TextRulesDocument {
     pub schema_version: u32,
     pub prompt: String,
+    #[serde(default)]
+    pub stt_hints: String,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
 }
@@ -78,6 +80,8 @@ pub struct TextRulesAnalysis {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AnalyzeTextRulesRequest {
     pub prompt: String,
+    #[serde(default)]
+    pub stt_hints: String,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
     pub sample_text: Option<String>,
@@ -87,6 +91,8 @@ pub struct AnalyzeTextRulesRequest {
 pub struct ExportTextRulesRequest {
     pub path: String,
     pub prompt: String,
+    #[serde(default)]
+    pub stt_hints: String,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
 }
@@ -101,6 +107,8 @@ pub struct ExportTextRulesResponse {
 pub struct ImportTextRulesRequest {
     pub path: String,
     pub current_prompt: Option<String>,
+    #[serde(default)]
+    pub current_stt_hints: Option<String>,
     pub current_dictionary_entries: Vec<DictionaryEntry>,
     pub current_snippet_entries: Vec<SnippetEntry>,
     pub sample_text: Option<String>,
@@ -119,6 +127,7 @@ pub fn analyze_text_rules(request: AnalyzeTextRulesRequest) -> Result<TextRulesA
         &TextRulesDocument {
             schema_version: TEXT_RULES_SCHEMA_VERSION,
             prompt: request.prompt,
+            stt_hints: request.stt_hints,
             dictionary_entries: request.dictionary_entries,
             snippet_entries: request.snippet_entries,
         },
@@ -133,6 +142,7 @@ pub fn export_text_rules(
     let document = TextRulesDocument {
         schema_version: TEXT_RULES_SCHEMA_VERSION,
         prompt: request.prompt,
+        stt_hints: request.stt_hints,
         dictionary_entries: request.dictionary_entries,
         snippet_entries: request.snippet_entries,
     };
@@ -161,6 +171,7 @@ pub fn import_text_rules(
             TextRulesDocument {
                 schema_version: TEXT_RULES_SCHEMA_VERSION,
                 prompt: request.current_prompt.unwrap_or_default(),
+                stt_hints: request.current_stt_hints.unwrap_or_default(),
                 dictionary_entries: request.current_dictionary_entries,
                 snippet_entries: request.current_snippet_entries,
             },
@@ -318,6 +329,11 @@ fn merge_documents(current: TextRulesDocument, imported: TextRulesDocument) -> T
         } else {
             current.prompt
         },
+        stt_hints: if current.stt_hints.trim().is_empty() {
+            imported.stt_hints
+        } else {
+            current.stt_hints
+        },
         dictionary_entries: merge_dictionary_entries(
             current.dictionary_entries,
             imported.dictionary_entries,
@@ -404,6 +420,7 @@ fn merge_snippet_entries(
 fn preview_transform(document: &TextRulesDocument, sample_text: &str) -> (String, Vec<String>) {
     let config = NativeTransformConfig {
         provider: "groq".to_string(),
+        profile_prompt: String::new(),
         dictionary_entries: document.dictionary_entries.clone(),
         snippet_entries: document.snippet_entries.clone(),
         post_process: false,
@@ -495,6 +512,7 @@ mod tests {
             &TextRulesDocument {
                 schema_version: TEXT_RULES_SCHEMA_VERSION,
                 prompt: String::new(),
+                stt_hints: String::new(),
                 dictionary_entries: vec![
                     DictionaryEntry {
                         id: "dict-1".to_string(),
@@ -543,6 +561,7 @@ mod tests {
             TextRulesDocument {
                 schema_version: TEXT_RULES_SCHEMA_VERSION,
                 prompt: "current prompt".to_string(),
+                stt_hints: "current hint".to_string(),
                 dictionary_entries: vec![DictionaryEntry {
                     id: "dict-current".to_string(),
                     phrase: "word script".to_string(),
@@ -558,6 +577,7 @@ mod tests {
             TextRulesDocument {
                 schema_version: TEXT_RULES_SCHEMA_VERSION,
                 prompt: "imported prompt".to_string(),
+                stt_hints: "imported hint".to_string(),
                 dictionary_entries: vec![DictionaryEntry {
                     id: "dict-imported".to_string(),
                     phrase: "word script".to_string(),
@@ -573,6 +593,7 @@ mod tests {
         );
 
         assert_eq!(merged.prompt, "current prompt");
+        assert_eq!(merged.stt_hints, "current hint");
         assert_eq!(merged.dictionary_entries.len(), 1);
         assert_eq!(merged.dictionary_entries[0].replace_with, "Imported");
         assert_eq!(merged.snippet_entries.len(), 1);

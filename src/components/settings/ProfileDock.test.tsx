@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppConfig } from "../../test/factories";
+import { createEmptyTextProfileCuration } from "../../lib/textProfiles";
 import { ProfileDock } from "./ProfileDock";
 
 afterEach(() => {
@@ -17,18 +18,13 @@ describe("ProfileDock", () => {
       <ProfileDock
         config={createAppConfig({
           active_text_profile_id: "support",
-          prompt: "Escalation contacts",
-          dictionary_entries: [
-            { id: "dict-1", phrase: "sev one", replace_with: "SEV-1" },
-          ],
-          snippet_entries: [
-            { id: "snippet-1", label: "Status", trigger: "status update", expansion: "We will send the next status at 10:00." },
-          ],
           text_profiles: [
             {
               id: "general",
               label: "General writing",
               prompt: "",
+              stt_hints: "",
+              curation: createEmptyTextProfileCuration(),
               dictionary_entries: [],
               snippet_entries: [],
             },
@@ -36,6 +32,8 @@ describe("ProfileDock", () => {
               id: "support",
               label: "Support reply",
               prompt: "Escalation contacts",
+              stt_hints: "status update",
+              curation: createEmptyTextProfileCuration(),
               dictionary_entries: [
                 { id: "dict-1", phrase: "sev one", replace_with: "SEV-1" },
               ],
@@ -61,9 +59,7 @@ describe("ProfileDock", () => {
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       active_text_profile_id: "general",
-      prompt: "",
-      dictionary_entries: [],
-      snippet_entries: [],
+      text_profiles: expect.any(Array),
     }));
   });
 

@@ -53,8 +53,8 @@ Die UI ist verantwortlich fuer:
 
 - Anzeige von Runtime-Status, Waveform und Fehlermeldungen
 - Pflege der Config-Werte
-- global sichtbare manuelle Profilumschaltung in der Sidebar plus lokale Starter-Templates, Preview, Validation und Import/Export in den Text Rules
-- Text Rules als Workspace mit knapper Prozesszusammenfassung, kompakter Setup-/Starter-Zone und praesent bleibender Schritt-Navigation; darunter steht immer nur eine dominante Bearbeitungsstufe fuer Context/Preview, Dictionary oder Snippets
+- global sichtbare manuelle Profilumschaltung in der Sidebar plus seeded kuratierte Profile, Preview, Validation und Import/Export in den Text Rules
+- Text Rules als Workspace mit knapper Prozesszusammenfassung, kompakter Setup-/Curated-Zone und praesent bleibender Schritt-Navigation; darunter steht immer nur eine dominante Bearbeitungsstufe fuer Context/Preview, Dictionary oder Snippets
 - Sichtbare Recovery-Aktionen und Diagnostics
 - getrennte Darstellung von transienten Runtime-Logs und dauerhaftem nativen Transkriptverlauf inklusive Filter, Export und sichtbarem History-Store-Pfad; Recovery-Scratchpad bleibt davon getrennt
 
@@ -154,9 +154,12 @@ Die Textverarbeitung ist im aktiven Pfad keine Black Box. Die Reihenfolge ist be
 
 Wichtig:
 
-- `prompt` ist heute nur Transcription Context fuer die STT-Anfrage
+- `prompt` bleibt primaer Transcription Context fuer die STT-Anfrage; `lib.rs` baut daraus fuer Groq und je nach `local_prompt_strength` auch fuer `local_preview` einen begrenzten Bias-Prompt mit Profil-Context, expliziten `stt_hints` und Dictionary-Schreibweisen
+- dieser STT-Bias ist konservativ und providerbegrenzt; er soll Fachwoerter, Produktnamen, Sprachmix und haeufige Phrasen erhalten, nicht freie semantische Rewrites oder Halluzinationen erzeugen
 - Dictionary- und Snippet-Matches sind literal und case-insensitive
-- lokale Textprofile kapseln heute `prompt`, Dictionary und Snippets als aktive Runtime-Konfiguration
+- Snippet-Trigger sind kein automatischer Teil des STT-Bias; wenn kurze gesprochene Cues oder alternative Phrasen in die STT-Anfrage sollen, muessen sie explizit ueber `stt_hints` im Profil gepflegt werden
+- lokale Textprofile kapseln heute `prompt`, optionale `stt_hints`, Dictionary und Snippets als aktive Runtime-Konfiguration
+- AI cleanup muss Sprachmix, Umgangssprache, eingedeutschte Borrowings und technische Tokens konservativ erhalten; unsichere oder assistant-artige Rewrites fallen weiter ueber Guardrails auf das Rohtranskript zurueck
 - die aktuelle Local-Preview-Lane ist STT-only; wenn AI cleanup aktiv bleibt, faellt `transform.rs` auf das rohe lokale Transkript zurueck
 
 ## Insertion-Modi

@@ -2,13 +2,18 @@ use std::time::Instant;
 
 use regex::{Captures, NoExpand, Regex, RegexBuilder};
 
-use super::config::{DictionaryEntry, SnippetEntry};
+use super::config::{DictionaryEntry, SnippetEntry, DEFAULT_CORRECTION_MODEL};
 use super::providers::{create_chat_completion, ChatCompletionRequest, ChatMessage};
 use super::runtime_log;
+
+const MAX_PROFILE_HINT_LINES: usize = 8;
+const MAX_DICTIONARY_HINTS: usize = 12;
+const MAX_HINT_CHARS: usize = 80;
 
 #[derive(Debug, Clone)]
 pub struct NativeTransformConfig {
     pub provider: String,
+    pub profile_prompt: String,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
     pub post_process: bool,
@@ -35,6 +40,11 @@ impl NativeTransformConfig {
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or("groq")
                 .to_string(),
+            profile_prompt: value
+                .get("prompt")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
             dictionary_entries: value
                 .get("dictionary_entries")
                 .cloned()
@@ -53,7 +63,7 @@ impl NativeTransformConfig {
                 .get("correction_model")
                 .and_then(|value| value.as_str())
                 .filter(|value| !value.trim().is_empty())
-                .unwrap_or("llama-3.1-8b-instant")
+                .unwrap_or(DEFAULT_CORRECTION_MODEL)
                 .to_string(),
             filter_fillers: value
                 .get("filter_fillers")
@@ -100,7 +110,7 @@ pub async fn apply_native_transform(
     } else {
         let word_count = trimmed.split_whitespace().count();
         let model = if word_count > 300 {
-            "llama-3.3-70b-versatile".to_string()
+            DEFAULT_CORRECTION_MODEL.to_string()
         } else {
             config.correction_model.clone()
         };
@@ -122,11 +132,7 @@ pub async fn apply_native_transform(
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: correction_system_prompt(
-                        config.filter_fillers,
-                        config.professionalize,
-                    )
-                    .to_string(),
+                    content: correction_system_prompt(&config),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -373,21 +379,99 @@ fn rule_label(id: &str, fallback: &str) -> String {
     }
 }
 
-fn correction_system_prompt(filter_fillers: bool, professionalize: bool) -> &'static str {
-    match (filter_fillers, professionalize) {
+fn correction_system_prompt(config: &NativeTransformConfig) -> String {
+    let mode_instruction = match (config.filter_fillers, config.professionalize) {
         (true, true) => {
-            "Du bist ein stummer Textverarbeitungs-Filter. Gib AUSSCHLIESSLICH den verarbeiteten Text zurück — KEINE Kommentare, Erklärungen oder Antworten. Sprache beibehalten (DE/EN/gemischt), niemals übersetzen. Aufgaben: (1) Füllwörter entfernen: ähm, äh, öh, ähh, hmm, uh, um, er, mhm; (2) Tippfehler und Grammatik korrigieren; (3) Text professionell und klar formulieren — Satzstruktur verbessern, Redundanzen entfernen, sachlich und präzise. Du bist ein Filter, kein Assistent."
+            "Aufgaben: Entferne nur isolierte Füllwörter und Sprechlaute wie äh, ähm, hm, uh oder um. Korrigiere offensichtliche Tipp-, Grammatik- und Zeichensetzungsfehler. Formuliere nur dann klarer und professioneller, wenn Bedeutung, Sprachmix, Ton und Fachwörter vollständig erhalten bleiben. Keine neuen Informationen hinzufügen."
         }
         (false, true) => {
-            "Du bist ein stummer Textverarbeitungs-Filter. Gib AUSSCHLIESSLICH den verarbeiteten Text zurück — KEINE Kommentare, Erklärungen oder Antworten. Sprache beibehalten (DE/EN/gemischt), niemals übersetzen. Aufgaben: (1) Tippfehler und Grammatik korrigieren; (2) Text professionell und klar formulieren — Satzstruktur verbessern, Redundanzen entfernen, sachlich und präzise. Bedeutung erhalten, keine neuen Informationen hinzufügen. Du bist ein Filter, kein Assistent."
+            "Aufgaben: Korrigiere offensichtliche Tipp-, Grammatik- und Zeichensetzungsfehler. Formuliere nur dann klarer und professioneller, wenn Bedeutung, Sprachmix, Ton und Fachwörter vollständig erhalten bleiben. Keine neuen Informationen hinzufügen."
         }
         (true, false) => {
-            "Du bist ein stummer Textkorrektur-Filter. Gib AUSSCHLIESSLICH den korrigierten Text zurück — KEINE Kommentare, Erklärungen oder Antworten. Sprache beibehalten (DE/EN/gemischt), niemals übersetzen. Aufgaben: (1) Füllwörter entfernen: ähm, äh, öh, ähh, hmm, uh, um, er, mhm; (2) Tippfehler und Grammatik korrigieren. Sonst nichts verändern. Bedeutung und Stil beibehalten. Du bist ein Filter, kein Assistent."
+            "Aufgaben: Entferne nur isolierte Füllwörter und Sprechlaute wie äh, ähm, hm, uh oder um. Korrigiere offensichtliche Tipp-, Grammatik- und Zeichensetzungsfehler. Sonst nichts umformulieren. Bedeutung, Stil, Sprachmix und umgangssprachliche Wortwahl beibehalten."
         }
         (false, false) => {
-            "Du bist ein stummer Textkorrektur-Filter. Gib AUSSCHLIESSLICH den korrigierten Text zurück — KEINE Kommentare, Erklärungen oder Antworten. Sprache beibehalten (DE/EN/gemischt), niemals übersetzen. Nur Tippfehler und Grammatik korrigieren; niemals Wörter entfernen, kürzen oder umformulieren. Kurzer Input (1-5 Wörter): exakt zurückgeben. Bei korrektem Text: Originaltext Zeichen für Zeichen zurück. Du bist ein Filter, kein Assistent."
+            "Aufgaben: Korrigiere nur offensichtliche Tipp-, Grammatik- und Zeichensetzungsfehler. Niemals Wörter entfernen, übersetzen, kürzen oder umformulieren. Bei 1-5 Wörtern nur minimale sichere Korrekturen; bei Unsicherheit den Originaltext exakt zurückgeben."
         }
+    };
+
+    let mut sections = vec![
+        "Du bist ein stummer Post-Transcription-Filter für ein Diktatprodukt. Gib AUSSCHLIESSLICH den finalen Text zurück. Keine Kommentare, Erklärungen, Antworten, Anführungszeichen oder Markdown.".to_string(),
+        "Globale Regeln: Sprache und vorhandenen Sprachmix exakt beibehalten; niemals übersetzen oder einsprachig umschreiben. Umgangssprachliche, eingedeutschte oder gemischtsprachige Wörter erhalten, solange sie plausibel sind. Produktnamen, Eigennamen, Akronyme, Befehle, Dateinamen, Pfade, URLs, E-Mail-Adressen, Code, Zahlen und ungewöhnliche Tokens erhalten. Wenn ein Token selten, technisch, gemischtsprachig oder unsicher wirkt, bevorzuge das Original statt zu raten. Führe nur sichere Korrekturen aus.".to_string(),
+        mode_instruction.to_string(),
+    ];
+
+    if let Some(context_hint) = correction_context_hint(config) {
+        sections.push(context_hint);
     }
+
+    sections.join("\n\n")
+}
+
+fn correction_context_hint(config: &NativeTransformConfig) -> Option<String> {
+    let profile_hints = prompt_context_hints(&config.profile_prompt);
+    let dictionary_hints = dictionary_context_hints(&config.dictionary_entries);
+
+    if profile_hints.is_empty() && dictionary_hints.is_empty() {
+        return None;
+    }
+
+    let mut lines = vec![
+        "Aktive Hinweise aus dem Profil. Nutze sie nur, wenn sie zum Input passen; nie halluzinieren:".to_string(),
+    ];
+
+    if !profile_hints.is_empty() {
+        lines.push(format!("Kontextbegriffe: {}", profile_hints.join(" | ")));
+    }
+
+    if !dictionary_hints.is_empty() {
+        lines.push(format!(
+            "Bevorzugte Schreibweisen: {}",
+            dictionary_hints.join(" | ")
+        ));
+    }
+
+    Some(lines.join("\n"))
+}
+
+fn prompt_context_hints(prompt: &str) -> Vec<String> {
+    prompt
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(MAX_PROFILE_HINT_LINES)
+        .map(truncate_prompt_hint)
+        .collect()
+}
+
+fn dictionary_context_hints(entries: &[DictionaryEntry]) -> Vec<String> {
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let phrase = entry.phrase.trim();
+            let replace_with = entry.replace_with.trim();
+            if phrase.is_empty() || replace_with.is_empty() {
+                return None;
+            }
+
+            Some(format!(
+                "{} -> {}",
+                truncate_prompt_hint(phrase),
+                truncate_prompt_hint(replace_with)
+            ))
+        })
+        .take(MAX_DICTIONARY_HINTS)
+        .collect()
+}
+
+fn truncate_prompt_hint(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= MAX_HINT_CHARS {
+        return trimmed.to_string();
+    }
+
+    let shortened: String = trimmed.chars().take(MAX_HINT_CHARS).collect();
+    format!("{shortened}...")
 }
 
 fn word_overlap_ok(original: &str, corrected: &str, threshold: f32) -> bool {
@@ -561,6 +645,40 @@ fn is_hallucination(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn transform_payload_reads_profile_prompt_and_high_accuracy_default() {
+        let config = NativeTransformConfig::from_payload(&json!({
+            "prompt": "release freeze\ncustomer follow-up"
+        }));
+
+        assert_eq!(config.profile_prompt, "release freeze\ncustomer follow-up");
+        assert_eq!(config.correction_model, DEFAULT_CORRECTION_MODEL);
+    }
+
+    #[test]
+    fn correction_prompt_preserves_mixed_language_and_profile_terms() {
+        let prompt = correction_system_prompt(&NativeTransformConfig {
+            provider: "groq".to_string(),
+            profile_prompt: "customer follow-up\nrelease freeze".to_string(),
+            dictionary_entries: vec![DictionaryEntry {
+                id: "brand".to_string(),
+                phrase: "word script".to_string(),
+                replace_with: "WordScript".to_string(),
+            }],
+            snippet_entries: Vec::new(),
+            post_process: true,
+            correction_model: DEFAULT_CORRECTION_MODEL.to_string(),
+            filter_fillers: true,
+            professionalize: false,
+        });
+
+        assert!(prompt.contains("Sprachmix exakt beibehalten"));
+        assert!(prompt.contains("gemischtsprachige Wörter erhalten"));
+        assert!(prompt.contains("customer follow-up"));
+        assert!(prompt.contains("word script -> WordScript"));
+    }
 
     #[tokio::test]
     async fn filters_known_hallucination_text() {
@@ -568,10 +686,11 @@ mod tests {
             "Thanks for watching",
             NativeTransformConfig {
                 provider: "groq".to_string(),
+                profile_prompt: String::new(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
                 post_process: true,
-                correction_model: "llama-3.1-8b-instant".to_string(),
+                correction_model: DEFAULT_CORRECTION_MODEL.to_string(),
                 filter_fillers: true,
                 professionalize: false,
             },
@@ -587,10 +706,11 @@ mod tests {
             "wir shippen das morgen",
             NativeTransformConfig {
                 provider: "groq".to_string(),
+                profile_prompt: String::new(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
                 post_process: false,
-                correction_model: "llama-3.1-8b-instant".to_string(),
+                correction_model: DEFAULT_CORRECTION_MODEL.to_string(),
                 filter_fillers: true,
                 professionalize: false,
             },
@@ -607,6 +727,7 @@ mod tests {
             "word script follow up note",
             NativeTransformConfig {
                 provider: "groq".to_string(),
+                profile_prompt: String::new(),
                 dictionary_entries: vec![DictionaryEntry {
                     id: "brand".to_string(),
                     phrase: "word script".to_string(),
@@ -620,7 +741,7 @@ mod tests {
                         .to_string(),
                 }],
                 post_process: false,
-                correction_model: "llama-3.1-8b-instant".to_string(),
+                correction_model: DEFAULT_CORRECTION_MODEL.to_string(),
                 filter_fillers: true,
                 professionalize: false,
             },

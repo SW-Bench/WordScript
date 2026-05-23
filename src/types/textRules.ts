@@ -39,6 +39,7 @@ export interface TextRulesAnalysis {
 export interface TextRulesDocument {
   schema_version: number;
   prompt: string;
+  stt_hints: string;
   dictionary_entries: DictionaryEntry[];
   snippet_entries: SnippetEntry[];
 }

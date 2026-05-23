@@ -37,11 +37,11 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - guarded native session finalization, so late provider, transform or insertion results cannot overwrite the current runtime state after aborts or newer captures
 - Groq BYOK transcription with OS secret-store storage
 - first generic provider contract in Rust and Tauri, with typed provider modes, capabilities, recovery actions and local-setup readiness; Groq remains the cloud-first production lane and `local_preview` is the local STT lane with native model discovery, selected-model setup truth, prompt-bias support and probe-based runner diagnostics
-- transform pipeline with hallucination guardrails, optional AI cleanup, local text profiles, curated starter templates, dictionary and snippets
+- transform pipeline with hallucination guardrails, profile-aware AI cleanup, and profile/dictionary-guided transcription prompts across Groq and the local CLI lane so mixed-language and technical terms survive more reliably, plus local text profiles with explicit STT hints, seeded curated baselines, dictionary and snippets
 - native insertion with direct paste, clipboard fallback, typed recovery actions, clipboard-restore status, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
 - native transcription history with retention policy, server-side filters, JSON export, retry and persisted insert-recovery semantics, plus a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
 - platform diagnostics and runtime logs, including a stage timeline for capture, provider, transform and insert with per-step state, duration and stable error-code truth
-- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a persistent sidebar profile dock for manual profile switching and a sequenced Text Rules workspace with a compact process summary, starter/setup deck, pinned stage navigation and one dominant working canvas at a time
+- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a persistent sidebar profile dock for manual profile switching and a sequenced Text Rules workspace with a compact process summary, profile/setup deck, curated-profile overview, pinned stage navigation and one dominant working canvas at a time
 - a calmer utility-style Settings shell with visible section hierarchy, denser Provider/Input summaries and a more legible overlay state treatment
 - manual release build-up lanes for Linux, macOS and Windows
 
@@ -52,7 +52,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - Linux AppImage packaging that no longer stalls on the current linuxdeploy lane
 - live updater path after the first real release
 - stronger Linux Wayland reliability
-- work-mode capable profiles beyond static context, dictionary and snippets, with explicit defaults for rewrite, insertion and recovery and later opt-in activation by app or context
+- work-mode capable profiles beyond static context, optional STT hints, dictionary and snippets, with explicit defaults for rewrite, insertion and recovery and later opt-in activation by app or context
 - a live-preview and controlled-commit overlay that shows raw text, cleaned text, the active work mode and quick recovery actions
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
 - a first-class local lane with model management, health diagnostics, bias prompting and quality/latency presets instead of an external-helper-only preview path
@@ -168,7 +168,7 @@ Local preview prerequisites today:
 - install `whisper-cli` in `PATH` or point `WORDSCRIPT_LOCAL_WHISPER_CLI` at the binary
 - set `WORDSCRIPT_LOCAL_MODEL_PATH` to one ggml model file or `WORDSCRIPT_LOCAL_MODEL_DIR` to a directory that contains `ggml-<model>.bin` or common variant files such as quantized or `.en` model builds
 - expect the Settings profile picker to come from native profile discovery; each local model now exposes explicit `fast` and `quality` profiles, and local readiness still follows the resolved model behind the selected profile
-- expect the active text-profile prompt to feed local STT bias through `whisper-cli --prompt`, with explicit Settings controls for `off`, `profile`, `profile + terms`, and optional `carry initial prompt`
+- expect the active text-profile prompt plus explicit profile-owned STT hints and dictionary terms to feed local STT bias through `whisper-cli --prompt`, with explicit Settings controls for `off`, `profile`, `profile + terms`, and optional `carry initial prompt`; snippet triggers are not forwarded automatically
 - expect explicit local decode controls for `beam size` and `best of`; the selected profile sets the starting defaults, but the decoder search depth is now a persisted runtime choice instead of a hidden preset side effect
 - expect Diagnostics and transcription history to record the active local provider profile together with prompt-bias and decode settings, so local regression triage can see more than just provider and model
 - expect those local decode controls to persist per local provider profile, not as one global local pair; switching between `fast` and `quality` profiles now restores the saved decoder settings of that specific profile

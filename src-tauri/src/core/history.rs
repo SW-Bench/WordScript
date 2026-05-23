@@ -611,6 +611,7 @@ fn transform_config_from_app_config(config: &AppConfig) -> NativeTransformConfig
 
     NativeTransformConfig {
         provider: config.provider.clone(),
+        profile_prompt: active_profile.prompt,
         dictionary_entries: active_profile.dictionary_entries,
         snippet_entries: active_profile.snippet_entries,
         post_process: config.post_process,

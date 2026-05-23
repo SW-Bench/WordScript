@@ -3,6 +3,8 @@ import {
   buildTextProfilesPatch,
   cloneTextProfile,
   createTextProfile,
+  displayTextProfileLabel,
+  isCuratedTextProfile,
   resolveActiveTextProfile,
   textProfileInitials,
 } from "../../lib/textProfiles";
@@ -25,6 +27,7 @@ export function ProfileDock({ config, onChange, onOpenTextRules }: ProfileDockPr
   const contextConfigured = activeProfile.prompt.trim().length > 0;
   const dictionaryLabel = countLabel(activeProfile.dictionary_entries.length, "term");
   const snippetLabel = countLabel(activeProfile.snippet_entries.length, "snippet");
+  const activeProfileCurated = isCuratedTextProfile(activeProfile);
 
   const handleProfileSwitch = (profileId: string) => {
     onChange(buildTextProfilesPatch(config, profiles, profileId));
@@ -47,7 +50,7 @@ export function ProfileDock({ config, onChange, onOpenTextRules }: ProfileDockPr
       </div>
 
       <div className="settings__profile-strip">
-        <span className="settings__profile-mode">Manual</span>
+        <span className="settings__profile-mode">{activeProfileCurated ? "Curated" : "Manual"}</span>
         <span className="settings__profile-stat">{contextConfigured ? "Context set" : "No context"}</span>
         <span className="settings__profile-stat">{dictionaryLabel}</span>
         <span className="settings__profile-stat">{snippetLabel}</span>
@@ -63,7 +66,7 @@ export function ProfileDock({ config, onChange, onOpenTextRules }: ProfileDockPr
           onChange={(event) => handleProfileSwitch(event.target.value)}
         >
           {profiles.map((profile) => (
-            <option key={profile.id} value={profile.id}>{profile.label}</option>
+            <option key={profile.id} value={profile.id}>{displayTextProfileLabel(profile)}</option>
           ))}
         </select>
       </label>

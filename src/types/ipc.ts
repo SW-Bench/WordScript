@@ -13,10 +13,19 @@ export interface SnippetEntry {
   expansion:               string;
 }
 
+export interface TextProfileCuration {
+  curated:                 boolean;
+  audience:                string;
+  summary:                 string;
+  highlights:              string[];
+}
+
 export interface TextProfile {
   id:                      string;
   label:                   string;
   prompt:                  string;
+  stt_hints:               string;
+  curation:                TextProfileCuration;
   dictionary_entries:      DictionaryEntry[];
   snippet_entries:         SnippetEntry[];
 }
@@ -36,11 +45,9 @@ export interface LocalProfilePromptSettings {
 export interface AppConfig {
   model:                   string;
   language:                string;
-  prompt:                  string;
-  dictionary_entries:      DictionaryEntry[];
-  snippet_entries:         SnippetEntry[];
   active_text_profile_id:  string;
   text_profiles:           TextProfile[];
+  curated_profiles_seeded: boolean;
   post_process:            boolean;
   correction_model:        string;
   filter_fillers:          boolean;
