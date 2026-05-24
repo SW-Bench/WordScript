@@ -1,6 +1,6 @@
 # WordScript — Development
 
-Stand: 2026-05-23
+Stand: 2026-05-24
 
 ## Zweck
 
@@ -80,11 +80,24 @@ Optionaler lokaler Runtime-Pfad:
 - der native Provider-Status bewertet die Lane gegen das aktuell ausgewaehlte lokale Modell und liefert die Modellliste aus nativer Discovery statt aus einer statischen UI-Annahme
 - dieselbe Lane reicht den aktiven Transkriptions-Context als `whisper-cli --prompt` durch; `local_prompt_strength` und `local_prompt_carry` leben jetzt explizit in Config und muessen als nativer Request-Vertrag behandelt werden
 - der Cloud-Pfad nutzt denselben aktiven Profil-Context inzwischen ebenfalls fuer bounded STT-Hinweise aus Dictionary und expliziten `stt_hints`. Snippet-Trigger gehoeren nicht mehr implizit in diesen Bias. Wer Transkriptionsprompting aendert, muss Cloud- und Local-Lane zusammen betrachten statt nur `local_preview` zu verbessern
-- kuratierte Profile werden jetzt einmalig in die User-App-Config geseedet und danach wie normale Profile behandelt. Neue UI oder Migrationen duerfen deshalb keinen separaten hartcodierten Starter-Katalog mehr als zweite Ownership-Flaeche einfuehren
+- eingeschlossene Profile werden einmalig in die User-App-Config geseedet und danach wie normale Profile behandelt. `curation` ist Herkunftsmetadata, kein Sichtbarkeitsfilter; neue UI oder Migrationen duerfen deshalb keinen separaten hartcodierten Starter-Katalog mehr als zweite Ownership-Flaeche einfuehren
 - lokale Profile werden als echte `...-fast`- und `...-quality`-IDs gespeichert und im Provider-Request weitergereicht; Decode-Presets duerfen nicht mehr implizit nur aus dem Modellnamen rekonstruiert werden
 - `local_beam_size` und `local_best_of` sind jetzt ebenfalls persistierte Runtime-Werte; wer lokale Decode-Semantik aendert, muss Config-Normalisierung, Request-Building, whisper-cli-Args und Settings gemeinsam aktualisieren
 - dieselbe Regel gilt jetzt fuer `local_prompt_strength` und `local_prompt_carry`, aber profilgebunden: wer lokale Prompt-Bias-Semantik aendert, muss die Profilsammlung pflegen und darf die aktiven Mirror-Felder nicht mehr als einzige Persistenz behandeln
 - History- und Diagnostics-Aenderungen fuer lokale Runs muessen dieselben Werte sichtbar halten. Ein lokaler Fehlerfall ohne `provider_profile`, Prompt-Bias oder Decode-Metadaten ist jetzt ein Vertragsbruch, kein UI-Detail
+- Work-Mode-Aenderungen muessen denselben aktiven Profilvertrag durch Config, Transform, Insert, History und V1-Diagnostics tragen. Ein Settings-Label ohne native Runtime-Wirkung ist jetzt ein Vertragsbruch.
+- Dasselbe gilt fuer den Overlay-Action-Zustand: Commit-, Copy-, Retry-, Restore- und Dismiss-Entscheidungen muessen aus demselben `wordscript-event`-Payload plus denselben nativen Commands kommen. `useRuntime` darf duennere Native-Folgeevents nicht wieder ueber diesen In-Pill-Zustand schreiben.
+- Overlay-Quick-Actions muessen auf denselben nativen Commands bleiben. Wenn `retry` im Overlay sichtbar ist, muss die zugrunde liegende `history.entry_id` aus demselben Runtime-Snapshot kommen; `copy` und `restore` duerfen keine zweite Commit-Logik neben `insert_text_native` und `restore_last_transcript` aufbauen.
+- Overlay-Sichtbarkeit ist jetzt ebenfalls ein nativer Vertrag: Aktiv-/Idle-Umschaltung laeuft ueber den Host-Command fuer Reveal bzw. Offscreen-Parking. Reine CSS-Unsichtbarkeit gilt fuer Linux/XWayland nicht mehr als ausreichender Lifecycle-Fix.
+- Dasselbe gilt fuer Overlay-Placement: Preset-Anchor, ausgewaehlter Monitor und gemerkte Manual-Position leben im nativen Config-Vertrag. Drag-Persistenz darf nicht als nur renderer-lokaler State gebaut werden.
+- Overlay-Drag selbst bleibt trotzdem ein UI-Gestenpfad: Drag darf erst nach realer Pointer-Bewegung beginnen, damit Buttons in Recording-, Processing- und Action-State weiter per Single-Click ausloesen koennen.
+- Gemerkte Overlay-Placement-Werte duerfen nur aus echten User-Drag-Moves kommen; programmatische Host-Moves bei Reveal, Hide, Width-Change oder Offscreen-Parking sind keine neue Nutzerabsicht.
+- Compact-, Preview- und Result-Surface teilen eine einzige gemerkte Top-Left-Position. Wenn der Nutzer einen dieser Zustandsfenster zieht, muss genau diese Position fuer den naechsten Overlay-Start wiederverwendet werden, statt intern auf einen anderen Surface-spezifischen Referenzpunkt umzurechnen.
+- Der Zielmonitor fuer gemerkte Overlay-Positionen muss aus dieser gespeicherten logischen Drag-Referenz gegen die verfuegbaren Monitor-Work-Areas aufgeloest werden. `current_monitor()` allein ist auf Linux-/Wayland-Multi-Monitor-Pfaden nicht robust genug.
+- Click-Suppression fuer Overlay-Buttons muss bis nach dem echten Drag-Ende reichen. Wenn sie nur am Drag-Beginn startet, wird ein laengerer Window-Drop spaeter wieder als Button-Eingabe fehlgedeutet.
+- Das Standard-Overlay braucht zustandsspezifische Layoutwerte fuer die rechte Timer-/Statuszone. Recording, `working` und Action-State duerfen nicht denselben statischen Seiten-Column-Wert teilen, wenn dadurch sichtbare Randabstaende oder Label-Fit leiden.
+- Die Live-Waveform darf near-idle Raumrauschen nicht wie Aktivitaet behandeln. Ein ruhiger Quiet-Gate fuer sehr niedrige Pegel und eine staerkere Speech-Kurve fuer echte Sprache gehoeren zusammen und muessen gemeinsam getestet werden.
+- Der neue `preview_ready`-Pfad fuer `clipboard_only`-Profile folgt derselben Regel: der Pending-Preview muss direkt aus dem nativen Transform kommen, der Commit muss denselben Insert-/History-/Sessionpfad benutzen, und der spaetere native Session-Event darf die reichere Preview-Nutzlast in `useRuntime` nicht wieder ausduennen.
 - die echte Persistenz fuer lokale Decode-Werte liegt jetzt in profilgebundenen Settings-Eintraegen. Wenn UI oder Migration nur `local_beam_size` und `local_best_of` schreiben, aber die Profilsammlung nicht aktualisieren, kommt beim naechsten Profilwechsel alter oder falscher Decoderzustand zurueck
 - dasselbe gilt fuer lokale Prompt-Bias-Werte: Wenn UI oder Migration nur `local_prompt_strength` und `local_prompt_carry` schreiben, aber die profilgebundene Sammlung nicht aktualisieren, springt beim naechsten Profilwechsel wieder ein alter Bias-Zustand ein
 - `v1_slice_status` ist jetzt eine native Snapshot-Oberflaeche fuer den laufenden Runtime-Vertrag. Diagnostics muss lokale Vertragswerte aus diesem Snapshot lesen und eventuelle Fenster-Drafts explizit als unsaved Drift markieren
@@ -164,8 +177,11 @@ Wenn es um die konkrete Reihenfolge der naechsten Kern-Slices geht, ist [CORE_EX
 1. engsten betroffenen Vitest laufen lassen, fuer Text Rules z. B. `npx vitest run src/components/settings/PromptsTab.test.tsx`
 2. `npm run build`
 3. wenn Shell, Fenstergeometrie oder Tauri-gebundene Statusfuehrung geaendert wurde: die Ansicht im nativen Host pruefen statt nur im Browser-Preview
-4. bei Settings-Chrome-Aenderungen auf Linux explizit pruefen, dass native Fensterdekorationen sichtbar bleiben und keine fake Window-Controls in den Content zurueckkehren
-5. bei Geometrie-Aenderungen sicherstellen, dass Settings-Sidebar, Footer und Diagnostics-Pop-out auch am jeweiligen Minimum noch ohne verschwundene Controls bedienbar bleiben
+4. bei Overlay-Aenderungen auf Linux/XWayland oder KDE Plasma explizit pruefen, dass das Overlay nach Dismiss oder Idle nativ verschwindet und keine stale schwarze Restflaeche hinterlaesst
+5. bei Overlay-Placement-Aenderungen explizit pruefen, dass eine manuell gezogene Position nach Stop, Action-State und der naechsten neuen Aufnahme erhalten bleibt und Preset-Display/Anchor-Einstellungen denselben Host-Pfad uebernehmen
+6. bei Overlay-Placement-Aenderungen auf Multi-Monitor-Setups explizit pruefen, dass ein Wechsel auf einen zweiten Monitor samt spaeterem Preview-/Result-State nicht die gemerkte Drag-Position durch hostseitige Repositions oder Surface-Breitenwechsel ueberschreibt
+7. bei Settings-Chrome-Aenderungen auf Linux explizit pruefen, dass native Fensterdekorationen sichtbar bleiben und keine fake Window-Controls in den Content zurueckkehren
+8. bei Geometrie-Aenderungen sicherstellen, dass Settings-Sidebar, Footer und Diagnostics-Pop-out auch am jeweiligen Minimum noch ohne verschwundene Controls bedienbar bleiben
 
 ### Rust- oder Runtime-Aenderungen
 
@@ -196,11 +212,12 @@ Wichtig fuer den aktuellen Stand:
 
 - `npm run tauri build` bleibt ein Build-Up-Check und kein Beweis fuer einen fertigen oeffentlichen Release-Pfad
 - Linux-AppImage-Packaging kann aktuell noch an `linuxdeploy` scheitern; das ist derzeit ein bekannter Packaging-Befund waehrend der Release-Aufbau weiter stabilisiert wird
+- interne Draft-Releases sind jetzt Teil desselben Build-Up-Pfads, aber kein Ersatz fuer einen publizierten Release-Kanal; `check_app_update` bleibt deshalb absichtlich auf publizierte GitHub-Releases beschraenkt
 
 ## CI
 
 - `.github/workflows/ci.yml` prueft Pull Requests und `main` auf Ubuntu, macOS und Windows mit Frontend-Tests, Frontend-Build, `cargo check` und `cargo test`
-- `.github/workflows/release.yml` ist der aktuelle manuelle Release-Build-Up-Workflow fuer Linux, macOS und Windows; er fuehrt Frontend-Tests, Rust-Tests, Frontend-Build und danach erst das Bundling aus
+- `.github/workflows/release.yml` ist der aktuelle manuelle Release-Build-Up-Workflow fuer Linux, macOS und Windows; er fuehrt Frontend-Tests, Rust-Tests, Frontend-Build und danach erst das Bundling aus, aggregiert die Bundle-Ausgaben in checksummierte Handoff-Archive und kann optional einen internen Draft-Release erzeugen oder aktualisieren
 - Packaging, Signing und Updater-Arbeit sind wieder Teil des aktiven Aufbaupfads, duerfen aber erst nach dem ersten echten Release als live bezeichnet werden
 
 ## Repo-Orientierung
@@ -209,9 +226,9 @@ Wichtig fuer den aktuellen Stand:
 
 - `src/App.tsx`: Routing fuer Overlay und Settings
 - `src/windows/`: Fenster-Komposition, native Settings-Shell, kompakter Tab-Header, dominante Content-Surface und Footer-Statusfuehrung
-- `src/components/settings/`: aktive Settings-Tabs inklusive Profil-Dock, gefuehrtem Text-Rules-Workspace mit Prozesszusammenfassung, kompakter Setup-Zone fuer Profile/kuratierten Baselines, oberer Stage-Navigation und getrennter Hauptarbeitsflaeche fuer Recovery-/Diagnostics-nahe Editoren
+- `src/components/settings/`: aktive Settings-Tabs inklusive Profil-Dock, gefuehrtem Text-Rules-Workspace mit Prozesszusammenfassung, kompakter Profilbibliothek fuer User- und eingeschlossene Baselines, oberer Stage-Navigation und getrennter Hauptarbeitsflaeche fuer Recovery-/Diagnostics-nahe Editoren
 - `src/hooks/`: Runtime-, Provider-, Insert-, Log- und Diagnostics-Hooks inklusive nativer History-Store-Status-Bridge
-- `src/lib/textProfileTemplates.ts`: shared JSON-Seed-Loader und Create/Merge-Helfer fuer kuratierte Text-Profile
+- `src/lib/textProfileTemplates.ts`: shared JSON-Seed-Loader und Create/Merge-Helfer fuer eingeschlossene Text-Profile
 - `src/types/`: getypte UI-Vertraege fuer Runtime, Text Rules, Insertion und Release-Status
 
 ### Backend
@@ -224,7 +241,7 @@ Wichtig fuer den aktuellen Stand:
 - `src-tauri/src/core/providers/groq.rs`: Groq-BYOK und Provider-Fehler
 - `src-tauri/src/core/providers/local_preview.rs`: lokale Runtime-Lane mit `whisper-cli` fuer STT, Ollama fuer Cleanup, Runner-Probe, selected-model-Readiness und nativer Model-Discovery
 - `src-tauri/src/core/providers/mod.rs`: gemeinsamer Provider-Vertrag inklusive typed `local_setup`-Status fuer die lokale Runtime-Lane
-- `src-tauri/src/core/transform.rs`: Cleanup, aktive Profile, Dictionary und Snippets
+- `src-tauri/src/core/transform.rs`: Cleanup, aktive Profile, Work-Mode-Rewrite-Defaults, Dictionary und Snippets
 - `src-tauri/src/core/insertion.rs`: Paste-Modi, Clipboard-Restore, Scratchpad und Recovery
 - `src-tauri/src/core/updates.rs`: ehrlicher GitHub-Release-Status fuer die About-Flaeche und den Release-Aufbaupfad
 - `src-tauri/src/core/runtime_log.rs`: gepufferte Runtime-Logs
@@ -249,13 +266,13 @@ Die naechste Arbeit ist nicht weiterer Scope-Ausbau, sondern V1-Konsolidierung:
 
 1. Trigger-, Capture-, Insert- und Recovery-Pfad weiter stabilisieren
 2. History-, Retry- und Diagnostics-Pfad auf dem nativen Verlauf weiter ausbauen
-3. lokale Textprofile zu sichtbaren Arbeitsmodi fuer Context, Dictionary, Snippets, spaetere Rewrite-Defaults, Insert-Verhalten und Recovery-Verhalten weiterziehen
-4. Overlay und Settings auf einen Live-Preview- und kontrollierten Commit-Pfad vorbereiten, damit Nutzer `raw transcript`, bereinigten Text, aktiven Modus und schnelle Recovery-Aktionen sehen koennen
+3. den jetzt durchgehenden Work-Mode-Vertrag im Overlay sichtbar machen, ohne neue UI-Heuristiken neben Runtime und History aufzubauen
+4. Overlay und Settings auf einen Live-Preview- und kontrollierten Commit-Pfad vorbereiten, damit Nutzer `raw transcript`, bereinigten Text, aktiven Modus und schnelle Recovery-Aktionen sehen koennen; der erste echte Processing-Preview-Schritt fuer `clipboard_only` ist jetzt umgesetzt, aber der Vollausbau fuer Auto-Paste-Modi und Scratchpad-Oeffnen fehlt weiterhin
 5. den Provider-Stack von Groq als erstem Adapter zu einem produktfaehigen Modellsystem mit mindestens einem zweiten Produktionsprovider und klaren Modi wie `fast`, `quality`, `local` und `self_hosted` ausbauen
 6. die lokale Runtime-Lane ueber die jetzt vorhandenen Bausteine fuer getrennte Cleanup-Slots, initiales Prompt-Bias, Fast/Quality-Presets und ehrliche Health-Diagnostics hinaus mit gefuehrtem Modellmanagement, Pull-Checks und optionalen weiteren lokalen Backends ausbauen
 7. Setup, Permissions und Packaging als gefuehrten Produktpfad ohne falsche Verfuegbarkeitssignale sauber mitfuehren
 
-Lokale Profile sind jetzt implementiert. Shell und Text-Rules-Editor teilen sich dafuer denselben Profil-Patch-Pfad, und zentrale ICP-Baselines werden einmalig als kuratierte Profile in die User-App-Config geseedet statt als separater Starter-Katalog zur Laufzeit gehalten. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung und spaetere Rewrite-Defaults ueber den aktiven Profilzustand hinaus.
+Lokale Profile sind jetzt als manuelle Arbeitsmodi implementiert. Shell und Text-Rules-Editor teilen sich denselben Profil-Patch-Pfad, zentrale ICP-Baselines werden einmalig als eingeschlossene Profile in die User-App-Config geseedet, und Rewrite-, Insert- sowie Recovery-Defaults laufen durch Config, Transform, Insert, History, Diagnostics und den kurzen Overlay-Nachlauf-Snapshot. `clipboard_only`-Profile halten jetzt bereits auf einem echten Processing-Preview vor dem Commit an, waehrend der Overlay-Nachlauf weiterhin die vorhandenen Native-Aktionen fuer `insert`, `retry` und `restore` direkt ausloesen kann. Nicht implementiert sind weiterhin automatische Aktivierung, Team-/Sync-Verteilung, der Vollausbau eines Live-Preview-/Controlled-Commit-Pfads fuer Auto-Paste-Modi und ein dedizierter Scratchpad-Open-Flow auf Basis dieses aktiven Modus.
 
 Fuer diesen UI-Pass gelten produktnahe macOS-Donoren wie `VoiceInk`, `FluidVoice` und `OpenSuperWhisper` als primaere Referenzen. Reine React-/TypeScript-Stilreferenzen fuer Window-Chrome, Sidebar-Rhythmus oder Control-Sprache sind sekundaer und duerfen keine fake-desktophafte Spielerei in den aktiven Produktpfad druecken. GPL-Donoren bleiben dabei Stil- und UX-Referenzen, nicht Copy/Paste-Codequellen fuer den aktiven MIT-Pfad.
 

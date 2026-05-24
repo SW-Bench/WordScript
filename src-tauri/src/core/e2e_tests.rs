@@ -1,8 +1,8 @@
 use super::{
     insertion::{
-        execute_insert_request_with_io, InsertIo, NativeClipboardRestoreStatus,
-        NativeInsertDriver, NativeInsertMode, NativeInsertPlatformContext,
-        NativeInsertRecoveryAction, NativeInsertRequest, NativeInsertionConfig,
+        execute_insert_request_with_io, InsertIo, NativeClipboardRestoreStatus, NativeInsertDriver,
+        NativeInsertMode, NativeInsertPlatformContext, NativeInsertRecoveryAction,
+        NativeInsertRequest, NativeInsertionConfig,
     },
     sessions::{NativeSessionStage, NativeSessionState},
     transform::{apply_native_transform, NativeTransformConfig},
@@ -154,7 +154,10 @@ async fn resolves_native_session_transform_insert_chain_with_direct_paste() {
     assert!(result.ok);
     assert_eq!(result.insert_mode, NativeInsertMode::DirectPaste);
     assert_eq!(result.recovery_action, NativeInsertRecoveryAction::None);
-    assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::Scheduled);
+    assert_eq!(
+        result.clipboard_restore,
+        NativeClipboardRestoreStatus::Scheduled
+    );
     assert_eq!(
         result.recovery_message,
         "Inserted at the cursor. No recovery action is needed."
@@ -229,10 +232,21 @@ async fn surfaces_direct_paste_failure_with_recovery_copy() {
     assert!(!result.ok);
     assert_eq!(result.insert_mode, NativeInsertMode::ClipboardFallback);
     assert!(result.fallback_available);
-    assert_eq!(result.error.as_deref(), Some("enigo: Target app blocked paste"));
-    assert_eq!(result.recovery_action, NativeInsertRecoveryAction::ManualPaste);
-    assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::NotAttempted);
-    assert!(result.recovery_message.contains("transcript is on the clipboard"));
+    assert_eq!(
+        result.error.as_deref(),
+        Some("enigo: Target app blocked paste")
+    );
+    assert_eq!(
+        result.recovery_action,
+        NativeInsertRecoveryAction::ManualPaste
+    );
+    assert_eq!(
+        result.clipboard_restore,
+        NativeClipboardRestoreStatus::NotAttempted
+    );
+    assert!(result
+        .recovery_message
+        .contains("transcript is on the clipboard"));
 
     let completed = session.complete_transcription(result.text);
     assert_eq!(completed.stage, NativeSessionStage::Completed);
@@ -343,8 +357,14 @@ async fn surfaces_clipboard_write_failure_with_scratchpad_recovery() {
 
     assert!(!result.ok);
     assert_eq!(result.insert_mode, NativeInsertMode::ScratchpadFallback);
-    assert_eq!(result.recovery_action, NativeInsertRecoveryAction::UseScratchpad);
-    assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::NotAttempted);
+    assert_eq!(
+        result.recovery_action,
+        NativeInsertRecoveryAction::UseScratchpad
+    );
+    assert_eq!(
+        result.clipboard_restore,
+        NativeClipboardRestoreStatus::NotAttempted
+    );
     assert!(result.recovery_message.contains("recovery scratchpad"));
     assert!(io.restores.is_empty());
 }

@@ -1,6 +1,6 @@
 # WordScript — Reference
 
-Stand: 2026-05-23
+Stand: 2026-05-24
 
 ## Zweck
 
@@ -32,7 +32,8 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - Provider-&-Models-Preflight fuer die lokale Runtime-Lane mit nativer Runner-, STT-Modell-, Cleanup-Endpoint- und Cleanup-Modell-Readiness
 - bounded STT-Promptbias fuer Groq und `local_preview` aus aktivem Profil-Context, Dictionary-Schreibweisen und wahrscheinlichen Phrasen
 - Halluzinationsfilter und optionale AI-Nachkorrektur mit konservativen Preserve-Hinweisen aus aktivem Profil-Context und Dictionary-Schreibweisen; lokal und cloud nutzen dafuer getrennte Modell-Slots
-- lokale Textprofile fuer Transcription Context, Dictionary und Snippets im nativen Transform-Pfad
+- lokale Textprofile fuer Transcription Context, Dictionary, Snippets und Work-Mode-Defaults im nativen Transform-/Insert-/History-Pfad
+- kurzer Overlay-Nachlauf innerhalb derselben kompakten Host-Buehne mit nativen `copy`-, `retry`-, `restore`- und Dismiss-Aktionen, breiterem Preview-/Result-Frame fuer voll lesbare Action-Labels, echter `clipboard_only`-Preview vor dem Commit, gemerkter Manual-Position oder preset-basiertem Display-Anchor, bewegungsbasiertem Drag statt Sofort-Drag und nativem Offscreen-Parking im Idle statt einer vergroesserten zweiten Preview-Flaeche
 - persistenter nativer Transkriptverlauf mit Retry, Delete/Clear, serverseitigen Filtern, JSON-Export und separater Diagnostics-Darstellung neben Runtime-Logs
 - Text-Rules-Validation, Preview, Import/Export und Konfliktbehandlung
 - native Insertion mit mehreren Fallback-Stufen
@@ -114,9 +115,10 @@ Diese Werte sind nur insofern Teil der Produktreferenz, wie sie den aktiven Desk
 ### Heute aktiv
 
 - lokale Textprofile mit aktivem `Transcription Context`
+- Work-Mode-Defaults fuer Rewrite-Stil, Insert-Verhalten und Recovery-Verhalten
 - profileigenes Personal Dictionary
 - profileigene Snippet-Liste
-- globale Schalter fuer AI cleanup, filler filter und rewrite phrasing
+- globale Schalter fuer AI cleanup, filler filter und rewrite phrasing nur noch als Fallback fuer Profile ohne expliziten Work-Mode
 
 ### Heute nicht aktiv
 
@@ -129,16 +131,16 @@ Diese Werte sind nur insofern Teil der Produktreferenz, wie sie den aktiven Desk
 - Profile werden lokal in der nativen Config gehalten
 - der alte globale Rule-Zustand wird beim Laden in ein Standardprofil migriert
 - die Settings-Sidebar zeigt den aktiven Profilnamen global und erlaubt manuellen Wechsel oder schnelles Anlegen neuer Profile
-- die Text-Rules-UI kann Profile anlegen, duplizieren, waehlen und loeschen sowie kuratierte lokale Starter-Templates als neues Profil anlegen oder in das aktive Profil mergen
-- die Text-Rules-UI ist als Workspace organisiert: Profil-/Starter-Rail links, aktive Context-/Preview-Karten oben und getrennte Dictionary-/Snippet-Arbeitsbereiche darunter
-- History speichert den aktiven Profilnamen als Teil des Verlaufs
+- die Text-Rules-UI kann Profile anlegen, duplizieren, waehlen und loeschen; eingeschlossene Profile erscheinen in derselben Profilbibliothek wie eigene Profile und koennen normal verwendet oder weiterbearbeitet werden
+- die Text-Rules-UI ist als Workspace organisiert: Profilbibliothek links, aktive Context-/Preview-Karten oben und getrennte Dictionary-/Snippet-Arbeitsbereiche darunter
+- History speichert den aktiven Profilnamen und den aktiven Work-Mode als Teil des Verlaufs
 - automatische app- oder hotkey-basierte Profilaktivierung existiert noch nicht
 
 Wichtige Doku-Regel dazu:
 
 - `Transcription Context` bleibt eine STT-Hilfe
 - Profile sind implementiert, aber bleiben lokal und manuell aktiviert
-- Starter-Templates sind lokale Baselines fuer zentrale ICPs und keine serverseitige Prompt-Library
+- eingeschlossene Profile sind lokale Baselines fuer zentrale ICPs und keine serverseitige Prompt-Library
 - geplante Profil-Automation duerfen nicht als aktive Funktion beschrieben werden
 
 ## Planungsstand fuer spaetere Sync-Themen
@@ -168,6 +170,8 @@ Zusatzregeln des aktiven Pfads:
 - persistierte History-Eintraege und History-Exporte tragen dieselben Recovery-Felder, damit Retry, Export und Diagnostics dieselbe Insert-Wahrheit behalten
 - Scratchpad-Recovery in Input, diagnostische Preview-Transkripte in Diagnostics und der persistente History-Store sind drei getrennte native Datenflaechen
 - Overlay, Input und About lesen denselben nativen Plattformstatus
+- Overlay-Sichtbarkeit selbst folgt inzwischen ebenfalls dem nativen Host-Vertrag: aktive Sessions werden bottom-center sichtbar gemacht, Idle-Zustaende ausserhalb des sichtbaren Bereichs geparkt
+- Overlay-Placement folgt ebenfalls dem nativen Host-Vertrag: Drag speichert die letzte Manual-Position, Settings kann auf preset-basierte Display-Anker umschalten und beides bleibt Teil desselben `AppConfig`
 
 ## Bekannte offene Produktluecken
 
@@ -179,8 +183,8 @@ Zusatzregeln des aktiven Pfads:
 - die lokale Runtime-Lane braucht noch automatisches Modellmanagement, Pull-/Install-Aktionen und einen nutzerfaehigen Erststartpfad ueber die aktuelle env-basierte Runtime-Verdrahtung hinaus
 - mehrere vollwertige Produktionsprovider ueber Groq hinaus sind noch nicht implementiert; ebenso fehlt noch ein explizites Mode-Modell wie `fast`, `quality`, `local` oder `self_hosted`
 - Settings- und Overlay-UI brauchen noch eine klarere Informationshierarchie und mehr native macOS-Produktpolish; die aktuelle Shell ist brauchbar, aber noch nicht der Zielzustand
-- Profile sind noch nicht zu echten Arbeitsmodi mit Defaults fuer Rewrite, Insert und Recovery verdichtet; spaetere app- oder mode-basierte Aktivierung bleibt ebenfalls offen
-- Overlay ist noch kein Live-Preview- und Controlled-Commit-Pfad mit `raw transcript`, bereinigtem Text, aktivem Profil und schnellen Recovery-Aktionen
+- spaetere app- oder mode-basierte automatische Aktivierung fuer Arbeitsmodi bleibt offen
+- Overlay ist noch kein vollstaendiger Live-Preview- und Controlled-Commit-Pfad; aktuell zeigt es einen festen In-Pill-Nachlauf mit `copy`, `retry`, `restore` und Dismiss nach erfolgreichem Lauf sowie einen echten Processing-Preview-Stop fuer `clipboard_only`, aber noch keinen allgemeinen Pre-Commit-Entscheidungsweg fuer alle Delivery-Modi oder feinere Placement-Regeln jenseits des aktuellen Manual-vs-Preset-Vertrags
 - spaetere Notes- und weitergehende Workflow-Aufbauten auf Basis des neuen History-Kerns sind noch nicht implementiert
 
 Explizit nicht naechste Baustelle dieser Produktphase sind `openwhispr`-Themen wie Notes, Search, Sync, MCP oder Assistant-Scope. Diese bleiben nachgelagert, bis WordScript als taegliches Diktierprodukt persoenlicher und vertrauenswuerdiger geworden ist.
@@ -190,10 +194,10 @@ Explizit nicht naechste Baustelle dieser Produktphase sind `openwhispr`-Themen w
 - der aktive Repo-Pfad bleibt source-first mit `tauri dev`, hat aber wieder einen Build-Matrix-Workflow und Bundle-Ziele fuer Linux, macOS und Windows
 - die aktuelle Nutzerrealitaet bleibt die Dev-Version via `npm run tauri dev`
 - parallel entsteht das erste offizielle Cross-Platform-App-Release fuer Linux, macOS und Windows
-- `check_app_update` signalisiert aktuell ehrlich, dass noch keine publizierten Releases existieren
-- es gibt aktuell keinen aktiven Installer-Kanal und keinen vertrauenswuerdigen Download-Handoff fuer Endnutzer
+- `check_app_update` signalisiert aktuell ehrlich, dass noch keine publizierten Releases existieren; interne Draft-Handoffs aendern diese Oeffentlichkeitswahrheit bewusst nicht
+- es gibt aktuell keinen aktiven Installer-Kanal und keinen vertrauenswuerdigen Download-Handoff fuer Endnutzer; der neue Draft-Handoff bleibt maintainer-intern
 - PR-CI validiert Frontend-Tests, Frontend-Build, `cargo check` und `cargo test` auf Ubuntu, macOS und Windows
-- der manuelle Release-Build-Up-Workflow fuehrt Frontend-Tests, Rust-Tests und Frontend-Build vor dem Bundling aus
+- der manuelle Release-Build-Up-Workflow fuehrt Frontend-Tests, Rust-Tests und Frontend-Build vor dem Bundling aus, sammelt die Bundles in checksummierte Handoff-Archive und kann sie optional in einen internen Draft-Release legen
 - Linux-AppImage-Packaging ist aktuell noch nicht release-stabil und kann im Build-Up-Pfad an `linuxdeploy` scheitern
 - Packaging, Signing und Updater-Arbeit sind im Aufbau, aber noch nicht als live Nutzerpfad freigegeben
 

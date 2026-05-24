@@ -1,6 +1,6 @@
 # WordScript — Design System
 
-Stand: 2026-05-23
+Stand: 2026-05-24
 
 ## Zweck
 
@@ -41,11 +41,15 @@ Das Overlay ist ein Statusinstrument. Es zeigt:
 - pausiert
 - verarbeitend
 - Fehler oder Recovery-Bedarf
+- nach erfolgreichem Lauf kompakte In-Pill-Action-Buttons statt einer zweiten vergroesserten Preview-Flaeche
+- fuer `clipboard_only`-Profile im Processing-Zustand denselben festen In-Pill-Commit-Stop vor dem Commit
+- im Idle keine sichtbare Restflaeche ausserhalb der Pill; der Host muss das Overlay dafuer nativ aus dem sichtbaren Bereich parken statt nur CSS-Unsichtbarkeit vorzutaeuschen
+- Overlay-Placement bleibt Teil derselben Utility-Sprache: Drag verschiebt dieselbe feste Surface, nicht eine zweite Host-Schicht, und darf als gemerkte Manual-Position oder als Preset-Anchor pro Display auftreten
 
 Es darf keine eigenen Schaetzungen ueber Audio oder Sessionzustand erfinden. Waveform, Mute und Aufnahmezustand kommen aus nativen Events.
 Spaete Runtime-Ergebnisse, die nicht mehr zur aktiven `processing`-Session gehoeren, duerfen im Overlay keinen neuen Erfolgs- oder Fehlerzustand erzeugen; die UI folgt nur dem guardierten nativen Sessionstatus.
 
-Die naechste geplante Overlay-Ausbaustufe ist ein Live-Preview-/Controlled-Commit-Pfad mit `raw transcript`, bereinigtem Text, aktivem Arbeitsmodus und schnellen Aktionen fuer `insert`, `retry`, `scratchpad` und `restore`. Solange dieser Pfad nicht real gebaut ist, darf die UI ihn nicht andeuten oder simulieren.
+Die aktuelle Overlay-Ausbaustufe besteht aus zwei echten Runtime-Zustaenden innerhalb derselben Pill und einer kompakten Host-Buehne ohne separaten Backdrop-Layer: einem Action-Zustand nach erfolgreichem Lauf und einem Processing-Commit-Stop fuer `clipboard_only`-Profile vor dem Commit. Beide duerfen nur echte Runtime-Daten und echte Native-Aktionen zeigen. Die Live-Buehne bleibt klein; Preview- und Result-States duerfen nur so weit horizontal wachsen, dass alle Action-Labels lesbar bleiben. Im Action-Zustand gehoert keine passive Mic-Zone mehr in die Flaeche; der gesamte Nutzraum ist fuer produktive Folgeaktionen reserviert. Die naechste geplante Ausbaustufe bleibt trotzdem ein vollstaendiger Live-Preview-/Controlled-Commit-Pfad mit tieferem Textkontext und spaeter auch `scratchpad` fuer weitere Delivery-Modi. Solange dieser Pfad nicht real gebaut ist, darf die UI ihn nicht andeuten oder simulieren.
 
 ### Settings
 
@@ -63,7 +67,7 @@ Die aktive Shell nutzt jetzt eine klare Utility-Orientierung: gruppierte Sidebar
 
 Fuer scrollende Utility-Flaechen gilt zusaetzlich: lange Kartenlisten muessen ruhig bleiben. Wiederholte Diagnostics- oder Text-Rules-Karten duerfen nicht ueber per-render Deep-Clones oder unnötige Parent-Renders permanent neu aufgebaut werden.
 
-Die naechste geplante Vertiefung dieser Shell ist, Profile als sichtbare Arbeitsmodi mit spaeteren Defaults fuer Rewrite, Insert und Recovery zu fuehren. Solange das nicht aktiv ist, bleibt die echte Profilrealitaet bei lokalem Context, optionalen STT-Hints, Dictionary und Snippets.
+Profile sind jetzt sichtbare manuelle Arbeitsmodi mit Defaults fuer Rewrite, Insert und Recovery. Die Shell darf diese Werte anzeigen und zwischen Profilen umschalten, muss aber weiterhin aus dem aktiven Profilvertrag lesen; automatische App-/Kontextaktivierung und Overlay-Commit-Entscheidungen duerfen nicht vorweggenommen werden.
 Provider & Models muss Provider-Faehigkeiten, lokale Runtime-Grenzen und Recovery-Aktionen aus dem nativen Provider-Status anzeigen. Der Tab darf nicht aus Modellnamen raten, ob Cleanup, Prompt-Bias, Segments oder Local-Setup verfuegbar sind.
 Fuer `local_preview` muessen Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Probleme ueber den nativen `local_setup`-Vertrag sichtbar werden. Labels wie `Runner path invalid`, `Runner probe failed`, `Cleanup backend unavailable` oder `Cleanup model not found` sind Produkttext, keine UI-Erfindungen.
 Provider & Models soll diesen Vertrag als kompakte Preflight-Checkliste zeigen: vier Schritte fuer Speech Runner, STT-Modell, Cleanup-Endpoint und Cleanup-Modell, jeweils mit Status, konkretem aufgeloestem Wert oder naechster lokaler Voraussetzung.
@@ -92,7 +96,7 @@ Diagnostische History- und Hint-Listen sollen als isolierte, stabile Teilbaeume 
 
 ## Layout-Regeln
 
-- Overlay-Fenster: `236x44` logisch, pill-foermig, keine sichtbare Aussenflaeche
+- Overlay-Fenster: kompakte `256x52` Host-Buehne fuer Live-Aufnahme mit `248x44` Pill; Preview- und Result-States duerfen innerhalb desselben Host-Pfads auf breitere Frames wachsen, damit `Copy`, `Retry`, `Restore`, `Abort` und `Done` voll lesbar bleiben. Idle wird nativ ausserhalb des sichtbaren Bereichs geparkt
 - Settings-Fenster: `1080x820`, Mindestgroesse `980x760`
 - Diagnostics-Pop-out: `1040x780`, Mindestgroesse `900x680`
 - Sidebar + Main-Panel statt frei schwebender Card-Landschaft
@@ -124,11 +128,21 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 
 ## Overlay-Regeln
 
-- linke Mic-Aktion fuer Mute
+- linke Mic-Aktion fuer Mute nur im Aufnahme-/Processing-Zustand ohne Action-Strip
 - zentrale Waveform ohne erklaerenden Hilfetext im Normalfall
 - rechte Timerzone fuer Zeit und Kontextaktion
 - Fehlerhinweise so knapp wie moeglich, aber handlungsorientiert
 - keine Sweep-, Glow- oder Blur-Layer ausserhalb der sichtbaren Pill
+- nach dem Lauf darf das Overlay seinen Inhalt innerhalb derselben festen Pill auf Action-Buttons umschalten, aber keine zweite vergroesserte Preview-Surface mit eigenem Hintergrund aufmachen
+- Nachlauf-Quick-Actions bleiben knapp und produktiv: nur Aktionen mit echter nativer Bindung (`copy`, `retry`, `restore`, `done`) duerfen als Buttons erscheinen
+- Processing-Preview-Aktionen bleiben ebenso knapp: fuer den ersten Pass duerfen nur echte Session-Aktionen wie Commit entlang des nativen Insert-Pfads oder expliziter Abort sichtbar sein
+- die sichtbare Hostflaeche muss auf die Pill-Form geclippt sein; schwarze oder stale Restflaechen ausserhalb der Pill gelten weiterhin als Defekt
+- derselbe Overlay-Pfad muss gemerkte Manual-Positionen respektieren; ein Statuswechsel von Recording zu Processing oder Action darf die vom Nutzer gezogene Position nicht wieder auf Bottom-Center zuruecksetzen
+- derselbe Overlay-Pfad darf eine gemerkte Manual-Position nur aus echter Drag-Interaktion aktualisieren; Host-Repositions fuer Reveal, Hide, Surface-Wechsel oder Offscreen-Parking gelten nicht als neue Placement-Quelle
+- wenn dieselbe Manual-Position auf Compact-, Preview- oder Result-Surface angewendet wird, muss dieselbe gemerkte Top-Left-Position wiederverwendet werden; ein Oberflaechenwechsel darf die Position nicht auf einen anderen internen Drag-Anker umrechnen
+- Recording-, `working`- und Action-State brauchen eigene Seitenzonen-Breiten und Paddingwerte, wenn sonst der rechte Rand optisch schwerer wird als die Mic-Seite; Gleichgewicht pro Zustand ist wichtiger als ein einziger statischer Grid-Wert fuer alle Overlay-Situationen
+- derselbe Overlay-Pfad muss in jedem Zustand dragbar bleiben, ohne Single-Click-Aktionen auf Buttons zu verlieren; die Drag-Geste beginnt deshalb erst nach echter Pointer-Bewegung
+- die Waveform soll Sprache sichtbar aussteuern; near-idle Raumrauschen soll wieder in eine ruhige Idle-Silhouette zurueckfallen, waehrend echte Sprache klar hoeher und lebendiger aussteuern darf als im Idle-Zustand
 
 ## Settings-Regeln
 
@@ -143,6 +157,7 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 - Save-Bar bleibt ruhig und funktional
 - About-/Trust-Flaechen muessen Plattformvoraussetzungen und ehrliche Grenzen sichtbar getrennt zeigen, nicht in einen neutralen Absatz verstecken
 - Release-Aufbauflaechen im About-Tab sind erlaubt, wenn sie klar `in progress` markieren und keine live Downloads oder funktionierende In-App-Updates vortaeuschen
+- Release-Aufbauflaechen duerfen workflow-interne Draft-Handoffs benennen, aber Statusfelder wie `Latest published tag` muessen sich weiterhin nur auf oeffentlich sichtbare Releases beziehen
 - Provider & Models muss Groq-Authentifizierung sichtbar von Local-Runtime-Voraussetzungen trennen; API-Key-UI darf fuer `local_preview` nicht erscheinen, dafuer aber eine native Preflight-Checkliste mit Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Status
 - Input darf den ersten Diktierpfad als kompakte Preflight-Checkliste zeigen: Trigger, Mikrofon, Insert-Pfad und Recovery. Diese Flaeche muss bestehende native Statuswerte verdichten und darf keine neue Readiness-Semantik einfuehren.
 
@@ -150,7 +165,7 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 
 Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 
-- lokale Textprofile kapseln `Transcription Context`, optionale `STT hints`, Dictionary und Snippets als konkreten Arbeitsmodus
+- lokale Textprofile kapseln `Transcription Context`, optionale `STT hints`, Dictionary, Snippets sowie Rewrite-, Insert- und Recovery-Defaults als konkreten Arbeitsmodus
 - `Transcription Context` bleibt innerhalb des aktiven Profils primaer STT-Hilfe; wenn AI cleanup laeuft, darf derselbe Context nur als konservativer Preserve-Hinweis fuer Termini und Sprachmix dienen, nie als semantische Regelmaschine
 - `STT hints` sind ein eigenes explizites Feld fuer wenige kurze gesprochene Cues oder Alternativphrasen, die wirklich in den STT-Bias sollen; Snippet-Trigger duerfen nicht stillschweigend denselben Zweck uebernehmen
 - Dictionary und Snippets arbeiten literal und case-insensitive
@@ -158,10 +173,10 @@ Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 - Preview und Validation muessen gegen denselben nativen Analysepfad laufen
 - UI-Copy fuer AI cleanup muss klar machen, dass gemischte Sprache, Umgangssprache und Produktterme eher geschuetzt als umgeschrieben werden; die Flaeche darf keine semantische Fuzzy-Automation versprechen
 - die Settings-Sidebar muss den aktiven Profilzustand global sichtbar machen; schneller Wechsel lebt dort, tiefes Profil-Editing bleibt in Text Rules
-- Text Rules soll als gefuehrter Ablauf organisiert sein: zuerst eine kompakte Setup-Zone fuer Profilbearbeitung und sekundare Hilfe fuer kuratierte Profile; danach sitzt die Schritt-Navigation oben ueber der aktiven Arbeitsflaeche; darunter bleibt immer genau eine dominante Bearbeitungsstufe statt mehrerer gleichgewichtiger Hauptflaechen
+- Text Rules soll als gefuehrter Ablauf organisiert sein: zuerst eine kompakte Profilbibliothek fuer aktive, eigene und eingeschlossene Profile; danach sitzt die Schritt-Navigation oben ueber der aktiven Arbeitsflaeche; darunter bleibt immer genau eine dominante Bearbeitungsstufe statt mehrerer gleichgewichtiger Hauptflaechen
 - oberhalb der Setup-Zone darf nur eine knappe Prozesszusammenfassung stehen; Import/Export und Diagnose-Hilfen bleiben Utility-Ebene und duerfen die aktive Bearbeitungsstufe nicht optisch ueberholen
 - die Schritt-Navigation darf im Scroll-Kontext praesent bleiben, solange sie nicht mobilen oder kleinen Settings-Fenstern den Arbeitsraum nimmt
-- kuratierte Profile muessen als normale persistierte User-Profile erscheinen, nur mit sichtbarem `Curated`-Status bis zur ersten echten Bearbeitung; sie duerfen keine versteckte zweite Ownership-Flaeche oder Assistant-Persona erzeugen
+- eingeschlossene Profile muessen als normale persistierte User-Profile erscheinen, nur mit sichtbarem `Included`-Status bis zur ersten echten Bearbeitung; sie duerfen keine versteckte zweite Ownership-Flaeche oder Assistant-Persona erzeugen
 - Profilwechsel muss sichtbar denselben aktiven Regelbestand fuer Preview, Import/Export und Runtime umschalten
 - Diagnostics-Hinweise sollen auf konkrete Regelkarten zurueckfuehren
 

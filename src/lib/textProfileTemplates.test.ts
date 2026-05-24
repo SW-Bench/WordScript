@@ -12,6 +12,7 @@ describe("textProfileTemplates", () => {
     expect(profile.label).toBe("Customer success replies 2");
     expect(profile.id).toMatch(/^profile-/);
     expect(profile.stt_hints).toContain("status update");
+    expect(profile.work_mode).toEqual(supportTemplate!.work_mode);
     expect(profile.curation.curated).toBe(false);
     expect(profile.dictionary_entries).toHaveLength(supportTemplate!.dictionary_entries.length);
     expect(profile.snippet_entries).toHaveLength(supportTemplate!.snippet_entries.length);
@@ -45,6 +46,7 @@ describe("textProfileTemplates", () => {
 
     expect(merged.label).toBe("General writing");
   expect(merged.curation).toEqual(createEmptyTextProfileCuration());
+  expect(merged.work_mode).toEqual(supportTemplate!.work_mode);
     expect(merged.prompt).toContain("custom org names");
     expect(merged.prompt).toContain("incident severity");
     expect(merged.stt_hints).toContain("existing guided phrase");

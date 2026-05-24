@@ -82,6 +82,7 @@ export function createTextProfileFromTemplate(profile: TextProfile, takenLabels:
 
 export function mergeTemplateIntoTextProfile(profile: TextProfile, sourceProfile: TextProfile): TextProfile {
   const nextProfile = clearTextProfileCuration(profile);
+  nextProfile.work_mode = cloneTextProfile(sourceProfile).work_mode;
 
   nextProfile.prompt = mergeLineList(nextProfile.prompt, sourceProfile.prompt);
   nextProfile.stt_hints = mergeLineList(nextProfile.stt_hints, sourceProfile.stt_hints);

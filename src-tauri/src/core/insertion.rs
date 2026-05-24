@@ -13,6 +13,7 @@ use enigo::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
+use super::config::AppConfig;
 use super::paths::{config_file_path, scratchpad_file_path};
 use super::runtime_log;
 use super::sessions::now_ms;
@@ -101,6 +102,8 @@ impl NativeInsertionConfig {
         if let Some(auto_paste) = value.get("auto_paste").and_then(|value| value.as_bool()) {
             config.auto_paste = auto_paste;
         }
+        let app_config = AppConfig::load_from_disk();
+        config.auto_paste = app_config.active_text_profile_auto_paste();
         config
     }
 }
@@ -426,6 +429,7 @@ pub fn insert_transcription_from_legacy<R: Runtime>(
     app: &AppHandle<R>,
     text: &str,
     corrected: bool,
+    auto_paste: Option<bool>,
 ) -> Result<NativeInsertResult, String> {
     let started_at = Instant::now();
     let state = app
@@ -443,7 +447,7 @@ pub fn insert_transcription_from_legacy<R: Runtime>(
             .to_string(),
         ),
         corrected: Some(corrected),
-        auto_paste: None,
+        auto_paste,
     });
     drop(state);
 
@@ -713,11 +717,11 @@ fn run_paste_driver_chain(
     for driver in execution_chain {
         match io.paste_with_driver(driver) {
             Ok(()) => {
-            runtime_log::record(format!(
-                "[WordScript] Native insert paste strategy={} elapsed_ms={}",
-                driver.label(),
-                started_at.elapsed().as_millis(),
-            ));
+                runtime_log::record(format!(
+                    "[WordScript] Native insert paste strategy={} elapsed_ms={}",
+                    driver.label(),
+                    started_at.elapsed().as_millis(),
+                ));
                 return Ok(driver);
             }
             Err(error) => errors.push(format!("{}: {error}", driver.label())),
@@ -787,9 +791,7 @@ fn no_available_paste_driver_reason(platform: &NativeInsertPlatformContext) -> S
 
 fn command_in_path(program: &str) -> bool {
     std::env::var_os("PATH")
-        .map(|paths| {
-            std::env::split_paths(&paths).any(|path| executable_exists(&path, program))
-        })
+        .map(|paths| std::env::split_paths(&paths).any(|path| executable_exists(&path, program)))
         .unwrap_or(false)
 }
 
@@ -902,7 +904,9 @@ fn platform_status(auto_paste: bool) -> NativeInsertionPlatformStatus {
     platform_status_from_context(detect_insert_platform_context(auto_paste))
 }
 
-fn platform_status_from_context(platform: NativeInsertPlatformContext) -> NativeInsertionPlatformStatus {
+fn platform_status_from_context(
+    platform: NativeInsertPlatformContext,
+) -> NativeInsertionPlatformStatus {
     let active_driver = preferred_active_driver(&platform);
     let driver_chain = build_driver_chain(&platform, active_driver);
     let (readiness, readiness_message) = platform_readiness(&platform);
@@ -1144,7 +1148,10 @@ fn preferred_active_driver(platform: &NativeInsertPlatformContext) -> NativeInse
         }
     }
 
-    if let Some(driver) = clipboard_driver_execution_chain(platform).into_iter().next() {
+    if let Some(driver) = clipboard_driver_execution_chain(platform)
+        .into_iter()
+        .next()
+    {
         return driver;
     }
 
@@ -1464,14 +1471,20 @@ mod tests {
         assert_eq!(result.insert_mode, NativeInsertMode::DirectPaste);
         assert_eq!(result.active_driver, NativeInsertDriver::Enigo);
         assert_eq!(result.recovery_action, NativeInsertRecoveryAction::None);
-        assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::Scheduled);
+        assert_eq!(
+            result.clipboard_restore,
+            NativeClipboardRestoreStatus::Scheduled
+        );
         assert_eq!(io.waits, vec![5]);
         assert_eq!(io.clipboard_texts, vec!["Hello world".to_string()]);
         assert_eq!(io.clipboard_drivers, vec![NativeInsertDriver::Arboard]);
         assert_eq!(io.paste_drivers, vec![NativeInsertDriver::Enigo]);
         assert_eq!(
             io.scheduled_restores,
-            vec![(Some("Previous clipboard".to_string()), CLIPBOARD_RESTORE_DELAY_MS)]
+            vec![(
+                Some("Previous clipboard".to_string()),
+                CLIPBOARD_RESTORE_DELAY_MS
+            )]
         );
     }
 
@@ -1531,9 +1544,17 @@ mod tests {
         assert_eq!(result.insert_mode, NativeInsertMode::ClipboardFallback);
         assert!(result.fallback_available);
         assert_eq!(result.active_driver, NativeInsertDriver::Arboard);
-        assert_eq!(result.recovery_action, NativeInsertRecoveryAction::ManualPaste);
-        assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::NotAttempted);
-        assert!(result.recovery_message.contains("transcript is on the clipboard"));
+        assert_eq!(
+            result.recovery_action,
+            NativeInsertRecoveryAction::ManualPaste
+        );
+        assert_eq!(
+            result.clipboard_restore,
+            NativeClipboardRestoreStatus::NotAttempted
+        );
+        assert!(result
+            .recovery_message
+            .contains("transcript is on the clipboard"));
         assert_eq!(
             result.fallback_reason.as_deref(),
             Some(
@@ -1589,8 +1610,14 @@ mod tests {
         assert!(!result.ok);
         assert_eq!(result.insert_mode, NativeInsertMode::ScratchpadFallback);
         assert_eq!(result.active_driver, NativeInsertDriver::Scratchpad);
-        assert_eq!(result.recovery_action, NativeInsertRecoveryAction::UseScratchpad);
-        assert_eq!(result.clipboard_restore, NativeClipboardRestoreStatus::NotAttempted);
+        assert_eq!(
+            result.recovery_action,
+            NativeInsertRecoveryAction::UseScratchpad
+        );
+        assert_eq!(
+            result.clipboard_restore,
+            NativeClipboardRestoreStatus::NotAttempted
+        );
         assert!(result.recovery_message.contains("recovery scratchpad"));
         assert!(io.paste_drivers.is_empty());
         assert!(io.scheduled_restores.is_empty());

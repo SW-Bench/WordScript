@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Runtime};
 
-use super::config::AppConfig;
+use super::config::{AppConfig, TextProfileWorkMode};
 use super::insertion::{
     insert_transcription_from_legacy, NativeClipboardRestoreStatus, NativeInsertDriver,
     NativeInsertMode, NativeInsertRecoveryAction, NativeInsertResult,
@@ -44,6 +44,8 @@ pub struct TranscriptionHistoryEntry {
     pub model: Option<String>,
     pub language: Option<String>,
     pub active_profile: Option<String>,
+    #[serde(default)]
+    pub work_mode: Option<TextProfileWorkMode>,
     pub provider_profile: Option<String>,
     pub local_prompt_strength: Option<String>,
     pub local_prompt_carry: Option<bool>,
@@ -203,7 +205,9 @@ fn load_history_entries() -> VecDeque<TranscriptionHistoryEntry> {
     };
 
     let mut entries = serde_json::from_str::<VecDeque<TranscriptionHistoryEntry>>(&raw)
-        .or_else(|_| serde_json::from_str::<Vec<TranscriptionHistoryEntry>>(&raw).map(VecDeque::from))
+        .or_else(|_| {
+            serde_json::from_str::<Vec<TranscriptionHistoryEntry>>(&raw).map(VecDeque::from)
+        })
         .unwrap_or_else(|_| VecDeque::with_capacity(DEFAULT_HISTORY_LIMIT));
     prune_entries_for_runtime(&mut entries);
     entries
@@ -224,7 +228,17 @@ fn next_history_id(created_at_ms: u64, entries_len: usize) -> String {
     format!("history-{created_at_ms}-{entries_len}")
 }
 
-pub fn record_entry(request: RecordHistoryEntryRequest) -> Result<TranscriptionHistoryEntry, String> {
+#[cfg(test)]
+pub fn record_entry(
+    request: RecordHistoryEntryRequest,
+) -> Result<TranscriptionHistoryEntry, String> {
+    record_entry_with_work_mode(request, None)
+}
+
+fn record_entry_with_work_mode(
+    request: RecordHistoryEntryRequest,
+    work_mode: Option<TextProfileWorkMode>,
+) -> Result<TranscriptionHistoryEntry, String> {
     let mut store = history_store().lock().map_err(|error| error.to_string())?;
     ensure_loaded(&mut store);
 
@@ -239,6 +253,7 @@ pub fn record_entry(request: RecordHistoryEntryRequest) -> Result<TranscriptionH
         model: request.model,
         language: request.language,
         active_profile: request.active_profile,
+        work_mode,
         provider_profile: request.provider_profile,
         local_prompt_strength: request.local_prompt_strength,
         local_prompt_carry: request.local_prompt_carry,
@@ -365,21 +380,244 @@ pub async fn retry_transcription_history_entry<R: Runtime>(
 
     runtime_log::record(format!(
         "[WordScript] History retry start entry_id={} provider={} post_process={}",
-        existing.id,
-        transform_config.provider,
-        transform_config.post_process,
+        existing.id, transform_config.provider, transform_config.post_process,
     ));
 
     let transformed = apply_native_transform(&raw_transcript, transform_config.clone()).await;
     let transformed_text = transformed.text.trim().to_string();
 
     let retried_entry = if transformed_text.is_empty() {
-        record_entry(RecordHistoryEntryRequest {
+        record_entry_with_work_mode(
+            RecordHistoryEntryRequest {
+                status: TranscriptionHistoryStatus::Empty,
+                source: TranscriptionHistorySource::Retry,
+                retry_of: Some(existing.id.clone()),
+                provider: transform_config.provider,
+                model: Some(active_model_for_provider(&app_config)),
+                language: optional_non_empty(&app_config.language),
+                active_profile: app_config.active_text_profile_label(),
+                provider_profile: local_history.provider_profile,
+                local_prompt_strength: local_history.local_prompt_strength,
+                local_prompt_carry: local_history.local_prompt_carry,
+                local_beam_size: local_history.local_beam_size,
+                local_best_of: local_history.local_best_of,
+                raw_transcript: Some(raw_transcript),
+                transformed_transcript: None,
+                corrected: transformed.corrected,
+                applied_rules: transformed.applied_rules,
+                transform_warning: transformed.warning,
+                insert_mode: None,
+                active_driver: None,
+                pasted: None,
+                fallback_available: None,
+                fallback_reason: None,
+                recovery_action: None,
+                recovery_message: None,
+                clipboard_restore: None,
+                error: Some("Retry produced no usable transcript.".to_string()),
+            },
+            Some(app_config.resolved_active_text_profile_work_mode()),
+        )?
+    } else {
+        let insert_result = insert_transcription_from_legacy(
+            &app,
+            &transformed_text,
+            transformed.corrected,
+            Some(app_config.active_text_profile_auto_paste()),
+        )
+        .map_err(|error| error.to_string())?;
+
+        let entry = history_entry_from_insert_result(
+            &app_config,
+            Some(existing.id.as_str()),
+            Some(raw_transcript),
+            transformed,
+            &insert_result,
+        )?;
+
+        if insert_result.ok {
+            let _ = app.emit(
+                "wordscript-event",
+                serde_json::json!({
+                    "event": "transcription",
+                    "text": transformed_text,
+                    "corrected": entry.corrected,
+                    "provider": entry.provider,
+                    "active_profile": entry.active_profile,
+                    "work_mode": entry.work_mode,
+                    "raw_text": entry.raw_transcript,
+                    "transform": {
+                        "applied_rules": entry.applied_rules,
+                        "warning": entry.transform_warning,
+                    },
+                    "history": {
+                        "entry_id": entry.id,
+                        "retry_of": entry.retry_of,
+                    },
+                    "insertion": insert_result,
+                }),
+            );
+        }
+
+        entry
+    };
+
+    runtime_log::record(format!(
+        "[WordScript] History retry done entry_id={} retry_of={:?} status={:?}",
+        retried_entry.id, retried_entry.retry_of, retried_entry.status,
+    ));
+
+    Ok(retried_entry)
+}
+
+pub fn history_entry_from_insert_result(
+    app_config: &AppConfig,
+    retry_of: Option<&str>,
+    raw_transcript: Option<String>,
+    transformed: NativeTransformResult,
+    insert_result: &NativeInsertResult,
+) -> Result<TranscriptionHistoryEntry, String> {
+    let local_history = local_history_context(app_config);
+
+    record_entry_with_work_mode(
+        RecordHistoryEntryRequest {
+            status: if insert_result.ok {
+                TranscriptionHistoryStatus::Completed
+            } else {
+                TranscriptionHistoryStatus::Failed
+            },
+            source: if retry_of.is_some() {
+                TranscriptionHistorySource::Retry
+            } else {
+                TranscriptionHistorySource::NativePipeline
+            },
+            retry_of: retry_of.map(ToString::to_string),
+            provider: app_config.provider.clone(),
+            model: Some(active_model_for_provider(app_config)),
+            language: optional_non_empty(&app_config.language),
+            active_profile: app_config.active_text_profile_label(),
+            provider_profile: local_history.provider_profile,
+            local_prompt_strength: local_history.local_prompt_strength,
+            local_prompt_carry: local_history.local_prompt_carry,
+            local_beam_size: local_history.local_beam_size,
+            local_best_of: local_history.local_best_of,
+            raw_transcript,
+            transformed_transcript: Some(insert_result.text.clone()),
+            corrected: transformed.corrected,
+            applied_rules: transformed.applied_rules,
+            transform_warning: transformed.warning,
+            insert_mode: Some(insert_result.insert_mode.clone()),
+            active_driver: Some(insert_result.active_driver),
+            pasted: Some(insert_result.pasted),
+            fallback_available: Some(insert_result.fallback_available),
+            fallback_reason: insert_result.fallback_reason.clone(),
+            recovery_action: Some(insert_result.recovery_action),
+            recovery_message: Some(insert_result.recovery_message.clone()),
+            clipboard_restore: Some(insert_result.clipboard_restore),
+            error: insert_result.error.clone(),
+        },
+        Some(app_config.resolved_active_text_profile_work_mode()),
+    )
+}
+
+pub fn record_insert_failure(
+    app_config: &AppConfig,
+    raw_transcript: String,
+    transformed_text: String,
+    transformed: NativeTransformResult,
+    error: String,
+) -> Result<TranscriptionHistoryEntry, String> {
+    let local_history = local_history_context(app_config);
+
+    record_entry_with_work_mode(
+        RecordHistoryEntryRequest {
+            status: TranscriptionHistoryStatus::Failed,
+            source: TranscriptionHistorySource::NativePipeline,
+            retry_of: None,
+            provider: app_config.provider.clone(),
+            model: Some(active_model_for_provider(app_config)),
+            language: optional_non_empty(&app_config.language),
+            active_profile: app_config.active_text_profile_label(),
+            provider_profile: local_history.provider_profile,
+            local_prompt_strength: local_history.local_prompt_strength,
+            local_prompt_carry: local_history.local_prompt_carry,
+            local_beam_size: local_history.local_beam_size,
+            local_best_of: local_history.local_best_of,
+            raw_transcript: Some(raw_transcript),
+            transformed_transcript: Some(transformed_text),
+            corrected: transformed.corrected,
+            applied_rules: transformed.applied_rules,
+            transform_warning: transformed.warning,
+            insert_mode: None,
+            active_driver: None,
+            pasted: None,
+            fallback_available: None,
+            fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
+            error: Some(error),
+        },
+        Some(app_config.resolved_active_text_profile_work_mode()),
+    )
+}
+
+pub fn record_transcription_failure(
+    app_config: &AppConfig,
+    provider: &str,
+    model: Option<String>,
+    language: Option<String>,
+    error: String,
+) -> Result<TranscriptionHistoryEntry, String> {
+    let local_history = local_history_context(app_config);
+
+    record_entry_with_work_mode(
+        RecordHistoryEntryRequest {
+            status: TranscriptionHistoryStatus::Failed,
+            source: TranscriptionHistorySource::NativePipeline,
+            retry_of: None,
+            provider: provider.to_string(),
+            model,
+            language,
+            active_profile: app_config.active_text_profile_label(),
+            provider_profile: local_history.provider_profile,
+            local_prompt_strength: local_history.local_prompt_strength,
+            local_prompt_carry: local_history.local_prompt_carry,
+            local_beam_size: local_history.local_beam_size,
+            local_best_of: local_history.local_best_of,
+            raw_transcript: None,
+            transformed_transcript: None,
+            corrected: false,
+            applied_rules: Vec::new(),
+            transform_warning: None,
+            insert_mode: None,
+            active_driver: None,
+            pasted: None,
+            fallback_available: None,
+            fallback_reason: None,
+            recovery_action: None,
+            recovery_message: None,
+            clipboard_restore: None,
+            error: Some(error),
+        },
+        Some(app_config.resolved_active_text_profile_work_mode()),
+    )
+}
+
+pub fn record_empty_result(
+    app_config: &AppConfig,
+    raw_transcript: String,
+    transformed: NativeTransformResult,
+) -> Result<TranscriptionHistoryEntry, String> {
+    let local_history = local_history_context(app_config);
+
+    record_entry_with_work_mode(
+        RecordHistoryEntryRequest {
             status: TranscriptionHistoryStatus::Empty,
-            source: TranscriptionHistorySource::Retry,
-            retry_of: Some(existing.id.clone()),
-            provider: transform_config.provider,
-            model: Some(active_model_for_provider(&app_config)),
+            source: TranscriptionHistorySource::NativePipeline,
+            retry_of: None,
+            provider: app_config.provider.clone(),
+            model: Some(active_model_for_provider(app_config)),
             language: optional_non_empty(&app_config.language),
             active_profile: app_config.active_text_profile_label(),
             provider_profile: local_history.provider_profile,
@@ -400,210 +638,10 @@ pub async fn retry_transcription_history_entry<R: Runtime>(
             recovery_action: None,
             recovery_message: None,
             clipboard_restore: None,
-            error: Some("Retry produced no usable transcript.".to_string()),
-        })?
-    } else {
-        let insert_result = insert_transcription_from_legacy(&app, &transformed_text, transformed.corrected)
-            .map_err(|error| error.to_string())?;
-
-        let entry = history_entry_from_insert_result(
-            &app_config,
-            Some(existing.id.as_str()),
-            Some(raw_transcript),
-            transformed,
-            &insert_result,
-        )?;
-
-        if insert_result.ok {
-            let _ = app.emit(
-                "wordscript-event",
-                serde_json::json!({
-                    "event": "transcription",
-                    "text": transformed_text,
-                    "corrected": entry.corrected,
-                    "provider": entry.provider,
-                    "history": {
-                        "entry_id": entry.id,
-                        "retry_of": entry.retry_of,
-                    },
-                    "insertion": insert_result,
-                }),
-            );
-        }
-
-        entry
-    };
-
-    runtime_log::record(format!(
-        "[WordScript] History retry done entry_id={} retry_of={:?} status={:?}",
-        retried_entry.id,
-        retried_entry.retry_of,
-        retried_entry.status,
-    ));
-
-    Ok(retried_entry)
-}
-
-pub fn history_entry_from_insert_result(
-    app_config: &AppConfig,
-    retry_of: Option<&str>,
-    raw_transcript: Option<String>,
-    transformed: NativeTransformResult,
-    insert_result: &NativeInsertResult,
-) -> Result<TranscriptionHistoryEntry, String> {
-    let local_history = local_history_context(app_config);
-
-    record_entry(RecordHistoryEntryRequest {
-        status: if insert_result.ok {
-            TranscriptionHistoryStatus::Completed
-        } else {
-            TranscriptionHistoryStatus::Failed
+            error: Some("Pipeline produced no usable transcript.".to_string()),
         },
-        source: if retry_of.is_some() {
-            TranscriptionHistorySource::Retry
-        } else {
-            TranscriptionHistorySource::NativePipeline
-        },
-        retry_of: retry_of.map(ToString::to_string),
-        provider: app_config.provider.clone(),
-        model: Some(active_model_for_provider(app_config)),
-        language: optional_non_empty(&app_config.language),
-        active_profile: app_config.active_text_profile_label(),
-        provider_profile: local_history.provider_profile,
-        local_prompt_strength: local_history.local_prompt_strength,
-        local_prompt_carry: local_history.local_prompt_carry,
-        local_beam_size: local_history.local_beam_size,
-        local_best_of: local_history.local_best_of,
-        raw_transcript,
-        transformed_transcript: Some(insert_result.text.clone()),
-        corrected: transformed.corrected,
-        applied_rules: transformed.applied_rules,
-        transform_warning: transformed.warning,
-        insert_mode: Some(insert_result.insert_mode.clone()),
-        active_driver: Some(insert_result.active_driver),
-        pasted: Some(insert_result.pasted),
-        fallback_available: Some(insert_result.fallback_available),
-        fallback_reason: insert_result.fallback_reason.clone(),
-        recovery_action: Some(insert_result.recovery_action),
-        recovery_message: Some(insert_result.recovery_message.clone()),
-        clipboard_restore: Some(insert_result.clipboard_restore),
-        error: insert_result.error.clone(),
-    })
-}
-
-pub fn record_insert_failure(
-    app_config: &AppConfig,
-    raw_transcript: String,
-    transformed_text: String,
-    transformed: NativeTransformResult,
-    error: String,
-) -> Result<TranscriptionHistoryEntry, String> {
-    let local_history = local_history_context(app_config);
-
-    record_entry(RecordHistoryEntryRequest {
-        status: TranscriptionHistoryStatus::Failed,
-        source: TranscriptionHistorySource::NativePipeline,
-        retry_of: None,
-        provider: app_config.provider.clone(),
-        model: Some(active_model_for_provider(app_config)),
-        language: optional_non_empty(&app_config.language),
-        active_profile: app_config.active_text_profile_label(),
-        provider_profile: local_history.provider_profile,
-        local_prompt_strength: local_history.local_prompt_strength,
-        local_prompt_carry: local_history.local_prompt_carry,
-        local_beam_size: local_history.local_beam_size,
-        local_best_of: local_history.local_best_of,
-        raw_transcript: Some(raw_transcript),
-        transformed_transcript: Some(transformed_text),
-        corrected: transformed.corrected,
-        applied_rules: transformed.applied_rules,
-        transform_warning: transformed.warning,
-        insert_mode: None,
-        active_driver: None,
-        pasted: None,
-        fallback_available: None,
-        fallback_reason: None,
-        recovery_action: None,
-        recovery_message: None,
-        clipboard_restore: None,
-        error: Some(error),
-    })
-}
-
-pub fn record_transcription_failure(
-    app_config: &AppConfig,
-    provider: &str,
-    model: Option<String>,
-    language: Option<String>,
-    error: String,
-) -> Result<TranscriptionHistoryEntry, String> {
-    let local_history = local_history_context(app_config);
-
-    record_entry(RecordHistoryEntryRequest {
-        status: TranscriptionHistoryStatus::Failed,
-        source: TranscriptionHistorySource::NativePipeline,
-        retry_of: None,
-        provider: provider.to_string(),
-        model,
-        language,
-        active_profile: app_config.active_text_profile_label(),
-        provider_profile: local_history.provider_profile,
-        local_prompt_strength: local_history.local_prompt_strength,
-        local_prompt_carry: local_history.local_prompt_carry,
-        local_beam_size: local_history.local_beam_size,
-        local_best_of: local_history.local_best_of,
-        raw_transcript: None,
-        transformed_transcript: None,
-        corrected: false,
-        applied_rules: Vec::new(),
-        transform_warning: None,
-        insert_mode: None,
-        active_driver: None,
-        pasted: None,
-        fallback_available: None,
-        fallback_reason: None,
-        recovery_action: None,
-        recovery_message: None,
-        clipboard_restore: None,
-        error: Some(error),
-    })
-}
-
-pub fn record_empty_result(
-    app_config: &AppConfig,
-    raw_transcript: String,
-    transformed: NativeTransformResult,
-) -> Result<TranscriptionHistoryEntry, String> {
-    let local_history = local_history_context(app_config);
-
-    record_entry(RecordHistoryEntryRequest {
-        status: TranscriptionHistoryStatus::Empty,
-        source: TranscriptionHistorySource::NativePipeline,
-        retry_of: None,
-        provider: app_config.provider.clone(),
-        model: Some(active_model_for_provider(app_config)),
-        language: optional_non_empty(&app_config.language),
-        active_profile: app_config.active_text_profile_label(),
-        provider_profile: local_history.provider_profile,
-        local_prompt_strength: local_history.local_prompt_strength,
-        local_prompt_carry: local_history.local_prompt_carry,
-        local_beam_size: local_history.local_beam_size,
-        local_best_of: local_history.local_best_of,
-        raw_transcript: Some(raw_transcript),
-        transformed_transcript: None,
-        corrected: transformed.corrected,
-        applied_rules: transformed.applied_rules,
-        transform_warning: transformed.warning,
-        insert_mode: None,
-        active_driver: None,
-        pasted: None,
-        fallback_available: None,
-        fallback_reason: None,
-        recovery_action: None,
-        recovery_message: None,
-        clipboard_restore: None,
-        error: Some("Pipeline produced no usable transcript.".to_string()),
-    })
+        Some(app_config.resolved_active_text_profile_work_mode()),
+    )
 }
 
 fn transform_config_from_app_config(config: &AppConfig) -> NativeTransformConfig {
@@ -620,8 +658,8 @@ fn transform_config_from_app_config(config: &AppConfig) -> NativeTransformConfig
         } else {
             config.correction_model.clone()
         },
-        filter_fillers: config.filter_fillers,
-        professionalize: config.professionalize,
+        filter_fillers: config.active_text_profile_filter_fillers(),
+        professionalize: config.active_text_profile_professionalize(),
     }
 }
 
@@ -666,7 +704,10 @@ fn runtime_history_policy() -> (usize, u32) {
     #[cfg(test)]
     if let Ok(guard) = history_policy_override().lock() {
         if let Some((history_limit, history_retention_days)) = *guard {
-            return (history_limit.clamp(25, 1000), history_retention_days.min(3650));
+            return (
+                history_limit.clamp(25, 1000),
+                history_retention_days.min(3650),
+            );
         }
     }
 
@@ -687,12 +728,7 @@ fn configured_history_retention_days(config: &AppConfig) -> u32 {
 
 fn prune_entries_for_runtime(entries: &mut VecDeque<TranscriptionHistoryEntry>) {
     let (history_limit, history_retention_days) = runtime_history_policy();
-    prune_entries(
-        entries,
-        history_limit,
-        history_retention_days,
-        now_ms(),
-    );
+    prune_entries(entries, history_limit, history_retention_days, now_ms());
 }
 
 fn prune_entries(
@@ -702,7 +738,8 @@ fn prune_entries(
     reference_now_ms: u64,
 ) {
     if history_retention_days > 0 {
-        let cutoff_ms = reference_now_ms.saturating_sub(u64::from(history_retention_days) * MS_PER_DAY);
+        let cutoff_ms =
+            reference_now_ms.saturating_sub(u64::from(history_retention_days) * MS_PER_DAY);
         entries.retain(|entry| entry.created_at_ms >= cutoff_ms);
     }
 
@@ -775,6 +812,24 @@ fn history_entry_matches_search(entry: &TranscriptionHistoryEntry, search: &str)
         || contains(entry.model.as_deref())
         || contains(entry.language.as_deref())
         || contains(entry.active_profile.as_deref())
+        || contains(
+            entry
+                .work_mode
+                .as_ref()
+                .map(|work_mode| work_mode.rewrite_style.as_str()),
+        )
+        || contains(
+            entry
+                .work_mode
+                .as_ref()
+                .map(|work_mode| work_mode.insert_behavior.as_str()),
+        )
+        || contains(
+            entry
+                .work_mode
+                .as_ref()
+                .map(|work_mode| work_mode.recovery_behavior.as_str()),
+        )
         || contains(entry.provider_profile.as_deref())
         || contains(entry.local_prompt_strength.as_deref())
         || contains(entry.raw_transcript.as_deref())
@@ -875,7 +930,9 @@ mod tests {
         assert_eq!(entries.len(), DEFAULT_HISTORY_LIMIT);
         assert!(path.is_file());
         assert_eq!(
-            entries.last().and_then(|entry| entry.raw_transcript.as_deref()),
+            entries
+                .last()
+                .and_then(|entry| entry.raw_transcript.as_deref()),
             Some("raw-5")
         );
     }
@@ -946,10 +1003,11 @@ mod tests {
         })
         .expect("second history entry");
 
-        let remaining = delete_transcription_history_entry(DeleteTranscriptionHistoryEntryRequest {
-            id: first.id,
-        })
-        .expect("delete history entry");
+        let remaining =
+            delete_transcription_history_entry(DeleteTranscriptionHistoryEntryRequest {
+                id: first.id,
+            })
+            .expect("delete history entry");
 
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].raw_transcript.as_deref(), Some("zwei"));
@@ -1035,7 +1093,10 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].provider, "local_preview");
         assert_eq!(filtered[0].active_profile.as_deref(), Some("support"));
-        assert_eq!(filtered[0].provider_profile.as_deref(), Some("local-preview-base-quality"));
+        assert_eq!(
+            filtered[0].provider_profile.as_deref(),
+            Some("local-preview-base-quality")
+        );
     }
 
     #[test]
@@ -1140,6 +1201,7 @@ mod tests {
                 model: None,
                 language: None,
                 active_profile: None,
+                work_mode: None,
                 provider_profile: None,
                 local_prompt_strength: None,
                 local_prompt_carry: None,
@@ -1170,6 +1232,7 @@ mod tests {
                 model: None,
                 language: None,
                 active_profile: None,
+                work_mode: None,
                 provider_profile: None,
                 local_prompt_strength: None,
                 local_prompt_carry: None,
@@ -1200,6 +1263,7 @@ mod tests {
                 model: None,
                 language: None,
                 active_profile: None,
+                work_mode: None,
                 provider_profile: None,
                 local_prompt_strength: None,
                 local_prompt_carry: None,
@@ -1267,7 +1331,9 @@ mod tests {
                     fallback_reason: Some("xdotool failed".to_string()),
                     error: Some("xdotool failed".to_string()),
                     recovery_action: NativeInsertRecoveryAction::ManualPaste,
-                    recovery_message: Some("Transcript is on the clipboard. Paste manually.".to_string()),
+                    recovery_message: Some(
+                        "Transcript is on the clipboard. Paste manually.".to_string(),
+                    ),
                     clipboard_restore: NativeClipboardRestoreStatus::NotAttempted,
                 },
                 fallback_available: true,
@@ -1280,8 +1346,21 @@ mod tests {
         )
         .expect("history entry from insert result");
 
-        assert_eq!(entry.recovery_action, Some(NativeInsertRecoveryAction::ManualPaste));
-        assert_eq!(entry.clipboard_restore, Some(NativeClipboardRestoreStatus::NotAttempted));
+        assert_eq!(
+            entry.recovery_action,
+            Some(NativeInsertRecoveryAction::ManualPaste)
+        );
+        assert_eq!(
+            entry
+                .work_mode
+                .as_ref()
+                .map(|work_mode| work_mode.rewrite_style.as_str()),
+            Some("clean")
+        );
+        assert_eq!(
+            entry.clipboard_restore,
+            Some(NativeClipboardRestoreStatus::NotAttempted)
+        );
         assert_eq!(
             entry.recovery_message.as_deref(),
             Some("Transcript is on the clipboard. Paste manually.")

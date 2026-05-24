@@ -4,6 +4,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
+use super::config::{AppConfig, TextProfileWorkMode};
+use super::history;
+use super::insertion::{insert_transcription_from_legacy, NativeInsertResult};
+use super::transform::NativeTransformResult;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum NativeSessionStage {
@@ -50,11 +55,56 @@ pub struct CompleteNativeSessionRequest {
     pub corrected: Option<bool>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingTranscriptionPreviewTransform {
+    pub applied_rules: Vec<String>,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingTranscriptionPreviewEvent {
+    pub provider: String,
+    pub active_profile: Option<String>,
+    pub work_mode: TextProfileWorkMode,
+    pub raw_text: String,
+    pub text: String,
+    pub corrected: bool,
+    pub transform: PendingTranscriptionPreviewTransform,
+    pub occurred_at_ms: u64,
+}
+
 #[derive(Debug, Clone)]
 struct ActiveSession {
     id: String,
     trigger: String,
     started_at_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+struct PendingTranscriptionPreview {
+    app_config: AppConfig,
+    provider: String,
+    raw_text: String,
+    transformed: NativeTransformResult,
+    occurred_at_ms: u64,
+}
+
+impl PendingTranscriptionPreview {
+    fn event_payload(&self) -> PendingTranscriptionPreviewEvent {
+        PendingTranscriptionPreviewEvent {
+            provider: self.provider.clone(),
+            active_profile: self.app_config.active_text_profile_label(),
+            work_mode: self.app_config.resolved_active_text_profile_work_mode(),
+            raw_text: self.raw_text.clone(),
+            text: self.transformed.text.trim().to_string(),
+            corrected: self.transformed.corrected,
+            transform: PendingTranscriptionPreviewTransform {
+                applied_rules: self.transformed.applied_rules.clone(),
+                warning: self.transformed.warning.clone(),
+            },
+            occurred_at_ms: self.occurred_at_ms,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -65,6 +115,7 @@ pub struct NativeSessionState {
     completed_at_ms: Option<u64>,
     last_transcript: Option<String>,
     last_error: Option<String>,
+    pending_preview: Option<PendingTranscriptionPreview>,
 }
 
 impl NativeSessionState {
@@ -100,6 +151,47 @@ impl NativeSessionState {
             .map(|session| session.id.clone())
     }
 
+    fn stage_pending_preview(
+        &mut self,
+        app_config: AppConfig,
+        provider: String,
+        raw_text: String,
+        transformed: NativeTransformResult,
+    ) -> Result<PendingTranscriptionPreviewEvent, String> {
+        if !matches!(self.stage, NativeSessionStage::Processing) || self.active_session.is_none() {
+            return Err("No native session is waiting for a preview commit.".to_string());
+        }
+
+        let preview = PendingTranscriptionPreview {
+            app_config,
+            provider,
+            raw_text,
+            transformed,
+            occurred_at_ms: now_ms(),
+        };
+        let payload = preview.event_payload();
+        self.pending_preview = Some(preview);
+        Ok(payload)
+    }
+
+    fn take_pending_preview(&mut self) -> Result<(String, PendingTranscriptionPreview), String> {
+        if !matches!(self.stage, NativeSessionStage::Processing) {
+            return Err("No native session is waiting for a preview commit.".to_string());
+        }
+
+        let session_id = self
+            .active_session
+            .as_ref()
+            .map(|session| session.id.clone())
+            .ok_or_else(|| "No native session is waiting for a preview commit.".to_string())?;
+        let preview = self
+            .pending_preview
+            .take()
+            .ok_or_else(|| "No pending transcription preview is available.".to_string())?;
+
+        Ok((session_id, preview))
+    }
+
     pub fn is_processing_session_current(&self, session_id: &str) -> bool {
         matches!(self.stage, NativeSessionStage::Processing)
             && self
@@ -129,6 +221,7 @@ impl NativeSessionState {
         self.stage = NativeSessionStage::Capturing;
         self.completed_at_ms = None;
         self.last_error = None;
+        self.pending_preview = None;
         self.active_session = Some(ActiveSession {
             id: format!("native-{}", self.counter),
             trigger,
@@ -185,6 +278,7 @@ impl NativeSessionState {
         self.active_session = None;
         self.completed_at_ms = Some(now_ms());
         self.last_error = None;
+        self.pending_preview = None;
         self.last_transcript = Some(text.into());
         self.status()
     }
@@ -217,6 +311,7 @@ impl NativeSessionState {
         self.stage = NativeSessionStage::Aborted;
         self.active_session = None;
         self.completed_at_ms = Some(now_ms());
+        self.pending_preview = None;
         self.last_error = Some(reason.into());
         self.status()
     }
@@ -237,6 +332,7 @@ impl NativeSessionState {
         self.stage = NativeSessionStage::Error;
         self.active_session = None;
         self.completed_at_ms = Some(now_ms());
+        self.pending_preview = None;
         self.last_error = Some(message.into());
         self.status()
     }
@@ -305,6 +401,148 @@ pub fn complete_native_session(
         &status,
     );
     Ok(status)
+}
+
+#[tauri::command]
+pub fn commit_pending_transcription_preview(
+    app: AppHandle,
+    state: State<'_, Mutex<NativeSessionState>>,
+) -> Result<NativeInsertResult, String> {
+    let (session_id, preview) = {
+        let mut state = state.lock().map_err(|error| error.to_string())?;
+        state.take_pending_preview()?
+    };
+
+    let final_text = preview.transformed.text.trim().to_string();
+    if final_text.is_empty() {
+        return Err(
+            "Pending transcription preview does not contain any text to commit.".to_string(),
+        );
+    }
+
+    match insert_transcription_from_legacy(
+        &app,
+        &final_text,
+        preview.transformed.corrected,
+        Some(preview.app_config.active_text_profile_auto_paste()),
+    ) {
+        Ok(result) if result.ok => {
+            let history_entry = history::history_entry_from_insert_result(
+                &preview.app_config,
+                None,
+                Some(preview.raw_text.clone()),
+                preview.transformed.clone(),
+                &result,
+            )
+            .ok();
+
+            match complete_processing_session_from_transcription(
+                &app,
+                &session_id,
+                &final_text,
+                preview.transformed.corrected,
+            ) {
+                Ok(true) => {
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "transcription",
+                            "text": final_text,
+                            "corrected": preview.transformed.corrected,
+                            "provider": preview.provider,
+                            "active_profile": preview.app_config.active_text_profile_label(),
+                            "work_mode": preview.app_config.resolved_active_text_profile_work_mode(),
+                            "raw_text": preview.raw_text,
+                            "transform": {
+                                "applied_rules": preview.transformed.applied_rules,
+                                "warning": preview.transformed.warning,
+                            },
+                            "history": history_entry.as_ref().map(|entry| serde_json::json!({
+                                "entry_id": entry.id,
+                                "retry_of": entry.retry_of,
+                            })),
+                            "insertion": result
+                        }),
+                    );
+                    Ok(result)
+                }
+                Ok(false) => {
+                    Err("The pending transcription preview is no longer current.".to_string())
+                }
+                Err(error) => {
+                    fail_from_native_error(&app, &error);
+                    let _ = app.emit(
+                        "wordscript-event",
+                        serde_json::json!({
+                            "event": "error",
+                            "message": error
+                        }),
+                    );
+                    Err("The pending transcription preview is no longer current.".to_string())
+                }
+            }
+        }
+        Ok(result) => {
+            let _ = history::history_entry_from_insert_result(
+                &preview.app_config,
+                None,
+                Some(preview.raw_text.clone()),
+                preview.transformed.clone(),
+                &result,
+            );
+            let error = result
+                .error
+                .clone()
+                .unwrap_or_else(|| "Native insertion failed.".to_string());
+            let _ = fail_processing_session_from_native_error(&app, &session_id, &error);
+            let _ = app.emit(
+                "wordscript-event",
+                serde_json::json!({
+                    "event": "error",
+                    "message": format!("Native insertion failed: {error}"),
+                    "provider": preview.provider,
+                    "transform": {
+                        "applied_rules": preview.transformed.applied_rules,
+                        "warning": preview.transformed.warning,
+                    },
+                    "insertion": result
+                }),
+            );
+            Ok(result)
+        }
+        Err(error) => {
+            let _ = history::record_insert_failure(
+                &preview.app_config,
+                preview.raw_text,
+                final_text,
+                preview.transformed,
+                error.clone(),
+            );
+            let _ = fail_processing_session_from_native_error(&app, &session_id, &error);
+            let _ = app.emit(
+                "wordscript-event",
+                serde_json::json!({
+                    "event": "error",
+                    "message": format!("Native insertion failed: {error}")
+                }),
+            );
+            Err(error)
+        }
+    }
+}
+
+pub fn stage_pending_transcription_preview<R: Runtime>(
+    app: &AppHandle<R>,
+    app_config: AppConfig,
+    provider: String,
+    raw_text: String,
+    transformed: NativeTransformResult,
+) -> Result<PendingTranscriptionPreviewEvent, String> {
+    let state = app
+        .try_state::<Mutex<NativeSessionState>>()
+        .ok_or_else(|| "Native session state is not available.".to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
+    state.stage_pending_preview(app_config, provider, raw_text, transformed)
 }
 
 pub fn complete_processing_session_from_transcription<R: Runtime>(
@@ -585,6 +823,34 @@ mod tests {
         assert_eq!(aborted.stage, NativeSessionStage::Aborted);
         assert_eq!(aborted.last_error.as_deref(), Some("user cancelled"));
         assert!(aborted.active_session_id.is_none());
+    }
+
+    #[test]
+    fn abort_clears_pending_preview_commit_state() {
+        let mut state = NativeSessionState::default();
+
+        state.start_capture("hotkey").unwrap();
+        state.stop_for_processing().unwrap();
+        let staged = state
+            .stage_pending_preview(
+                AppConfig::default(),
+                "groq".to_string(),
+                "raw transcript".to_string(),
+                NativeTransformResult {
+                    text: "Final transcript".to_string(),
+                    corrected: true,
+                    applied_rules: vec!["removed_fillers".to_string()],
+                    warning: None,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(staged.text, "Final transcript");
+        assert!(state.pending_preview.is_some());
+
+        state.abort("user cancelled");
+
+        assert!(state.pending_preview.is_none());
     }
 
     #[test]

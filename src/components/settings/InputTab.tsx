@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNativeInsertion } from "../../hooks/useNativeInsertion";
 import { HOTKEY_SEPARATOR_HINT, getHotkeyValidationMessage, normalizeManualHotkey } from "../../lib/hotkeys";
-import type { AppConfig } from "../../types/ipc";
+import type { AppConfig, OverlayAnchor, OverlayPositionMode } from "../../types/ipc";
 import type {
   NativeClipboardRestoreStatus,
   NativeInsertDriver,
@@ -55,6 +55,23 @@ interface NativeCaptureStatus {
   device_name: string | null;
   active_capture_id: string | null;
 }
+
+interface OverlayMonitorOption {
+  id: string;
+  label: string;
+  is_primary: boolean;
+}
+
+const OVERLAY_ANCHORS: Array<{ value: OverlayAnchor; label: string }> = [
+  { value: "top_left", label: "Top left" },
+  { value: "top_center", label: "Top center" },
+  { value: "top_right", label: "Top right" },
+  { value: "center_left", label: "Left center" },
+  { value: "center_right", label: "Right center" },
+  { value: "bottom_left", label: "Bottom left" },
+  { value: "bottom_center", label: "Bottom center" },
+  { value: "bottom_right", label: "Bottom right" },
+];
 
 function clampCaptureNumber(value: number, minimum: number, maximum: number, fallback: number) {
   if (!Number.isFinite(value)) return fallback;
@@ -142,7 +159,9 @@ export function InputTab({ config, onChange }: Props) {
   const platformStatus = insertion.status?.platform ?? null;
   const [audioDevices, setAudioDevices] = useState<NativeInputDevice[]>([]);
   const [captureStatus, setCaptureStatus] = useState<NativeCaptureStatus | null>(null);
+  const [overlayMonitors, setOverlayMonitors] = useState<OverlayMonitorOption[]>([]);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [overlayError, setOverlayError] = useState<string | null>(null);
   const [isRefreshingAudio, setIsRefreshingAudio] = useState(false);
   const pauseNativeTrigger = () => { void invoke("pause_native_trigger").catch(() => {}); };
   const resumeNativeTrigger = () => { void invoke("resume_native_trigger").catch(() => {}); };
@@ -150,9 +169,10 @@ export function InputTab({ config, onChange }: Props) {
   const refreshAudioSetup = useCallback(async () => {
     setIsRefreshingAudio(true);
 
-    const [devicesResult, captureStatusResult] = await Promise.allSettled([
+    const [devicesResult, captureStatusResult, overlayMonitorsResult] = await Promise.allSettled([
       invoke<NativeInputDevice[]>("list_native_input_devices"),
       invoke<NativeCaptureStatus>("native_capture_status"),
+      invoke<OverlayMonitorOption[]>("overlay_monitor_options"),
     ]);
 
     if (devicesResult.status === "fulfilled") {
@@ -164,6 +184,13 @@ export function InputTab({ config, onChange }: Props) {
 
     if (captureStatusResult.status === "fulfilled") {
       setCaptureStatus(captureStatusResult.value);
+    }
+
+    if (overlayMonitorsResult.status === "fulfilled") {
+      setOverlayMonitors(overlayMonitorsResult.value);
+      setOverlayError(null);
+    } else {
+      setOverlayError(String(overlayMonitorsResult.reason));
     }
 
     setIsRefreshingAudio(false);
@@ -229,6 +256,22 @@ export function InputTab({ config, onChange }: Props) {
   const soundSummary = config.play_sounds
     ? "Native sound cues are on for start, stop, abort and runtime errors."
     : "Native sound cues are off.";
+  const overlayPlacementMode = config.overlay_position_mode ?? "preset" satisfies OverlayPositionMode;
+  const overlayMonitorValue = config.overlay_monitor || "primary";
+  const overlayAnchorValue = config.overlay_anchor ?? "bottom_center";
+  const overlayUsesPreset = overlayPlacementMode === "preset";
+  const selectedOverlayMonitor = overlayMonitors.find((monitor) => monitor.id === overlayMonitorValue)
+    ?? overlayMonitors.find((monitor) => monitor.is_primary)
+    ?? null;
+  const selectedOverlayAnchor = OVERLAY_ANCHORS.find((anchor) => anchor.value === overlayAnchorValue)?.label.toLowerCase() ?? "the chosen anchor";
+  const overlayPlacementSummary = overlayUsesPreset
+    ? `WordScript keeps the overlay on ${selectedOverlayMonitor?.label ?? "the selected display"} at ${selectedOverlayAnchor} until you drag it somewhere else.`
+    : "Drag the overlay in any state. WordScript reuses that exact spot as the next default position.";
+  const overlayPlacementDetail = overlayUsesPreset
+    ? "Preset placement is best when the overlay should consistently open on one display edge."
+    : config.overlay_manual_x !== 0 || config.overlay_manual_y !== 0
+      ? `Current remembered position: ${config.overlay_manual_x}, ${config.overlay_manual_y}.`
+      : "No remembered position yet. The first drag sets it.";
   const deliveryDriverSummary = platformStatus
     ? `${insertPreflightLabel}: ${platformStatus.readiness_message} Current driver: ${activeDriverLabel}. ${platformStatus.platform_label} reports ${driverChainSummary}.`
     : "WordScript is checking the current native insert chain.";
@@ -303,6 +346,75 @@ export function InputTab({ config, onChange }: Props) {
             <small>{config.play_sounds ? "Sound cues on" : "Sound cues off"}</small>
           </div>
         </div>
+      </div>
+
+      <div className="settings__provider-card settings__overlay-card">
+        <div className="settings__provider-card-header">
+          <strong className="settings__about-title">Overlay placement</strong>
+          <p className="form-dim settings__provider-card-copy">
+            Pick one default: either reopen the overlay where you last dragged it, or pin it to a chosen display anchor.
+          </p>
+        </div>
+        <div className="settings__overlay-mode-row">
+          <label className="settings__profile-field">
+            <span>Placement mode</span>
+            <select
+              className="settings__profile-select"
+              aria-label="Overlay placement mode"
+              value={overlayPlacementMode}
+              onChange={(event) => onChange({ overlay_position_mode: event.target.value as OverlayPositionMode })}
+            >
+              <option value="manual">Remember last drag position</option>
+              <option value="preset">Use preset display anchor</option>
+            </select>
+          </label>
+        </div>
+
+        {overlayUsesPreset ? (
+          <div className="settings__overlay-layout">
+            <label className="settings__profile-field">
+              <span>Display</span>
+              <select
+                className="settings__profile-select"
+                aria-label="Overlay display"
+                value={selectedOverlayMonitor?.id ?? overlayMonitorValue}
+                onChange={(event) => onChange({ overlay_monitor: event.target.value })}
+              >
+                {overlayMonitors.length === 0 ? (
+                  <option value={overlayMonitorValue}>{overlayError ? "Display lookup failed" : "Loading displays"}</option>
+                ) : (
+                  overlayMonitors.map((monitor) => (
+                    <option key={monitor.id} value={monitor.id}>{monitor.label}</option>
+                  ))
+                )}
+              </select>
+            </label>
+
+            <label className="settings__profile-field">
+              <span>Anchor</span>
+              <select
+                className="settings__profile-select"
+                aria-label="Overlay anchor"
+                value={overlayAnchorValue}
+                onChange={(event) => onChange({ overlay_anchor: event.target.value as OverlayAnchor })}
+              >
+                {OVERLAY_ANCHORS.map((anchor) => (
+                  <option key={anchor.value} value={anchor.value}>{anchor.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : (
+          <div className="settings__overlay-manual-card" aria-label="Remembered overlay placement details">
+            <strong>Remembered position</strong>
+            <p>{overlayPlacementSummary}</p>
+            <span>{overlayPlacementDetail}</span>
+          </div>
+        )}
+        <p className="settings__overlay-note">
+          {overlayPlacementSummary}
+          {overlayUsesPreset ? ` ${overlayPlacementDetail}` : ""}
+        </p>
       </div>
 
       <div className="settings__provider-card settings__input-path-card">

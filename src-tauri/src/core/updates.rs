@@ -51,7 +51,6 @@ struct GitHubRelease {
     tag_name: String,
     html_url: String,
     body: Option<String>,
-    draft: bool,
 }
 
 #[tauri::command]
@@ -72,7 +71,7 @@ pub async fn check_app_update() -> Result<AppUpdateStatus, String> {
     let status = match response {
         Ok(response) if response.status() == StatusCode::NOT_FOUND => release_path_building(
             &current_version,
-            "Commercial release build-up is active, but there are no published WordScript releases yet.",
+            "Commercial release build-up is active, but there are no published WordScript releases yet. Internal draft handoffs stay workflow-only until the first public release exists.",
             None,
             None,
             None,
@@ -115,16 +114,6 @@ pub async fn check_app_update() -> Result<AppUpdateStatus, String> {
 }
 
 fn classify_release_status(current_version: &str, release: GitHubRelease) -> AppUpdateStatus {
-    if release.draft {
-        return release_path_building(
-            current_version,
-            "A draft release exists, but the public installer and updater handoff are not live yet.",
-            Some(release.tag_name),
-            Some(release.html_url),
-            release.body,
-        );
-    }
-
     let release_version = normalize_release_version(&release.tag_name);
     let release_notes = release.body.and_then(|value| trim_optional(value));
     let current_semver = Version::parse(current_version).ok();
@@ -243,7 +232,9 @@ enum VersionComparison {
 
 fn compare_versions(current: Option<&Version>, release: Option<&Version>) -> VersionComparison {
     match (current, release) {
-        (Some(current), Some(release)) if release > current => VersionComparison::NewerReleaseAvailable,
+        (Some(current), Some(release)) if release > current => {
+            VersionComparison::NewerReleaseAvailable
+        }
         (Some(_), Some(_)) => VersionComparison::CurrentIsLatest,
         _ => VersionComparison::Unknown,
     }
@@ -255,8 +246,14 @@ mod tests {
 
     #[test]
     fn normalizes_github_release_tags() {
-        assert_eq!(normalize_release_version("v0.2.2-alpha"), Some("0.2.2-alpha".to_string()));
-        assert_eq!(normalize_release_version(" 0.2.2-alpha "), Some("0.2.2-alpha".to_string()));
+        assert_eq!(
+            normalize_release_version("v0.2.2-alpha"),
+            Some("0.2.2-alpha".to_string())
+        );
+        assert_eq!(
+            normalize_release_version(" 0.2.2-alpha "),
+            Some("0.2.2-alpha".to_string())
+        );
         assert_eq!(normalize_release_version("   "), None);
     }
 

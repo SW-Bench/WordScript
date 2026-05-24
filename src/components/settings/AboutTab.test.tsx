@@ -85,7 +85,7 @@ describe("AboutTab", () => {
     invokeMock.mockResolvedValue({
       current_version: "0.2.2-alpha",
       status: "release_path_building",
-      summary: "Commercial release build-up is active, but there are no published WordScript releases yet.",
+      summary: "Commercial release build-up is active, but there are no published WordScript releases yet. Internal draft handoffs stay workflow-only until the first public release exists.",
       release_version: null,
       release_url: null,
       release_notes: null,
@@ -123,6 +123,7 @@ describe("AboutTab", () => {
     expect(screen.getAllByText("npm run tauri dev")).toHaveLength(2);
     expect(screen.getByText(/first official cross-platform app release for linux, macos and windows/i)).toBeInTheDocument();
     expect(screen.getByText("No published release yet")).toBeInTheDocument();
+    expect(screen.getByText(/internal draft release handoffs/i)).toBeInTheDocument();
     expect(screen.getByText(/dmg packaging lane/i)).toBeInTheDocument();
     expect(screen.getByText(/release workflow/i)).toBeInTheDocument();
     expect(screen.getByText(/today you use wordscript as a developer build from source/i)).toBeInTheDocument();

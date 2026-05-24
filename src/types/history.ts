@@ -4,6 +4,7 @@ import type {
   NativeInsertMode,
   NativeInsertRecoveryAction,
 } from "./nativeInsertion";
+import type { TextProfileWorkMode } from "./ipc";
 
 export type TranscriptionHistoryStatus = "completed" | "empty" | "failed";
 export type TranscriptionHistorySource = "native_pipeline" | "retry";
@@ -37,6 +38,7 @@ export interface TranscriptionHistoryEntry {
   model: string | null;
   language: string | null;
   active_profile: string | null;
+  work_mode: TextProfileWorkMode | null;
   provider_profile: string | null;
   local_prompt_strength: string | null;
   local_prompt_carry: boolean | null;

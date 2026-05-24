@@ -1,5 +1,7 @@
 // ── Runtime → Tauri events (received via listen("wordscript-event")) ─────────
 
+import type { NativeInsertResult } from "./nativeInsertion";
+
 export interface DictionaryEntry {
   id:                      string;
   phrase:                  string;
@@ -20,11 +22,57 @@ export interface TextProfileCuration {
   highlights:              string[];
 }
 
+export type TextProfileRewriteStyle = "verbatim" | "clean" | "polished";
+export type TextProfileInsertBehavior = "auto_paste" | "clipboard_only";
+export type TextProfileRecoveryBehavior = "standard";
+
+export interface TextProfileWorkMode {
+  rewrite_style:           TextProfileRewriteStyle;
+  insert_behavior:         TextProfileInsertBehavior;
+  recovery_behavior:       TextProfileRecoveryBehavior;
+}
+
+export interface RuntimeTransformEvent {
+  applied_rules:           string[];
+  warning:                 string | null;
+}
+
+export interface RuntimeHistoryEvent {
+  entry_id:                string;
+  retry_of:                string | null;
+}
+
+export interface RuntimeResultEvent {
+  text:                    string;
+  corrected:               boolean;
+  provider?:               string;
+  active_profile?:         string | null;
+  work_mode?:              TextProfileWorkMode;
+  raw_text?:               string | null;
+  transform?:              RuntimeTransformEvent;
+  insertion?:              NativeInsertResult;
+  history?:                RuntimeHistoryEvent;
+}
+
+export interface RuntimeTranscriptionResult {
+  provider:                string | null;
+  active_profile:          string | null;
+  work_mode:               TextProfileWorkMode | null;
+  raw_text:                string | null;
+  final_text:              string;
+  corrected:               boolean;
+  transform:               RuntimeTransformEvent | null;
+  insertion:               NativeInsertResult | null;
+  history:                 RuntimeHistoryEvent | null;
+  occurred_at_ms:          number;
+}
+
 export interface TextProfile {
   id:                      string;
   label:                   string;
   prompt:                  string;
   stt_hints:               string;
+  work_mode?:              TextProfileWorkMode;
   curation:                TextProfileCuration;
   dictionary_entries:      DictionaryEntry[];
   snippet_entries:         SnippetEntry[];
@@ -41,6 +89,17 @@ export interface LocalProfilePromptSettings {
   prompt_strength:         "off" | "profile" | "profile_and_terms";
   prompt_carry:            boolean;
 }
+
+export type OverlayPositionMode = "preset" | "manual";
+export type OverlayAnchor =
+  | "top_left"
+  | "top_center"
+  | "top_right"
+  | "center_left"
+  | "center_right"
+  | "bottom_left"
+  | "bottom_center"
+  | "bottom_right";
 
 export interface AppConfig {
   model:                   string;
@@ -66,6 +125,11 @@ export interface AppConfig {
   pause_hotkey:            string;
   abort_hotkey:            string;
   activation_mode:         "tap" | "hold";
+  overlay_position_mode:   OverlayPositionMode;
+  overlay_monitor:         string;
+  overlay_anchor:          OverlayAnchor;
+  overlay_manual_x:        number;
+  overlay_manual_y:        number;
   sample_rate:             number;
   channels:                number;
   dtype:                   string;
@@ -85,7 +149,8 @@ export type BackendEvent =
   | { event: "recording_started" }
   | { event: "recording_stopped" }
   | { event: "processing" }
-  | { event: "transcription";    text: string; corrected: boolean }
+  | ({ event: "preview_ready" } & RuntimeResultEvent)
+  | ({ event: "transcription" } & RuntimeResultEvent)
   | { event: "empty" }
   | { event: "muted";            muted: boolean }
   | { event: "paused";           paused: boolean }
@@ -103,6 +168,8 @@ export interface RuntimeState {
   muted:             boolean;
   paused:            boolean;
   lastTranscription: string | null;
+  pendingResult:     RuntimeTranscriptionResult | null;
+  lastResult:        RuntimeTranscriptionResult | null;
   error:             string | null;
   recordingStartMs:  number | null;   // Date.now() when recording started
 }

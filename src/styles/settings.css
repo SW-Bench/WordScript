@@ -287,6 +287,19 @@
   gap: 6px;
 }
 
+.settings__profile-note {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.settings__profile-note strong {
+  color: rgba(245, 247, 244, 0.78);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .settings__profile-mode,
 .settings__profile-stat {
   display: inline-flex;
@@ -1120,6 +1133,52 @@
 
 .settings__input-path-card {
   margin-bottom: 18px;
+}
+
+.settings__overlay-card {
+  display: grid;
+  gap: 16px;
+}
+
+.settings__overlay-mode-row {
+  display: grid;
+  grid-template-columns: minmax(0, 320px);
+}
+
+.settings__overlay-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings__overlay-manual-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(18, 20, 23, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings__overlay-manual-card strong {
+  color: rgba(245, 247, 244, 0.9);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settings__overlay-manual-card p,
+.settings__overlay-manual-card span {
+  margin: 0;
+  color: rgba(245, 247, 244, 0.62);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings__overlay-note {
+  margin: 0;
+  color: rgba(245, 247, 244, 0.62);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .settings__provider-meta-label {
@@ -3036,6 +3095,14 @@
 
   .settings__input-overview-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings__overlay-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .settings__overlay-mode-row {
+    grid-template-columns: 1fr;
   }
 
   .settings__input-inline-control {

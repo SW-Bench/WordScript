@@ -1,6 +1,6 @@
 # WordScript — Architecture
 
-Stand: 2026-05-23
+Stand: 2026-05-24
 
 ## Zweck
 
@@ -36,7 +36,7 @@ Rust core
 
 Die aktive UI besteht derzeit aus drei Fenstern in der Tauri-Konfiguration:
 
-- `overlay`: transparente Pill fuer Aufnahmezustand
+- `overlay`: transparente kompakte Overlay-Buehne mit einer Pill fuer Aufnahme-/Processing-Zustand, die nach einem Lauf innerhalb derselben Flaeche zu nativen `copy`-, `retry`-, `restore`- und `done`-Aktionen umschaltet; fuer `clipboard_only`-Arbeitsmodi haelt dieselbe Runtime im Processing-Schritt auf einem echten Preview vor dem Commit, ohne dafuer eine zweite vergroesserte Overlay-Flaeche oder einen separaten Shell-Backdrop aufzumachen, der Host parkt das Fenster im Idle nativ ausserhalb des sichtbaren Bereichs, respektiert gemerkte Manual-Positionen oder preset-basierte Display-Anker, verwendet fuer Compact-, Preview- und Result-Surface dieselbe gemerkte Top-Left-Position, variiert aber die rechte Status-/Action-Zone je nach Overlay-Zustand statt ein einziges statisches Seitenlayout ueber Recording, `working` und Action zu ziehen, und leitet den Zielmonitor fuer Manual-Placement aus der gespeicherten logischen Drag-Referenz statt aus dem fenstergebundenen `current_monitor()`-Snapshot ab
 - `settings`: native-dekorierte Shell mit den Tabs Provider & Models, Input, Text Rules, About und Diagnostics, gruppierter Sidebar-Navigation, persistentem Profil-Dock, kompaktem Tab-Header, einer dominanten Content-Surface und Footer-Save-Bar
 - `rebuild-lab`: native-dekoriertes Diagnostics-Pop-out mit demselben Rebuild-Lab-Panel, kompaktem Preview-Header und einer einzelnen scrollbaren Content-Surface fuer den technischen Check ausserhalb des Settings-Fensters
 
@@ -54,10 +54,12 @@ Wichtige Frontend-Bausteine:
 Die UI ist verantwortlich fuer:
 
 - Anzeige von Runtime-Status, Waveform und Fehlermeldungen
+- Anzeige des guardierten In-Pill-Action-Zustands nach einem Lauf, ohne eine zweite vergroesserte Preview-Surface, eine passive Mic-Zone im Action-Modus oder Overlay-Heuristik neben der nativen Runtime einzufuehren
 - Pflege der Config-Werte
-- global sichtbare manuelle Profilumschaltung in der Sidebar plus seeded kuratierte Profile, Preview, Validation und Import/Export in den Text Rules
+- global sichtbare manuelle Profilumschaltung in der Sidebar plus eingeschlossene Profile, Preview, Validation und Import/Export in den Text Rules
 - tab-spezifische Orientierung ueber kompakten Header, Runtime-/Save-State-Chips und Section-Blurb, ohne neue UI-Heuristiken neben dem nativen Vertrag einzufuehren
-- Text Rules als Workspace mit knapper Prozesszusammenfassung, kompakter Setup-/Curated-Zone und praesent bleibender Schritt-Navigation; darunter steht immer nur eine dominante Bearbeitungsstufe fuer Context/Preview, Dictionary oder Snippets
+- die About-Flaeche darf den Release-Aufbaupfad erklaeren, muss aber oeffentliche Release-Sichtbarkeit strikt von workflow-internen Draft-Handoffs trennen; publizierte GitHub-Releases bleiben die einzige Update-Wahrheit fuer `check_app_update`
+- Text Rules als Workspace mit knapper Prozesszusammenfassung, kompakter Profilbibliothek und praesent bleibender Schritt-Navigation; darunter steht immer nur eine dominante Bearbeitungsstufe fuer Context/Preview, Dictionary oder Snippets
 - Sichtbare Recovery-Aktionen und Diagnostics
 - getrennte Darstellung von transienten Runtime-Logs und dauerhaftem nativen Transkriptverlauf inklusive Filter, Export und sichtbarem History-Store-Pfad; Recovery-Scratchpad bleibt davon getrennt
 - render-sensible Settings-Teilbaeume muessen strukturell stabil bleiben: lange Listen wie Diagnostics-History, decoded Runtime-Log-Hints sowie Dictionary-/Snippet-Karten werden als isolierte Subtrees gehalten und duerfen nicht durch per-render Deep-Clones aller Profile oder Eintraege wieder unnoetig invalidiert werden
@@ -74,6 +76,8 @@ Die UI ist nicht verantwortlich fuer:
 `src-tauri/src/lib.rs` ist die Huelle des Produkts. Dort liegen:
 
 - Window-Setup fuer Overlay und Settings
+- native Sichtbarkeits- und Positionierungssteuerung fuer das Overlay inklusive Bottom-Center-Reveal und Offscreen-Parking im Idle
+- monitor- und anchor-basierte Overlay-Placement-Aufloesung plus Persistenz der letzten manuellen Drag-Position; Host-seitige Repositionierungen fuer Reveal, Hide oder Surface-Wechsel duerfen diese gemerkte Position nicht als neue Nutzerabsicht ueberschreiben
 - Tray-Menue und Fensteroeffnung
 - Command-Registrierung
 - Event-Emission fuer `wordscript-event` und `wordscript-native-event`
@@ -162,7 +166,7 @@ Wichtig:
 - dieser STT-Bias ist konservativ und providerbegrenzt; er soll Fachwoerter, Produktnamen, Sprachmix und haeufige Phrasen erhalten, nicht freie semantische Rewrites oder Halluzinationen erzeugen
 - Dictionary- und Snippet-Matches sind literal und case-insensitive
 - Snippet-Trigger sind kein automatischer Teil des STT-Bias; wenn kurze gesprochene Cues oder alternative Phrasen in die STT-Anfrage sollen, muessen sie explizit ueber `stt_hints` im Profil gepflegt werden
-- lokale Textprofile kapseln heute `prompt`, optionale `stt_hints`, Dictionary und Snippets als aktive Runtime-Konfiguration
+- lokale Textprofile kapseln heute `prompt`, optionale `stt_hints`, Dictionary, Snippets und Work-Mode-Defaults fuer Rewrite, Insert und Recovery als aktive Runtime-Konfiguration
 - AI cleanup muss Sprachmix, Umgangssprache, eingedeutschte Borrowings und technische Tokens konservativ erhalten; unsichere oder assistant-artige Rewrites fallen weiter ueber Guardrails auf das Rohtranskript zurueck
 - die aktuelle Local-Preview-Lane ist STT-only; wenn AI cleanup aktiv bleibt, faellt `transform.rs` auf das rohe lokale Transkript zurueck
 
@@ -187,6 +191,8 @@ Wichtige Architekturregeln dieses Pfads:
 - Scratchpad und Last-Transcript-Restore sind Teil des Produktpfads
 - jeder Insert-Outcome traegt eine maschinenlesbare Recovery-Aktion, eine Recovery-Message und den Clipboard-Restore-Status; UI und History duerfen Recovery nicht aus Freitext-Fallbacks erraten
 - dieselbe Recovery-Semantik wird in persistierter History, History-Export und Diagnostics-Karten weitergereicht; diese Flaechen duerfen keine zweite Recovery-Wahrheit bilden
+- der Overlay-Nachlauf-Snapshot darf nur Quick Actions zeigen, die ueber dieselbe native History- oder Insert-Wahrheit ausgeloest werden; `retry` braucht die echte `history.entry_id`, und `insert` oder `restore` duerfen nur bestehende Native-Commands aufrufen
+- der neue Processing-Preview fuer `clipboard_only`-Profile bleibt dieselbe Runtime-Wahrheit: Transform liefert den Preview-Text, die Session bleibt in `processing`, und der spaetere Commit muss ueber denselben nativen Insert-, History- und Sessionpfad laufen
 - Overlay, Input und About nutzen denselben nativen Plattformstatus als Quelle
 - About zeigt Voraussetzungen und Grenzen aus diesem nativen Vertrag, statt pro Plattform neue UI-Nebenwahrheiten zu erfinden
 - Linux/X11/Wayland werden als explizite Driver-Ketten modelliert; `wl-copy`, `xdotool`, `wtype`, `ydotool`, `enigo` und Scratchpad stehen im Status nicht mehr nur implizit im Code
@@ -247,8 +253,8 @@ Wenn spaeter weitere Provider dazukommen, gehoeren sie unter `src-tauri/src/core
 Diese Themen sind moegliche spaetere Produktstufen, aber heute nicht aktive Architektur:
 
 - automatisches Modellmanagement mit Download-/Pull-Flow und Installer-nahen Checks ueber die aktuelle env-basierte Runtime-Verdrahtung und Provider-&-Models-Preflight-Flaeche hinaus
-- arbeitsmodusfaehige Profile mit Defaults fuer Rewrite, Insert und Recovery sowie spaeterer permission-basierter App-/Mode-Aktivierung
-- Live-Preview-/Controlled-Commit-Overlay mit `raw transcript`, bereinigtem Text, aktivem Arbeitsmodus und schnellen Recovery-Aktionen
+- automatische oder permission-basierte App-/Mode-Aktivierung fuer Arbeitsmodi
+- voller Live-Preview-/Controlled-Commit-Pfad im Overlay mit Aktionen vor dem finalen Commit
 - weiteres Produktionsprovider-System mit expliziten Modi wie `fast`, `quality`, `local` und `self_hosted`
 - gefuehrter Setup- und Permissions-Pfad von Install bis erster brauchbarer Diktation
 - Team- oder Sync-Modell

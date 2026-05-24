@@ -4,6 +4,11 @@
     "label": "Customer success replies",
     "prompt": "customer names\nticket IDs\nincident severity\nSLA commitments\nnext update time\naccount owner names\nproduct plan names\nrefund policy",
     "stt_hints": "status update\nescalation needed\nclosing note\nhandoff summary",
+    "work_mode": {
+      "rewrite_style": "polished",
+      "insert_behavior": "auto_paste",
+      "recovery_behavior": "standard"
+    },
     "dictionary_entries": [
       { "id": "curated-customer-success-dict-sev-one", "phrase": "sev one", "replace_with": "SEV-1" },
       { "id": "curated-customer-success-dict-sev-two", "phrase": "sev two", "replace_with": "SEV-2" },
@@ -50,6 +55,11 @@
     "label": "Sales follow-ups",
     "prompt": "account names\npipeline stage\ndecision makers\nprocurement timing\nrenewal scope\nsecurity review\nmutual action plan\ncontract terms",
     "stt_hints": "demo follow up\nnext steps recap\npricing handoff\nsecurity review follow up",
+    "work_mode": {
+      "rewrite_style": "polished",
+      "insert_behavior": "auto_paste",
+      "recovery_behavior": "standard"
+    },
     "dictionary_entries": [
       { "id": "curated-sales-dict-crm", "phrase": "c r m", "replace_with": "CRM" },
       { "id": "curated-sales-dict-mrr", "phrase": "m r r", "replace_with": "MRR" },
@@ -97,6 +107,11 @@
     "label": "Founder ops notes",
     "prompt": "company priorities\nboard updates\nowner names\ndeadlines\nfinancial terms\nquarter goals\nbudget variance\nhiring plan",
     "stt_hints": "decision log\nweekly update\naction items\nrisk review",
+    "work_mode": {
+      "rewrite_style": "clean",
+      "insert_behavior": "clipboard_only",
+      "recovery_behavior": "standard"
+    },
     "dictionary_entries": [
       { "id": "curated-founder-ops-dict-pl", "phrase": "p and l", "replace_with": "P&L" },
       { "id": "curated-founder-ops-dict-okr", "phrase": "o k r", "replace_with": "OKR" },
@@ -143,6 +158,11 @@
     "label": "Hiring pipeline",
     "prompt": "candidate names\nrole titles\ninterview stages\nhiring manager feedback\noffer timing\nlevelling\nsalary band\nstart date",
     "stt_hints": "interview debrief\ncandidate update\noffer follow up\nhiring manager recap",
+    "work_mode": {
+      "rewrite_style": "polished",
+      "insert_behavior": "auto_paste",
+      "recovery_behavior": "standard"
+    },
     "dictionary_entries": [
       { "id": "curated-recruiting-dict-hr", "phrase": "human resources", "replace_with": "HR" },
       { "id": "curated-recruiting-dict-ats", "phrase": "a t s", "replace_with": "ATS" },
@@ -190,6 +210,11 @@
     "label": "Product and engineering",
     "prompt": "feature names\nbug IDs\nrelease scope\nAPI names\nplatform constraints\nservice names\nmigration steps\ninfra constraints",
     "stt_hints": "triage summary\nrelease note\nqa handoff\nincident update",
+    "work_mode": {
+      "rewrite_style": "clean",
+      "insert_behavior": "clipboard_only",
+      "recovery_behavior": "standard"
+    },
     "dictionary_entries": [
       { "id": "curated-product-engineering-dict-api", "phrase": "api", "replace_with": "API" },
       { "id": "curated-product-engineering-dict-sdk", "phrase": "sdk", "replace_with": "SDK" },

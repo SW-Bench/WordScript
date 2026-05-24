@@ -37,25 +37,26 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - guarded native session finalization, so late provider, transform or insertion results cannot overwrite the current runtime state after aborts or newer captures
 - Groq BYOK transcription with OS secret-store storage
 - first generic provider contract in Rust and Tauri, with typed provider modes, capabilities, recovery actions and local-setup readiness; Groq remains the cloud-first production lane and `local_preview` is the compatibility id for the full local runtime lane with native model discovery, selected STT/cleanup setup truth, a Provider & Models preflight checklist, prompt-bias support, probe-based runner diagnostics and local Ollama cleanup
-- transform pipeline with hallucination guardrails, profile-aware AI cleanup, and profile/dictionary-guided transcription prompts across Groq and the local CLI lane so mixed-language and technical terms survive more reliably, plus local text profiles with explicit STT hints, seeded curated baselines, dictionary and snippets
+- transform pipeline with hallucination guardrails, profile-aware AI cleanup, and profile/dictionary-guided transcription prompts across Groq and the local CLI lane so mixed-language and technical terms survive more reliably, plus local text profiles with explicit STT hints, included baselines, dictionary, snippets and work-mode defaults for rewrite, insertion and recovery
 - native insertion with direct paste, clipboard fallback, typed recovery actions, clipboard-restore status, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
+- a compact live overlay stage that widens only for processing-preview and result-action states so full button labels stay visible, remembers manual drag placement across later runs, updates that remembered placement only from real user drags, reuses one shared remembered top-left position across compact and action states, gives recording, `working`, and action states their own right-side spacing instead of one shared timer/status layout, supports preset display anchors in Settings, uses movement-threshold dragging so action buttons stay single-clickable, drives a calmer idle waveform but much stronger active speech bars, and parks the transparent window offscreen when idle so Linux/Wayland-style stale black buffers are less likely to linger while `clipboard_only` profiles still use the same real processing-time preview before commit
 - native transcription history with retention policy, server-side filters, JSON export, retry and persisted insert-recovery semantics, plus a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
 - diagnostics history, decoded runtime-log hints and long Text Rules card lists now keep stable render boundaries, so routine filter edits and rule changes no longer force every visible card to rebuild at once
 - platform diagnostics and runtime logs, including a stage timeline for capture, provider, transform and insert with per-step state, duration and stable error-code truth
-- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a grouped utility sidebar with a persistent profile dock, a Provider & Models local-runtime preflight, an Input first-dictation preflight and a sequenced Text Rules workspace with a compact process summary, profile/setup deck, curated-profile overview, pinned stage navigation and one dominant working canvas at a time
+- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a grouped utility sidebar with a persistent profile dock, a Provider & Models local-runtime preflight, an Input first-dictation preflight and a sequenced Text Rules workspace with a compact process summary, profile library for user and included profiles, pinned stage navigation and one dominant working canvas at a time
 - a calmer utility-style Settings shell with native window controls, grouped navigation, a compact tab header, explicit runtime/save-state chips and one dominant content surface that behaves more predictably on Linux
 - a dedicated native diagnostics preview window that reuses the same Rebuild Lab surface in a calmer pop-out instead of falling back to a separate fake-chrome shell
-- manual release build-up lanes for Linux, macOS and Windows
+- manual release build-up lanes for Linux, macOS and Windows, plus an aggregated checksummed handoff and optional internal draft GitHub release for maintainer review
 
 ## What still needs work
 
-- first published installers and signing flow
+- first published installers and signing flow beyond the new internal draft-release handoff
 - stable release handoff across Linux, macOS and Windows
 - Linux AppImage packaging that no longer stalls on the current linuxdeploy lane
 - live updater path after the first real release
-- stronger Linux Wayland reliability
-- work-mode capable profiles beyond static context, optional STT hints, dictionary and snippets, with explicit defaults for rewrite, insertion and recovery and later opt-in activation by app or context
-- a live-preview and controlled-commit overlay that shows raw text, cleaned text, the active work mode and quick recovery actions
+- stronger Linux Wayland reliability beyond the current compact overlay stage, native offscreen parking and remembered drag placement
+- opt-in app- or context-based activation for the now-manual work-mode profiles
+- a full live-preview and controlled-commit overlay across every delivery mode; the current overlay now has a real processing-time preview for `clipboard_only` profiles plus honest post-run `copy`, `retry`, `restore` and dismiss actions, but auto-paste modes still do not pause on a pre-commit decision path and there is still no scratchpad-open action
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
 - automated local model management, install/pull actions and a smoother first-run path beyond the current local runtime preflight checklist
 - final live-host verification and cross-window polish so the calmer utility direction stays consistent across settings and overlay states on Windows, macOS and Linux without platform-fake chrome

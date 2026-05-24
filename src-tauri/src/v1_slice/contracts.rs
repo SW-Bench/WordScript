@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::core::config::TextProfileWorkMode;
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SliceStage {
@@ -98,6 +100,7 @@ pub struct SliceRuntimeContract {
     pub provider: String,
     pub provider_profile: String,
     pub model: String,
+    pub work_mode: TextProfileWorkMode,
     pub provider_status: SliceProviderRuntimeStatus,
     pub capture_status: SliceCaptureRuntimeStatus,
     pub local_preview: Option<SliceLocalPreviewContract>,
@@ -119,7 +122,7 @@ pub struct SliceStatus {
     pub next_milestones: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InsertMode {
     InAppPreview,

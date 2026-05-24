@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- dismissing the result-action overlay now keeps that same action-state pill rendered through the leave transition instead of briefly swapping back to the compact waveform overlay, so `Done` and successful action closes no longer create a stacked overlay flash
+- the live recording waveform now rises faster and with more speech gain in the standard compact overlay, so normal dictation no longer looks overly defensive or sluggish before the bars respond
+- the native overlay host now re-syncs immediately when an already visible overlay switches between `compact`, `processing_preview` and `result_actions`, so wider action or preview states no longer render inside stale compact-window geometry and visually overlap
 - AI cleanup now receives the active profile context and preferred dictionary spellings as conservative preserve hints, so mixed German/English dictation, colloquial borrowings and product terms are less likely to be flattened or mistranslated during cleanup
 - new and fallback cleanup defaults now use `llama-3.3-70b-versatile` instead of the older `llama-3.1-8b-instant` path when no explicit correction model is configured
 - Groq transcription now uses the same bounded profile, dictionary and explicit STT-hint prompt path as the local CLI lane, so STT quality no longer depends on `local_preview` being the only provider with term-aware prompt bias
@@ -79,6 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - local prompt-bias tuning is now stored per local provider profile as well, so `off` vs `profile` vs `profile + terms` plus `carry initial prompt` now switch with the selected local `fast` or `quality` profile instead of leaking one global local prompt state across profiles
 - Rebuild Lab now reads the active local runtime contract from the native `v1_slice_status` snapshot and warns when the unsaved Settings draft differs from the persisted runtime provider/profile/prompt/decode/cleanup contract
 - Rebuild Lab runtime snapshots now also pull live provider readiness and native capture status, so Diagnostics can show resolved `whisper-cli`, model, cleanup endpoint and cleanup model paths plus current capture device/state instead of only replaying persisted config values
+- text profiles now persist a first explicit work-mode contract for rewrite, delivery and recovery defaults, with normalization and clone/template safety in both Rust and TypeScript instead of leaving the next slice as plan-only vocabulary
+- active text-profile work modes now drive native transform cleanup defaults, legacy insert auto-paste behavior, durable history metadata and the V1 diagnostics runtime contract instead of remaining a Settings-only summary
+- backend transcription events now carry raw transcript, active profile and work-mode metadata alongside insert results, so overlay and other runtime surfaces can read the same post-run truth without rebuilding it from separate heuristics
 - native insertion results now expose a typed recovery action, user-facing recovery message and clipboard-restore status, so UI and diagnostics no longer infer recovery state from fallback text alone
 - native history now supports server-side provider/status/profile filters, JSON export, persisted limit/retention policy and typed insert-recovery metadata instead of only a fixed in-memory diagnostics slice
 - active config and settings terminology now use `provider` consistently, while the old JSON `groq_api_key` survives only as an explicit legacy migration field
@@ -100,14 +106,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - the core execution plan now treats the macOS-utility UI target and user-facing usability as hard product gates for slices 7 to 11 instead of leaving them implicit in the design docs
 - donor catalogs and benchmark docs now track menu bar utilities, keyboard-first tools and desktop productivity shells as secondary UI/UX references for the macOS-native polish pass
 - Settings now uses a calmer utility-style shell with grouped navigation, a persistent profile dock, a compact tab header and one dominant content surface instead of the denser intro-band and context-rail experiment
+- the profile dock now surfaces profile defaults for rewrite, delivery and recovery as an honest summary of the new work-mode contract, without pretending that later runtime adoption steps are already complete
+- included ICP profiles now stay visible in the normal Text Rules profile library, can be selected, edited, duplicated or deleted like user-created profiles, and untouched included profiles refresh their bundled work-mode metadata from the current seed data without being re-added after deletion
 - Diagnostics now uses the same calmer panel language inside its dedicated pop-out preview window, instead of a separate decorless shell with a disconnected preview layout
 - the overlay now reads states more clearly through calmer material treatment and a dedicated side-state label for live, paused and processing moments
+- the overlay now expands into a short post-run preview that shows active profile, work mode, raw vs final transcript and insert outcome from the guarded runtime payload, while full live-preview and controlled-commit actions remain a later slice
+- the overlay post-run snapshot now carries native history metadata and routes `insert`, `retry` and `restore` quick actions through the existing native commands, so controlled-commit preparation stays on the same runtime and recovery truth instead of inventing an overlay-only action path
+- `clipboard_only` work modes now stop on a real processing-time preview before delivery, and the overlay commits that preview through the same native insert, history and session-completion path instead of faking a second frontend-only commit layer
+- the manual release build-up workflow now aggregates per-platform bundle artifacts into checksummed handoff archives and can create or refresh an internal draft GitHub release without implying a public installer or updater channel
+- the overlay no longer expands into a second preview surface after transcription; it now uses a smaller fixed stage without a separate shell-backdrop layer, keeps the same in-place `copy`, `retry`, `restore` and `done` actions, starts dragging only after real pointer movement so buttons remain single-clickable, and drives fewer wider waveform bars with a stronger visual gain while `clipboard_only` profiles still stop on the same real processing-time preview before commit
 - Text Rules now opens with a compact process summary, calmer utility controls and a pinned stage rail so profile setup and starter selection stay secondary to the active editing workspace
 - pull request CI now runs frontend tests and Rust tests on macOS and Windows in addition to Ubuntu
 - the manual release build-up workflow now runs frontend tests and Rust tests before bundling
 - platform support copy now exposes native prerequisites and honest limits for insertion, including macOS development-mode privacy requirements
 - About, docs and backend surface now describe the release path as in progress, with no published releases yet
 - release docs now explicitly describe Linux AppImage packaging as an in-progress `linuxdeploy` lane instead of implying a stable public release track
+- the About release card and native update check now stay strict about published GitHub releases; internal draft handoffs remain workflow-only and no longer pretend to be visible through the public latest-release endpoint
 - README, VISION and REFERENCE now explain SW labs, SW-Bench and the community-build posture more directly
 - repo setup and pre-commit behavior no longer regenerate legacy `BUILD_ID` and `build_info.json` files
 - Diagnostics can now open either inside Settings or as a dedicated pop-out utility window while reusing the same active Rebuild Lab panel
@@ -140,6 +154,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - der Groq-Key-Status ist jetzt neutral, solange ein Key nur im Secret Store liegt; grün wird erst nach expliziter erfolgreicher Validierung verwendet
 - der native Trigger-Vertrag deckt jetzt Start/Stop, Pause/Resume und Abort mit registrierten Hotkeys ab; Settings speichern dabei die tatsächlich normalisierten nativen Shortcut-Werte zurück
 - README public-project copy no longer contains the old `pay -wall` typo
+- the overlay now syncs idle visibility back through the native host and parks the transparent window offscreen instead of relying only on CSS idle state, reducing stale black or frozen overlay surfaces on Linux/XWayland and KDE-style compositor paths
+- overlay placement now has a real runtime contract: dragging the overlay persists a remembered manual position across later runs, and Settings can switch between remembered placement and preset display anchors per monitor
+- the overlay now uses a smaller symmetric live stage, widens only for preview and result actions so button labels stay fully visible, removes the extra outer black shadow feel, and maps low speech levels into a much more legible waveform instead of barely moving bars
+- the Input placement card now hides display and anchor controls while `Remember last drag position` is active and replaces them with a dedicated remembered-position summary
+- overlay manual placement now only updates from real user drag movement instead of every host-side window move, and the remembered position is normalized against the compact overlay footprint so processing/result states no longer overwrite secondary-monitor placement when the surface widens
+- the overlay waveform bars now use a more conservative low-level gain curve, so speech stays visible without the previous overreactive near-constant peak behavior
+- overlay manual placement now derives the remembered target monitor from the saved logical drag reference instead of trusting `current_monitor()`, so cross-monitor drags on left or vertical displays no longer get reclamped against the wrong work area on the next reveal
+- long overlay drags now suppress button activation until the drag actually ends, so dropping the window after a longer move no longer triggers `copy`, `retry`, `restore` or other overlay actions by accident
+- compact and action-state overlays now share the same remembered top-left drag position, so dragging either surface updates the single location used the next time any overlay state appears
+- the standard live overlay now uses state-specific right-side sizing and padding, so recording, `working`, and action states no longer inherit the same cramped timer/status spacing
+- the live waveform now falls back to a calmer idle silhouette for near-room-noise input and drives much taller bars once actual speech is present, instead of overreacting while quiet and underreacting while speaking
 
 ### Security
 

@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppConfig } from "../../test/factories";
 import type { NativeInsertionStatus } from "../../types/nativeInsertion";
 import { InputTab } from "./InputTab";
@@ -110,8 +110,19 @@ describe("InputTab", () => {
         });
       }
 
+      if (command === "overlay_monitor_options") {
+        return Promise.resolve([
+          { id: "primary", label: "Built-in display (Primary)", is_primary: true },
+          { id: "name:Side monitor", label: "Side monitor", is_primary: false },
+        ]);
+      }
+
       return Promise.resolve(undefined);
     });
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("shows native mic selection and recovery controls in the input tab", async () => {
@@ -121,6 +132,10 @@ describe("InputTab", () => {
 
     expect(screen.getByRole("checkbox", { name: /play sound feedback/i })).toBeChecked();
     expect(screen.getByText("First dictation preflight")).toBeInTheDocument();
+    expect(screen.getByText("Overlay placement")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /overlay placement mode/i })).toHaveValue("preset");
+    expect(screen.getByRole("combobox", { name: /overlay display/i })).toHaveValue("primary");
+    expect(screen.getByRole("combobox", { name: /overlay anchor/i })).toHaveValue("bottom_center");
     expect(screen.getByLabelText(/first dictation preflight checklist/i)).toBeInTheDocument();
     expect(screen.getAllByText("Trigger").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Microphone").length).toBeGreaterThan(0);
@@ -144,5 +159,22 @@ describe("InputTab", () => {
     expect(screen.getAllByText(/wordscript-scratchpad\.json/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /restore recoverable transcript/i })).toBeEnabled();
     expect(screen.queryByText("Linux Wayland")).not.toBeInTheDocument();
+  });
+
+  it("shows only remembered-position details when placement mode is manual", async () => {
+    const config = createAppConfig();
+    config.overlay_position_mode = "manual";
+    config.overlay_manual_x = 512;
+    config.overlay_manual_y = 228;
+
+    render(<InputTab config={config} onChange={vi.fn()} />);
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("overlay_monitor_options"));
+
+    expect(screen.getByRole("combobox", { name: /overlay placement mode/i })).toHaveValue("manual");
+    expect(screen.queryByRole("combobox", { name: /overlay display/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /overlay anchor/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/remembered overlay placement details/i)).toBeInTheDocument();
+    expect(screen.getByText(/current remembered position: 512, 228/i)).toBeInTheDocument();
   });
 });

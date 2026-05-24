@@ -176,7 +176,7 @@ export function AboutTab({ isActive }: AboutTabProps) {
     { label: "Release workflow", url: APP_RELEASE_WORKFLOW_URL },
     { label: "Release runbook", url: APP_RELEASE_RUNBOOK_URL },
     ...(releaseStatus?.release_url
-      ? [{ label: releaseStatus.release_version ? `Latest visible release ${releaseStatus.release_version}` : "Latest visible release", url: releaseStatus.release_url }]
+      ? [{ label: releaseStatus.release_version ? `Latest published release ${releaseStatus.release_version}` : "Latest published release", url: releaseStatus.release_url }]
       : []),
   ];
   const releaseSummary = releaseError
@@ -223,13 +223,17 @@ export function AboutTab({ isActive }: AboutTabProps) {
             <span>First official cross-platform app release for Linux, macOS and Windows</span>
           </div>
           <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Latest visible tag</span>
+            <span className="settings__provider-meta-label">Latest published tag</span>
             <span>{releaseHeadline}</span>
           </div>
         </div>
 
         <p className="form-dim settings__about-copy">
           Today you use WordScript as a developer build from source via <code>npm run tauri dev</code>. In parallel, the first official cross-platform app release is being assembled.
+        </p>
+
+        <p className="form-dim settings__about-copy">
+          Internal draft release handoffs, if the workflow creates them, stay maintainer-only and do not change this public GitHub release check.
         </p>
 
         <p className={`form-dim settings__about-copy${releaseError ? " form-dim--error" : ""}`}>
@@ -254,7 +258,7 @@ export function AboutTab({ isActive }: AboutTabProps) {
         )}
 
         <p className="form-dim settings__about-copy">
-          Until the first tagged release exists, treat this card as release-path diagnostics. It should explain what is being built, not imply that installers or in-app updates already work.
+          Until the first published release exists, treat this card as public release-path diagnostics. It should explain what is being built, not imply that installers, draft handoffs or in-app updates already work for end users.
         </p>
 
         <div className="settings__about-actions">

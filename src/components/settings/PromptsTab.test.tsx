@@ -296,15 +296,19 @@ describe("PromptsTab", () => {
     expect(screen.getByRole("textbox", { name: /transcription context/i })).toHaveValue("Escalation contacts");
   });
 
-  it("creates a curated starter profile and can merge another starter into the active profile", async () => {
+  it("shows included profiles as normal selectable, editable and deletable profiles", async () => {
     const user = userEvent.setup();
 
     render(<Harness />);
 
-    await user.click(screen.getByRole("button", { name: /select customer success replies curated profile/i }));
-    await user.click(screen.getByRole("button", { name: /create working copy/i }));
+    expect(screen.getByRole("list", { name: /profiles in this app/i })).toBeInTheDocument();
 
-    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies 2");
+    await user.click(screen.getByRole("button", { name: /select customer success replies profile/i }));
+    expect(screen.getAllByText(/polished rewrite, auto-paste delivery, standard recovery/i).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: /use profile/i }));
+
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies");
 
     expect((screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement).value).toContain("ticket IDs");
 
@@ -320,19 +324,14 @@ describe("PromptsTab", () => {
     await user.clear(promptField);
     await user.type(promptField, "custom org names");
 
-    await user.click(screen.getByRole("button", { name: /select product and engineering curated profile/i }));
-    await user.click(screen.getByRole("button", { name: /merge into active/i }));
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies");
 
-    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies 2");
+    await user.click(screen.getByRole("button", { name: /duplicate profile/i }));
 
-    const mergedPrompt = screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement;
-    expect(mergedPrompt.value).toContain("custom org names");
-    expect(mergedPrompt.value).toContain("API names");
+    expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies copy");
 
-    await user.click(screen.getByRole("tab", { name: /open dictionary workspace/i }));
-    expect(screen.getByDisplayValue("API")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /delete profile/i }));
 
-    await user.click(screen.getByRole("tab", { name: /open snippets workspace/i }));
-    expect(screen.getByDisplayValue("Release note")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /profile label/i })).not.toHaveValue("Customer success replies copy");
   });
 });

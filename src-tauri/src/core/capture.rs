@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use super::{
     config::{
-        AppConfig, DictionaryEntry, SnippetEntry, DEFAULT_CORRECTION_MODEL,
+        AppConfig, DictionaryEntry, SnippetEntry, TextProfileWorkMode, DEFAULT_CORRECTION_MODEL,
     },
     paths::user_data_dir,
     providers::default_provider_id,
@@ -42,6 +42,7 @@ pub struct NativeCaptureConfig {
     pub language: String,
     pub prompt: String,
     pub stt_hints: String,
+    pub work_mode: TextProfileWorkMode,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
     pub post_process: bool,
@@ -67,6 +68,7 @@ impl Default for NativeCaptureConfig {
             language: String::new(),
             prompt: String::new(),
             stt_hints: String::new(),
+            work_mode: TextProfileWorkMode::default(),
             dictionary_entries: Vec::new(),
             snippet_entries: Vec::new(),
             post_process: true,
@@ -85,7 +87,10 @@ impl NativeCaptureConfig {
     pub fn load_from_disk() -> Self {
         let app_config = AppConfig::load_from_disk();
         let active_profile = app_config.active_text_profile();
-        let provider = app_config.provider;
+        let work_mode = app_config.resolved_active_text_profile_work_mode();
+        let filter_fillers = app_config.active_text_profile_filter_fillers();
+        let professionalize = app_config.active_text_profile_professionalize();
+        let provider = app_config.provider.clone();
         let local_provider_selected = provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID;
         let model = if provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID {
             if app_config.local_model.trim().is_empty() {
@@ -108,6 +113,7 @@ impl NativeCaptureConfig {
             language: app_config.language,
             prompt: active_profile.prompt,
             stt_hints: active_profile.stt_hints,
+            work_mode,
             dictionary_entries: active_profile.dictionary_entries,
             snippet_entries: active_profile.snippet_entries,
             post_process: app_config.post_process,
@@ -116,8 +122,8 @@ impl NativeCaptureConfig {
             } else {
                 app_config.correction_model
             },
-            filter_fillers: app_config.filter_fillers,
-            professionalize: app_config.professionalize,
+            filter_fillers,
+            professionalize,
             audio_device: app_config.audio_device,
             max_recording_seconds: app_config.max_recording_seconds,
             silence_timeout_seconds: app_config.silence_timeout_seconds,
@@ -274,7 +280,9 @@ pub fn native_capture_status(
     Ok(state.status())
 }
 
-pub fn current_status_for_app<R: Runtime>(app: &AppHandle<R>) -> Result<NativeCaptureStatus, String> {
+pub fn current_status_for_app<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<NativeCaptureStatus, String> {
     let state = app
         .try_state::<Mutex<NativeCaptureState>>()
         .ok_or_else(|| "Native capture state is not available.".to_string())?;
@@ -294,7 +302,9 @@ pub fn configure_native_capture(
 #[tauri::command]
 pub fn list_native_input_devices() -> Result<Vec<NativeInputDevice>, String> {
     let host = cpal::default_host();
-    let default_name = host.default_input_device().and_then(|device| device.name().ok());
+    let default_name = host
+        .default_input_device()
+        .and_then(|device| device.name().ok());
     let devices = host
         .input_devices()
         .map_err(|error| format!("Could not list input devices: {error}"))?;
@@ -513,28 +523,26 @@ pub fn stop_native_capture<R: Runtime>(
         active.channels,
         &samples,
     )?;
-    let audio_duration_seconds = capture_duration_seconds(
-        samples.len(),
-        active.sample_rate,
-        active.channels,
-    );
+    let audio_duration_seconds =
+        capture_duration_seconds(samples.len(), active.sample_rate, active.channels);
 
-        Ok(Some(serde_json::json!({
-            "event": "audio_ready",
-            "audio_path": audio_path.to_string_lossy(),
-            "audio_duration_seconds": audio_duration_seconds,
-            "provider": active.config.provider,
-            "model": active.config.model,
-            "language": active.config.language,
-            "prompt": active.config.prompt,
-            "stt_hints": active.config.stt_hints,
-            "dictionary_entries": active.config.dictionary_entries,
-            "snippet_entries": active.config.snippet_entries,
-            "post_process": active.config.post_process,
-            "correction_model": active.config.correction_model,
-            "filter_fillers": active.config.filter_fillers,
-            "professionalize": active.config.professionalize
-        })))
+    Ok(Some(serde_json::json!({
+        "event": "audio_ready",
+        "audio_path": audio_path.to_string_lossy(),
+        "audio_duration_seconds": audio_duration_seconds,
+        "provider": active.config.provider,
+        "model": active.config.model,
+        "language": active.config.language,
+        "prompt": active.config.prompt,
+        "stt_hints": active.config.stt_hints,
+        "work_mode": active.config.work_mode,
+        "dictionary_entries": active.config.dictionary_entries,
+        "snippet_entries": active.config.snippet_entries,
+        "post_process": active.config.post_process,
+        "correction_model": active.config.correction_model,
+        "filter_fillers": active.config.filter_fillers,
+        "professionalize": active.config.professionalize
+    })))
 }
 
 pub fn abort_native_capture<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -865,13 +873,19 @@ fn downmix_to_mono(samples: &[i16], channels: u16) -> Vec<i16> {
         .chunks(channel_count)
         .map(|frame| {
             let frame_len = i32::try_from(frame.len()).unwrap_or(1);
-            let sum = frame.iter().fold(0_i32, |acc, sample| acc + i32::from(*sample));
+            let sum = frame
+                .iter()
+                .fold(0_i32, |acc, sample| acc + i32::from(*sample));
             (sum / frame_len).clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16
         })
         .collect()
 }
 
-fn resample_mono_samples(samples: &[i16], input_sample_rate: u32, output_sample_rate: u32) -> Vec<i16> {
+fn resample_mono_samples(
+    samples: &[i16],
+    input_sample_rate: u32,
+    output_sample_rate: u32,
+) -> Vec<i16> {
     if samples.is_empty() {
         return Vec::new();
     }
@@ -886,13 +900,13 @@ fn resample_mono_samples(samples: &[i16], input_sample_rate: u32, output_sample_
     let last_index = samples.len().saturating_sub(1);
     let output_len = (((last_index as f64) * f64::from(normalized_output_rate)
         / f64::from(normalized_input_rate))
-        .floor() as usize)
+    .floor() as usize)
         + 1;
 
     (0..output_len)
         .map(|index| {
-            let source_position = index as f64 * f64::from(normalized_input_rate)
-                / f64::from(normalized_output_rate);
+            let source_position =
+                index as f64 * f64::from(normalized_input_rate) / f64::from(normalized_output_rate);
             let left_index = source_position.floor() as usize;
             let right_index = (left_index + 1).min(last_index);
             let fraction = source_position - left_index as f64;
@@ -1089,15 +1103,14 @@ mod tests {
     }
 }
 
+#[test]
+fn derives_capture_duration_from_samples() {
+    let duration = capture_duration_seconds(32_000, 16_000, 1);
+    assert!((duration - 2.0).abs() < f64::EPSILON);
 
-        #[test]
-        fn derives_capture_duration_from_samples() {
-            let duration = capture_duration_seconds(32_000, 16_000, 1);
-            assert!((duration - 2.0).abs() < f64::EPSILON);
-
-            let stereo_duration = capture_duration_seconds(96_000, 48_000, 2);
-            assert!((stereo_duration - 1.0).abs() < f64::EPSILON);
-        }
+    let stereo_duration = capture_duration_seconds(96_000, 48_000, 2);
+    assert!((stereo_duration - 1.0).abs() < f64::EPSILON);
+}
 fn capture_stop_reason(
     config: &NativeCaptureConfig,
     shared: &SharedCaptureData,

@@ -34,12 +34,86 @@ pub struct TextProfileCuration {
     pub highlights: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct TextProfileWorkMode {
+    pub rewrite_style: String,
+    pub insert_behavior: String,
+    pub recovery_behavior: String,
+}
+
+impl Default for TextProfileWorkMode {
+    fn default() -> Self {
+        Self {
+            rewrite_style: default_text_profile_rewrite_style().to_string(),
+            insert_behavior: default_text_profile_insert_behavior().to_string(),
+            recovery_behavior: default_text_profile_recovery_behavior().to_string(),
+        }
+    }
+}
+
+impl TextProfileWorkMode {
+    pub(crate) fn normalized(&self) -> Self {
+        normalize_text_profile_work_mode(self)
+    }
+
+    pub(crate) fn effective_rewrite_style(
+        &self,
+        fallback_filter_fillers: bool,
+        fallback_professionalize: bool,
+    ) -> String {
+        let normalized = self.normalized();
+        match normalized.rewrite_style.as_str() {
+            "verbatim" | "polished" => normalized.rewrite_style,
+            _ if fallback_professionalize => "polished".to_string(),
+            _ if fallback_filter_fillers => "clean".to_string(),
+            _ => "verbatim".to_string(),
+        }
+    }
+
+    pub(crate) fn effective_filter_fillers(&self, fallback: bool) -> bool {
+        match self.normalized().rewrite_style.as_str() {
+            "verbatim" => false,
+            "polished" => true,
+            "clean" => true,
+            _ => fallback,
+        }
+    }
+
+    pub(crate) fn effective_professionalize(&self, fallback: bool) -> bool {
+        match self.normalized().rewrite_style.as_str() {
+            "verbatim" => false,
+            "polished" => true,
+            "clean" => false,
+            _ => fallback,
+        }
+    }
+
+    pub(crate) fn effective_insert_behavior(&self, fallback_auto_paste: bool) -> String {
+        match self.normalized().insert_behavior.as_str() {
+            "clipboard_only" => "clipboard_only".to_string(),
+            _ if fallback_auto_paste => "auto_paste".to_string(),
+            _ => "clipboard_only".to_string(),
+        }
+    }
+
+    pub(crate) fn effective_auto_paste(&self, fallback_auto_paste: bool) -> bool {
+        self.effective_insert_behavior(fallback_auto_paste) == "auto_paste"
+    }
+
+    pub(crate) fn effective_recovery_behavior(&self) -> String {
+        self.normalized().recovery_behavior
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextProfile {
     pub id: String,
     pub label: String,
     pub prompt: String,
     pub stt_hints: String,
+    #[serde(default)]
+    pub work_mode: TextProfileWorkMode,
     #[serde(default)]
     pub curation: TextProfileCuration,
     pub dictionary_entries: Vec<DictionaryEntry>,
@@ -72,6 +146,28 @@ pub struct LocalProfilePromptSettings {
     pub prompt_carry: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayPositionMode {
+    #[default]
+    Preset,
+    Manual,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayAnchor {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    CenterLeft,
+    CenterRight,
+    BottomLeft,
+    #[default]
+    BottomCenter,
+    BottomRight,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -101,6 +197,11 @@ pub struct AppConfig {
     pub pause_hotkey: String,
     pub abort_hotkey: String,
     pub activation_mode: String,
+    pub overlay_position_mode: OverlayPositionMode,
+    pub overlay_monitor: String,
+    pub overlay_anchor: OverlayAnchor,
+    pub overlay_manual_x: i32,
+    pub overlay_manual_y: i32,
     pub sample_rate: u32,
     pub channels: u16,
     pub dtype: String,
@@ -155,6 +256,11 @@ impl Default for AppConfig {
             pause_hotkey: default_pause_hotkey().to_string(),
             abort_hotkey: default_abort_hotkey().to_string(),
             activation_mode: "tap".to_string(),
+            overlay_position_mode: OverlayPositionMode::Preset,
+            overlay_monitor: default_overlay_monitor().to_string(),
+            overlay_anchor: OverlayAnchor::BottomCenter,
+            overlay_manual_x: 0,
+            overlay_manual_y: 0,
             sample_rate: 16_000,
             channels: 1,
             dtype: "int16".to_string(),
@@ -183,6 +289,35 @@ impl AppConfig {
             })
     }
 
+    pub(crate) fn active_text_profile_work_mode(&self) -> TextProfileWorkMode {
+        self.active_text_profile().work_mode.normalized()
+    }
+
+    pub(crate) fn resolved_active_text_profile_work_mode(&self) -> TextProfileWorkMode {
+        let work_mode = self.active_text_profile_work_mode();
+        TextProfileWorkMode {
+            rewrite_style: work_mode
+                .effective_rewrite_style(self.filter_fillers, self.professionalize),
+            insert_behavior: work_mode.effective_insert_behavior(self.auto_paste),
+            recovery_behavior: work_mode.effective_recovery_behavior(),
+        }
+    }
+
+    pub(crate) fn active_text_profile_filter_fillers(&self) -> bool {
+        self.active_text_profile_work_mode()
+            .effective_filter_fillers(self.filter_fillers)
+    }
+
+    pub(crate) fn active_text_profile_professionalize(&self) -> bool {
+        self.active_text_profile_work_mode()
+            .effective_professionalize(self.professionalize)
+    }
+
+    pub(crate) fn active_text_profile_auto_paste(&self) -> bool {
+        self.active_text_profile_work_mode()
+            .effective_auto_paste(self.auto_paste)
+    }
+
     pub fn active_text_profile_label(&self) -> Option<String> {
         let label = self.active_text_profile().label;
         let trimmed = label.trim();
@@ -207,6 +342,9 @@ impl AppConfig {
 
         let mut config = serde_json::from_value::<Self>(raw_value.clone()).unwrap_or_default();
         apply_legacy_text_rules_from_value(&mut config, &raw_value);
+        if should_reseed_curated_text_profiles(&raw_value) {
+            config.curated_profiles_seeded = false;
+        }
         config
     }
 
@@ -311,6 +449,7 @@ impl AppConfig {
             normalize_shortcut_value(&self.pause_hotkey, default_pause_hotkey(), true);
         self.abort_hotkey =
             normalize_shortcut_value(&self.abort_hotkey, default_abort_hotkey(), true);
+        self.overlay_monitor = normalize_overlay_monitor_value(&self.overlay_monitor);
         self.history_limit = self.history_limit.clamp(25, 1000);
         self.history_retention_days = self.history_retention_days.min(3650);
     }
@@ -329,6 +468,7 @@ impl AppConfig {
             append_missing_curated_text_profiles(&mut self.text_profiles);
             self.curated_profiles_seeded = true;
         }
+        refresh_unedited_curated_text_profile_metadata(&mut self.text_profiles);
 
         for (index, profile) in self.text_profiles.iter_mut().enumerate() {
             if profile.id.trim().is_empty() {
@@ -346,6 +486,8 @@ impl AppConfig {
                     format!("Profile {}", index + 1)
                 };
             }
+
+            profile.work_mode = normalize_text_profile_work_mode(&profile.work_mode);
         }
 
         let active_index = self
@@ -461,6 +603,19 @@ fn default_pause_hotkey() -> &'static str {
         "ctrl_l+cmd+p"
     } else {
         "ctrl_l+f10"
+    }
+}
+
+fn default_overlay_monitor() -> &'static str {
+    "primary"
+}
+
+fn normalize_overlay_monitor_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        default_overlay_monitor().to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -763,6 +918,48 @@ fn default_text_profile_label() -> &'static str {
     "General writing"
 }
 
+fn default_text_profile_rewrite_style() -> &'static str {
+    "clean"
+}
+
+fn default_text_profile_insert_behavior() -> &'static str {
+    "auto_paste"
+}
+
+fn default_text_profile_recovery_behavior() -> &'static str {
+    "standard"
+}
+
+fn normalize_text_profile_rewrite_style_value(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "verbatim" => "verbatim".to_string(),
+        "polished" | "professional" => "polished".to_string(),
+        _ => default_text_profile_rewrite_style().to_string(),
+    }
+}
+
+fn normalize_text_profile_insert_behavior_value(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "clipboard_only" | "clipboard" | "manual" => "clipboard_only".to_string(),
+        _ => default_text_profile_insert_behavior().to_string(),
+    }
+}
+
+fn normalize_text_profile_recovery_behavior_value(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "standard" => "standard".to_string(),
+        _ => default_text_profile_recovery_behavior().to_string(),
+    }
+}
+
+fn normalize_text_profile_work_mode(value: &TextProfileWorkMode) -> TextProfileWorkMode {
+    TextProfileWorkMode {
+        rewrite_style: normalize_text_profile_rewrite_style_value(&value.rewrite_style),
+        insert_behavior: normalize_text_profile_insert_behavior_value(&value.insert_behavior),
+        recovery_behavior: normalize_text_profile_recovery_behavior_value(&value.recovery_behavior),
+    }
+}
+
 fn default_text_profile(
     prompt: String,
     stt_hints: String,
@@ -774,6 +971,7 @@ fn default_text_profile(
         label: default_text_profile_label().to_string(),
         prompt,
         stt_hints,
+        work_mode: TextProfileWorkMode::default(),
         curation: TextProfileCuration::default(),
         dictionary_entries,
         snippet_entries,
@@ -806,6 +1004,22 @@ fn append_missing_curated_text_profiles(text_profiles: &mut Vec<TextProfile>) {
     }
 }
 
+fn refresh_unedited_curated_text_profile_metadata(text_profiles: &mut [TextProfile]) {
+    let seeds = curated_text_profile_seeds();
+    for profile in text_profiles.iter_mut() {
+        if !profile.curation.curated {
+            continue;
+        }
+
+        let Some(seed) = seeds.iter().find(|seed| seed.id == profile.id) else {
+            continue;
+        };
+
+        profile.work_mode = seed.work_mode.clone();
+        profile.curation = seed.curation.clone();
+    }
+}
+
 fn legacy_text_rules_present(legacy: &LegacyTextRules) -> bool {
     !legacy.prompt.trim().is_empty()
         || !legacy.stt_hints.trim().is_empty()
@@ -819,6 +1033,44 @@ fn raw_has_persisted_text_profiles(raw_value: &serde_json::Value) -> bool {
         .and_then(|profiles| profiles.as_array())
         .map(|profiles| !profiles.is_empty())
         .unwrap_or(false)
+}
+
+fn should_reseed_curated_text_profiles(raw_value: &serde_json::Value) -> bool {
+    let Some(profiles) = raw_value
+        .get("text_profiles")
+        .and_then(|profiles| profiles.as_array())
+    else {
+        return false;
+    };
+
+    if profiles.is_empty() {
+        return false;
+    }
+
+    match raw_value
+        .get("curated_profiles_seeded")
+        .and_then(|value| value.as_bool())
+    {
+        Some(false) | None => return true,
+        Some(true) => {}
+    }
+
+    let has_curated_profile = profiles.iter().any(|profile| {
+        profile
+            .get("curation")
+            .and_then(|curation| curation.get("curated"))
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    });
+    if has_curated_profile {
+        return false;
+    }
+
+    // Legacy profile configs from before the work-mode rollout were incorrectly
+    // treated as already seeded and therefore never received the included baselines.
+    profiles
+        .iter()
+        .all(|profile| profile.get("work_mode").is_none())
 }
 
 fn apply_legacy_text_rules_from_value(config: &mut AppConfig, raw_value: &serde_json::Value) {
@@ -951,8 +1203,7 @@ mod tests {
                 profile_id: "local-preview-base-fast".to_string(),
                 beam_size: 1,
                 best_of: 1,
-            }
-                == *entry
+            } == *entry
         }));
     }
 
@@ -1094,6 +1345,7 @@ mod tests {
                     label: "General writing".to_string(),
                     prompt: "General".to_string(),
                     stt_hints: String::new(),
+                    work_mode: TextProfileWorkMode::default(),
                     curation: TextProfileCuration::default(),
                     dictionary_entries: Vec::new(),
                     snippet_entries: Vec::new(),
@@ -1103,6 +1355,11 @@ mod tests {
                     label: "Support reply".to_string(),
                     prompt: "Support tone and escalation names".to_string(),
                     stt_hints: "status update\ntriage summary".to_string(),
+                    work_mode: TextProfileWorkMode {
+                        rewrite_style: "professional".to_string(),
+                        insert_behavior: "clipboard".to_string(),
+                        recovery_behavior: "guided".to_string(),
+                    },
                     curation: TextProfileCuration::default(),
                     dictionary_entries: vec![DictionaryEntry {
                         id: "dict-escalation".to_string(),
@@ -1127,9 +1384,15 @@ mod tests {
         assert_eq!(active_profile.label, "Support reply");
         assert_eq!(active_profile.prompt, "Support tone and escalation names");
         assert_eq!(active_profile.stt_hints, "status update\ntriage summary");
+        assert_eq!(active_profile.work_mode.rewrite_style, "polished");
+        assert_eq!(active_profile.work_mode.insert_behavior, "clipboard_only");
+        assert_eq!(active_profile.work_mode.recovery_behavior, "standard");
         assert_eq!(active_profile.dictionary_entries.len(), 1);
         assert_eq!(active_profile.snippet_entries.len(), 1);
-        assert_eq!(config.active_text_profile_label().as_deref(), Some("Support reply"));
+        assert_eq!(
+            config.active_text_profile_label().as_deref(),
+            Some("Support reply")
+        );
     }
 
     #[test]
@@ -1142,6 +1405,7 @@ mod tests {
                 label: "General writing".to_string(),
                 prompt: String::new(),
                 stt_hints: String::new(),
+                work_mode: TextProfileWorkMode::default(),
                 curation: TextProfileCuration::default(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
@@ -1156,10 +1420,123 @@ mod tests {
             .text_profiles
             .iter()
             .any(|profile| profile.id == "curated-customer-success" && profile.curation.curated));
+        assert_eq!(
+            config
+                .text_profiles
+                .iter()
+                .find(|profile| profile.id == "curated-customer-success")
+                .map(|profile| profile.work_mode.rewrite_style.as_str()),
+            Some("polished")
+        );
 
         let profile_count = config.text_profiles.len();
         config.normalize_for_runtime();
         assert_eq!(config.text_profiles.len(), profile_count);
+    }
+
+    #[test]
+    fn refreshes_unedited_curated_profile_work_mode_metadata() {
+        let mut config = AppConfig {
+            curated_profiles_seeded: true,
+            active_text_profile_id: "curated-customer-success".to_string(),
+            text_profiles: vec![TextProfile {
+                id: "curated-customer-success".to_string(),
+                label: "Customer success replies".to_string(),
+                prompt: String::new(),
+                stt_hints: String::new(),
+                work_mode: TextProfileWorkMode::default(),
+                curation: TextProfileCuration {
+                    curated: true,
+                    audience: "Customer success".to_string(),
+                    summary: "Old summary".to_string(),
+                    highlights: Vec::new(),
+                },
+                dictionary_entries: Vec::new(),
+                snippet_entries: Vec::new(),
+            }],
+            ..AppConfig::default()
+        };
+
+        config.normalize_for_runtime();
+
+        let active_profile = config.active_text_profile();
+        assert_eq!(active_profile.work_mode.rewrite_style, "polished");
+        assert_eq!(active_profile.work_mode.insert_behavior, "auto_paste");
+        assert_eq!(active_profile.curation.summary, "Inbox-ready support follow-ups, escalation language and status updates for customer-facing work.");
+    }
+
+    #[test]
+    fn repairs_legacy_profile_configs_that_were_marked_seeded_too_early() {
+        let raw_value = serde_json::json!({
+            "active_text_profile_id": "general",
+            "text_profiles": [
+                {
+                    "id": "general",
+                    "label": "General writing",
+                    "prompt": "",
+                    "stt_hints": "",
+                    "curation": {
+                        "curated": false,
+                        "audience": "",
+                        "summary": "",
+                        "highlights": []
+                    },
+                    "dictionary_entries": [],
+                    "snippet_entries": []
+                }
+            ],
+            "curated_profiles_seeded": true
+        });
+
+        assert!(should_reseed_curated_text_profiles(&raw_value));
+
+        let mut config = serde_json::from_value::<AppConfig>(raw_value.clone()).unwrap_or_default();
+        apply_legacy_text_rules_from_value(&mut config, &raw_value);
+        if should_reseed_curated_text_profiles(&raw_value) {
+            config.curated_profiles_seeded = false;
+        }
+        config.normalize_for_runtime();
+
+        assert!(config.curated_profiles_seeded);
+        assert!(config
+            .text_profiles
+            .iter()
+            .any(|profile| profile.id == "curated-customer-success" && profile.curation.curated));
+        assert!(config
+            .text_profiles
+            .iter()
+            .any(|profile| profile.id == "curated-sales" && profile.curation.curated));
+    }
+
+    #[test]
+    fn does_not_reseed_current_shape_configs_after_curated_profiles_were_removed() {
+        let raw_value = serde_json::json!({
+            "active_text_profile_id": "general",
+            "text_profiles": [
+                {
+                    "id": "general",
+                    "label": "General writing",
+                    "prompt": "",
+                    "stt_hints": "",
+                    "work_mode": {
+                        "rewrite_style": "clean",
+                        "insert_behavior": "auto_paste",
+                        "recovery_behavior": "standard"
+                    },
+                    "curation": {
+                        "curated": false,
+                        "audience": "",
+                        "summary": "",
+                        "highlights": []
+                    },
+                    "dictionary_entries": [],
+                    "snippet_entries": []
+                }
+            ],
+            "curated_profiles_seeded": true
+        });
+
+        assert!(!should_reseed_curated_text_profiles(&raw_value));
     }
 
     #[test]
@@ -1171,6 +1548,7 @@ mod tests {
                 label: "General writing".to_string(),
                 prompt: "profile prompt".to_string(),
                 stt_hints: "profile hint".to_string(),
+                work_mode: TextProfileWorkMode::default(),
                 curation: TextProfileCuration::default(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
@@ -1183,6 +1561,7 @@ mod tests {
         assert_eq!(active_profile.id, "general");
         assert_eq!(active_profile.prompt, "profile prompt");
         assert_eq!(active_profile.stt_hints, "profile hint");
+        assert_eq!(active_profile.work_mode, TextProfileWorkMode::default());
         assert!(active_profile.dictionary_entries.is_empty());
         assert!(active_profile.snippet_entries.is_empty());
     }
@@ -1226,6 +1605,7 @@ mod tests {
                 label: "General writing".to_string(),
                 prompt: "profile prompt".to_string(),
                 stt_hints: "profile hint".to_string(),
+                work_mode: TextProfileWorkMode::default(),
                 curation: TextProfileCuration::default(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),

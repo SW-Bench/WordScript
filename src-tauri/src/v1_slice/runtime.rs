@@ -139,9 +139,27 @@ impl V1SliceState {
                 None,
                 Some(format!("Listening for live audio via {}.", trigger)),
             ),
-            pipeline_step(SlicePipelineStep::Provider, SlicePipelineState::Idle, None, None, None),
-            pipeline_step(SlicePipelineStep::Transform, SlicePipelineState::Idle, None, None, None),
-            pipeline_step(SlicePipelineStep::Insert, SlicePipelineState::Idle, None, None, None),
+            pipeline_step(
+                SlicePipelineStep::Provider,
+                SlicePipelineState::Idle,
+                None,
+                None,
+                None,
+            ),
+            pipeline_step(
+                SlicePipelineStep::Transform,
+                SlicePipelineState::Idle,
+                None,
+                None,
+                None,
+            ),
+            pipeline_step(
+                SlicePipelineStep::Insert,
+                SlicePipelineState::Idle,
+                None,
+                None,
+                None,
+            ),
         ];
         self.stage = SliceStage::Capturing;
 
@@ -170,7 +188,8 @@ impl V1SliceState {
         let raw_text = request.raw_text.trim();
         let capture_duration_ms = self.capture_started_at.take().map(elapsed_ms);
         if raw_text.is_empty() {
-            self.pipeline = vec![
+            self.pipeline =
+                vec![
                 pipeline_step(
                     SlicePipelineStep::Capture,
                     SlicePipelineState::Completed,
@@ -213,11 +232,16 @@ impl V1SliceState {
         let provider_duration_ms = elapsed_ms(provider_started_at);
 
         let transform_started_at = Instant::now();
-        let transcript = build_transcript(raw_text, &request.profile, &provider_mode);
+        let transcript = build_transcript(
+            raw_text,
+            &request.profile,
+            &provider_mode,
+            &runtime_contract.work_mode,
+        );
         let transform_duration_ms = elapsed_ms(transform_started_at);
 
         let insert_started_at = Instant::now();
-        let insertion = build_insertion_plan(&request.insert_target);
+        let insertion = build_insertion_plan(&request.insert_target, &runtime_contract.work_mode);
         let insert_duration_ms = elapsed_ms(insert_started_at);
 
         self.last_session_id = Some(active_session.id);
@@ -237,7 +261,10 @@ impl V1SliceState {
                 SlicePipelineState::Completed,
                 Some(provider_duration_ms),
                 None,
-                Some(format!("Simulated {} transcription response prepared.", provider_mode)),
+                Some(format!(
+                    "Simulated {} transcription response prepared.",
+                    provider_mode
+                )),
             ),
             pipeline_step(
                 SlicePipelineStep::Transform,
@@ -291,10 +318,34 @@ pub fn runtime_contract_for_app<R: Runtime>(app: &AppHandle<R>) -> SliceRuntimeC
 
 fn default_pipeline_statuses() -> Vec<SlicePipelineStepStatus> {
     vec![
-        pipeline_step(SlicePipelineStep::Capture, SlicePipelineState::Idle, None, None, None),
-        pipeline_step(SlicePipelineStep::Provider, SlicePipelineState::Idle, None, None, None),
-        pipeline_step(SlicePipelineStep::Transform, SlicePipelineState::Idle, None, None, None),
-        pipeline_step(SlicePipelineStep::Insert, SlicePipelineState::Idle, None, None, None),
+        pipeline_step(
+            SlicePipelineStep::Capture,
+            SlicePipelineState::Idle,
+            None,
+            None,
+            None,
+        ),
+        pipeline_step(
+            SlicePipelineStep::Provider,
+            SlicePipelineState::Idle,
+            None,
+            None,
+            None,
+        ),
+        pipeline_step(
+            SlicePipelineStep::Transform,
+            SlicePipelineState::Idle,
+            None,
+            None,
+            None,
+        ),
+        pipeline_step(
+            SlicePipelineStep::Insert,
+            SlicePipelineState::Idle,
+            None,
+            None,
+            None,
+        ),
     ]
 }
 
@@ -341,6 +392,7 @@ fn runtime_contract_from_sources(
         provider: provider.to_string(),
         provider_profile,
         model: runtime_model_for_provider(config, provider).to_string(),
+        work_mode: config.resolved_active_text_profile_work_mode(),
         provider_status: map_provider_runtime_status(provider_status),
         capture_status: map_capture_runtime_status(capture_status),
         local_preview: if provider == LOCAL_PREVIEW_PROVIDER_ID {
@@ -442,7 +494,9 @@ fn local_provider_issue_code_value(code: LocalProviderIssueCode) -> String {
         LocalProviderIssueCode::RunnerProbeTimedOut => "runner_probe_timed_out".to_string(),
         LocalProviderIssueCode::MissingModel => "missing_model".to_string(),
         LocalProviderIssueCode::InvalidModelPath => "invalid_model_path".to_string(),
-        LocalProviderIssueCode::UnreadableModelDirectory => "unreadable_model_directory".to_string(),
+        LocalProviderIssueCode::UnreadableModelDirectory => {
+            "unreadable_model_directory".to_string()
+        }
         LocalProviderIssueCode::ModelNotFound => "model_not_found".to_string(),
         LocalProviderIssueCode::MissingRunnerAndModel => "missing_runner_and_model".to_string(),
         LocalProviderIssueCode::InvalidChatEndpoint => "invalid_chat_endpoint".to_string(),
@@ -452,7 +506,9 @@ fn local_provider_issue_code_value(code: LocalProviderIssueCode) -> String {
     }
 }
 
-fn map_capture_runtime_status(capture_status: Option<NativeCaptureStatus>) -> SliceCaptureRuntimeStatus {
+fn map_capture_runtime_status(
+    capture_status: Option<NativeCaptureStatus>,
+) -> SliceCaptureRuntimeStatus {
     match capture_status {
         Some(status) => SliceCaptureRuntimeStatus {
             is_recording: status.is_recording,
@@ -501,22 +557,33 @@ fn sanitize_runtime_profile_segment(value: &str) -> String {
         .join("-")
 }
 
-fn build_transcript(raw_text: &str, profile: &str, provider_mode: &str) -> SliceTranscript {
+fn build_transcript(
+    raw_text: &str,
+    profile: &str,
+    provider_mode: &str,
+    work_mode: &crate::core::config::TextProfileWorkMode,
+) -> SliceTranscript {
     let mut applied_rules = Vec::new();
     let trimmed = raw_text.trim();
     if trimmed != raw_text {
         applied_rules.push("trimmed_edges".to_string());
     }
 
-    let filtered_words: Vec<&str> = trimmed
-        .split_whitespace()
-        .filter(|token| !is_filler(token))
-        .collect();
-    if filtered_words.len() != trimmed.split_whitespace().count() {
-        applied_rules.push("removed_fillers".to_string());
-    }
+    let rewrite_style = work_mode.rewrite_style.as_str();
+    let words: Vec<&str> = if matches!(rewrite_style, "clean" | "polished") {
+        let filtered_words: Vec<&str> = trimmed
+            .split_whitespace()
+            .filter(|token| !is_filler(token))
+            .collect();
+        if filtered_words.len() != trimmed.split_whitespace().count() {
+            applied_rules.push("removed_fillers".to_string());
+        }
+        filtered_words
+    } else {
+        trimmed.split_whitespace().collect()
+    };
 
-    let mut final_text = filtered_words.join(" ");
+    let mut final_text = words.join(" ");
 
     let collapsed = final_text.split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed != final_text {
@@ -524,19 +591,25 @@ fn build_transcript(raw_text: &str, profile: &str, provider_mode: &str) -> Slice
     }
     final_text = collapsed;
 
-    if let Some(first) = final_text.chars().next() {
-        let upper = first.to_uppercase().to_string();
-        if upper != first.to_string() {
-            final_text.replace_range(0..first.len_utf8(), &upper);
-            applied_rules.push("capitalized_sentence_start".to_string());
+    if matches!(rewrite_style, "clean" | "polished") {
+        if let Some(first) = final_text.chars().next() {
+            let upper = first.to_uppercase().to_string();
+            if upper != first.to_string() {
+                final_text.replace_range(0..first.len_utf8(), &upper);
+                applied_rules.push("capitalized_sentence_start".to_string());
+            }
+        }
+
+        if !final_text.is_empty()
+            && !matches!(final_text.chars().last(), Some('.') | Some('!') | Some('?'))
+        {
+            final_text.push('.');
+            applied_rules.push("added_terminal_punctuation".to_string());
         }
     }
 
-    if !final_text.is_empty()
-        && !matches!(final_text.chars().last(), Some('.') | Some('!') | Some('?'))
-    {
-        final_text.push('.');
-        applied_rules.push("added_terminal_punctuation".to_string());
+    if rewrite_style == "polished" {
+        applied_rules.push("polished_rewrite_requested".to_string());
     }
 
     SliceTranscript {
@@ -548,9 +621,14 @@ fn build_transcript(raw_text: &str, profile: &str, provider_mode: &str) -> Slice
     }
 }
 
-fn build_insertion_plan(insert_target: &str) -> SliceInsertionPlan {
+fn build_insertion_plan(
+    insert_target: &str,
+    work_mode: &crate::core::config::TextProfileWorkMode,
+) -> SliceInsertionPlan {
     let normalized_target = insert_target.trim();
-    let mode = if normalized_target.contains("clipboard") {
+    let mode = if work_mode.insert_behavior == "clipboard_only"
+        || normalized_target.contains("clipboard")
+    {
         InsertMode::ClipboardFallbackPlanned
     } else {
         InsertMode::InAppPreview
@@ -559,7 +637,7 @@ fn build_insertion_plan(insert_target: &str) -> SliceInsertionPlan {
     SliceInsertionPlan {
         target: normalized_target.to_string(),
         mode,
-        fallback: "clipboard_fallback_planned".to_string(),
+        fallback: work_mode.recovery_behavior.clone(),
     }
 }
 
@@ -580,9 +658,18 @@ fn normalize_token(token: &str) -> String {
 mod tests {
     use super::*;
 
+    fn test_work_mode() -> crate::core::config::TextProfileWorkMode {
+        crate::core::config::TextProfileWorkMode::default()
+    }
+
     #[test]
     fn transforms_text_for_the_first_slice() {
-        let transcript = build_transcript(" ähm wir shippen das morgen ", "developer", "cloud-fast");
+        let transcript = build_transcript(
+            " ähm wir shippen das morgen ",
+            "developer",
+            "cloud-fast",
+            &test_work_mode(),
+        );
 
         assert_eq!(transcript.final_text, "Wir shippen das morgen.");
         assert!(transcript
@@ -642,9 +729,30 @@ mod tests {
             .unwrap_or_default()
             .contains("fallback"));
         assert_eq!(result.status.runtime_contract.provider, "groq");
-        assert_eq!(result.status.runtime_contract.provider_profile, "cloud-fast");
+        assert_eq!(
+            result.status.runtime_contract.provider_profile,
+            "cloud-fast"
+        );
+        assert_eq!(
+            result.status.runtime_contract.work_mode.rewrite_style,
+            "clean"
+        );
         assert_eq!(result.status.preferred_provider, "cloud-fast");
         assert_eq!(result.transcript.provider_mode, "cloud-fast");
+    }
+
+    #[test]
+    fn clipboard_only_work_mode_changes_the_insert_plan() {
+        let work_mode = crate::core::config::TextProfileWorkMode {
+            rewrite_style: "clean".to_string(),
+            insert_behavior: "clipboard_only".to_string(),
+            recovery_behavior: "standard".to_string(),
+        };
+
+        let insertion = build_insertion_plan("editor_preview", &work_mode);
+
+        assert_eq!(insertion.mode, InsertMode::ClipboardFallbackPlanned);
+        assert_eq!(insertion.fallback, "standard");
     }
 
     #[test]
@@ -669,7 +777,10 @@ mod tests {
 
         let runtime_contract = runtime_contract_from_config(&config);
 
-        assert_eq!(runtime_contract.provider_profile, "groq-model-custom-cloud-model-edge");
+        assert_eq!(
+            runtime_contract.provider_profile,
+            "groq-model-custom-cloud-model-edge"
+        );
     }
 
     #[test]
@@ -735,7 +846,10 @@ mod tests {
         );
 
         assert_eq!(runtime_contract.provider, LOCAL_PREVIEW_PROVIDER_ID);
-        assert_eq!(runtime_contract.provider_profile, "local-preview-large-v3-q5_0-quality");
+        assert_eq!(
+            runtime_contract.provider_profile,
+            "local-preview-large-v3-q5_0-quality"
+        );
         assert_eq!(runtime_contract.model, "large-v3-q5_0");
         assert!(runtime_contract.provider_status.ready);
         assert_eq!(
@@ -746,7 +860,10 @@ mod tests {
                 .and_then(|setup| setup.resolved_runner.as_deref()),
             Some("/usr/bin/whisper-cli")
         );
-        assert_eq!(runtime_contract.capture_status.device_name.as_deref(), Some("Studio Mic"));
+        assert_eq!(
+            runtime_contract.capture_status.device_name.as_deref(),
+            Some("Studio Mic")
+        );
         assert_eq!(
             runtime_contract
                 .local_preview
@@ -823,6 +940,9 @@ mod tests {
 
         assert!(matches!(status.stage, SliceStage::Idle));
         assert!(status.session_id.is_none());
-        assert!(status.pipeline.iter().all(|step| matches!(step.state, SlicePipelineState::Idle)));
+        assert!(status
+            .pipeline
+            .iter()
+            .all(|step| matches!(step.state, SlicePipelineState::Idle)));
     }
 }

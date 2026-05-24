@@ -8,14 +8,12 @@ import {
   clearTextProfileCuration,
   cloneTextProfile,
   createTextProfile,
+  createEmptyTextProfileCuration,
+  describeTextProfileWorkMode,
   displayTextProfileLabel,
   isCuratedTextProfile,
   resolveActiveTextProfile,
 } from "../../lib/textProfiles";
-import {
-  createTextProfileFromTemplate,
-  mergeTemplateIntoTextProfile,
-} from "../../lib/textProfileTemplates";
 import type {
   ExportTextRulesResponse,
   ImportTextRulesResponse,
@@ -165,6 +163,21 @@ function countPromptLines(value: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .length;
+}
+
+function profileOriginLabel(profile: TextProfile) {
+  return isCuratedTextProfile(profile) ? "Included by WordScript" : "User profile";
+}
+
+function profileLibrarySummary(profile: TextProfile) {
+  if (isCuratedTextProfile(profile) && profile.curation.summary.trim()) {
+    return profile.curation.summary;
+  }
+
+  const contextLines = countPromptLines(profile.prompt);
+  const sttHintLines = countPromptLines(profile.stt_hints ?? "");
+  const ruleCount = (profile.dictionary_entries ?? []).length + (profile.snippet_entries ?? []).length;
+  return `${contextLines} context lines, ${sttHintLines} STT hints and ${ruleCount} rules in this profile.`;
 }
 
 function makeDictionaryEntry(): DictionaryEntry {
@@ -399,25 +412,25 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const configRef = useRef(config);
   const textProfilesRef = useRef(textProfiles);
   const activeTextProfileIdRef = useRef(activeTextProfile.id);
-  const curatedProfiles = textProfiles.filter((profile) => isCuratedTextProfile(profile));
-  const selectedTemplate = curatedProfiles.find((profile) => profile.id === selectedTemplateId) ?? curatedProfiles[0] ?? null;
+  const profileLibrary = textProfiles;
+  const selectedTemplate = profileLibrary.find((profile) => profile.id === selectedTemplateId) ?? activeTextProfile;
 
   configRef.current = config;
   textProfilesRef.current = textProfiles;
   activeTextProfileIdRef.current = activeTextProfile.id;
 
   useEffect(() => {
-    if (curatedProfiles.length === 0) {
+    if (profileLibrary.length === 0) {
       if (selectedTemplateId) {
         setSelectedTemplateId("");
       }
       return;
     }
 
-    if (!curatedProfiles.some((profile) => profile.id === selectedTemplateId)) {
-      setSelectedTemplateId(curatedProfiles[0].id);
+    if (!profileLibrary.some((profile) => profile.id === selectedTemplateId)) {
+      setSelectedTemplateId(activeTextProfile.id);
     }
-  }, [curatedProfiles, selectedTemplateId]);
+  }, [activeTextProfile.id, profileLibrary, selectedTemplateId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -473,25 +486,26 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     setActiveWorkspacePanel("context");
   };
 
-  const createProfileFromStarter = () => {
+  const useSelectedProfile = () => {
     if (!selectedTemplate) return;
 
-    const nextProfile = createTextProfileFromTemplate(
-      selectedTemplate,
-      textProfiles.map((profile) => profile.label),
-    );
-
-    applyProfiles([...textProfiles, nextProfile], nextProfile.id);
+    applyProfiles(textProfiles, selectedTemplate.id);
     setActiveWorkspacePanel("context");
-    setMessage(true, `Created working copy from ${selectedTemplate.label}.`);
+    setMessage(true, `${selectedTemplate.label} is now the active profile.`);
   };
 
-  const mergeStarterIntoActiveProfile = () => {
+  const duplicateSelectedProfile = () => {
     if (!selectedTemplate) return;
 
-    updateActiveProfile((profile) => mergeTemplateIntoTextProfile(profile, selectedTemplate));
+    const nextProfileId = createTextProfile().id;
+    const nextProfile = cloneTextProfile(selectedTemplate, {
+      id: nextProfileId,
+      label: selectedTemplate.label.trim() ? `${selectedTemplate.label} copy` : "Profile copy",
+      curation: createEmptyTextProfileCuration(),
+    });
+    applyProfiles([...textProfiles, nextProfile], nextProfile.id);
     setActiveWorkspacePanel("context");
-    setMessage(true, `Merged ${selectedTemplate.label} into ${activeTextProfile.label}.`);
+    setMessage(true, `Duplicated ${selectedTemplate.label}.`);
   };
 
   const duplicateProfile = () => {
@@ -682,6 +696,9 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const selectedTemplateSttHintPreview = selectedTemplate?.stt_hints.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
   const selectedTemplateDictionaryPreview = selectedTemplate?.dictionary_entries.slice(0, 4) ?? [];
   const selectedTemplateSnippetPreview = selectedTemplate?.snippet_entries.slice(0, 4) ?? [];
+  const selectedTemplateWorkModeSummary = selectedTemplate
+    ? describeTextProfileWorkMode(selectedTemplate)
+    : "Clean rewrite, Auto-paste delivery, Standard recovery";
   const totalRuleCount = dictionaryEntries.length + snippetEntries.length;
   const activeWorkspaceCopy = activeWorkspacePanel === "context"
     ? {
@@ -794,7 +811,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
         <article className="settings__summary-item">
           <span>Active profile</span>
           <strong>{activeTextProfile.label}</strong>
-          <small>{activePromptLineCount} context lines, {activeSttHintLineCount} STT hints and {totalRuleCount} authored rules in this local mode{isCuratedTextProfile(activeTextProfile) ? ". Still marked curated until you edit it." : "."}</small>
+          <small>{activePromptLineCount} context lines, {activeSttHintLineCount} STT hints and {totalRuleCount} authored rules in this local mode{isCuratedTextProfile(activeTextProfile) ? ". Included by WordScript, editable like any other profile." : "."}</small>
         </article>
         <article className="settings__summary-item">
           <span>Rule order</span>
@@ -823,19 +840,19 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                 </div>
                 <div className="settings__editor-profile-button-copy">
                   <strong>{activeTextProfile.label}</strong>
-                  <span>{isCuratedTextProfile(activeTextProfile) ? "Curated profile" : "Active writing mode"}</span>
+                  <span>{isCuratedTextProfile(activeTextProfile) ? "Included profile" : "Active writing mode"}</span>
                 </div>
                 {isCuratedTextProfile(activeTextProfile) ? (
                   <span className="settings__editor-profile-status">
                     <BadgeCheck className="settings__editor-profile-status-icon" size={14} strokeWidth={2} />
-                    Curated
+                    Included
                   </span>
                 ) : null}
               </div>
             </div>
             <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-setup-pills">
               <span className="settings__template-highlight">{activeTextProfile.label}</span>
-              {isCuratedTextProfile(activeTextProfile) && <span className="settings__template-highlight">Curated</span>}
+              {isCuratedTextProfile(activeTextProfile) && <span className="settings__template-highlight">Included by WordScript</span>}
               <span className="settings__template-highlight">{activePromptLineCount} context lines</span>
               <span className="settings__template-highlight">{activeSttHintLineCount} STT hints</span>
               <span className="settings__template-highlight">{dictionaryEntries.length} terms</span>
@@ -876,40 +893,41 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
                 Delete profile
               </button>
             </div>
-            <p className="settings__editor-setup-note">Each profile carries its own context, optional STT hints, dictionary and snippets. Curated profiles ship inside this app config on first run, but the first real edit turns them into normal user-owned profiles. Preview, import/export and runtime all follow the same active profile.</p>
+            <p className="settings__editor-setup-note">Each profile carries its own context, optional STT hints, dictionary, snippets and work-mode defaults. Included profiles ship inside this app config on first run, and the first real edit turns them into regular user-owned profiles. Preview, import/export and runtime all follow the same active profile.</p>
           </article>
 
           <article className="settings__editor-setup-card settings__editor-setup-card--starter">
             <div className="settings__editor-setup-head">
               <div className="settings__editor-setup-copy">
-                <span className="settings__template-kicker">Curated profiles</span>
-                <strong>Use the built-in baselines already in your app</strong>
-                <p>These profiles are persisted like any other profile. They keep a curated label only until you edit them.</p>
+                <span className="settings__template-kicker">Profile library</span>
+                <strong>Use any profile already loaded in this app</strong>
+                <p>Built-in profiles are saved into the same local profile list as yours. Use, edit, duplicate or delete them like normal profiles.</p>
               </div>
             </div>
             {selectedTemplate ? (
               <div className="settings__editor-starter-summary">
                 <div className="settings__editor-starter-summary-copy">
-                  <span className="settings__template-kicker">Selected curated profile</span>
+                  <span className="settings__template-kicker">Selected profile</span>
                   <strong>{selectedTemplate.label}</strong>
-                  <p>{selectedTemplate.curation.summary}</p>
+                  <p>{profileLibrarySummary(selectedTemplate)}</p>
                 </div>
                 <div className="settings__template-highlight-row settings__template-highlight-row--compact">
-                  <span className="settings__template-highlight">Curated</span>
+                  <span className="settings__template-highlight">{profileOriginLabel(selectedTemplate)}</span>
                   <span className="settings__template-highlight">{selectedTemplatePromptLines} context lines</span>
                   <span className="settings__template-highlight">{selectedTemplateSttHintLines} STT hints</span>
                   <span className="settings__template-highlight">{selectedTemplate.dictionary_entries.length} terms</span>
                   <span className="settings__template-highlight">{selectedTemplate.snippet_entries.length} snippets</span>
+                  <span className="settings__template-highlight">{selectedTemplateWorkModeSummary}</span>
                 </div>
                 <div className="settings__editor-setup-actions settings__editor-setup-actions--starter">
-                  <button className="settings__rule-mini-btn" type="button" onClick={createProfileFromStarter}>
-                    Create working copy
+                  <button className="settings__rule-mini-btn" type="button" onClick={useSelectedProfile}>
+                    Use profile
                   </button>
-                  <button className="settings__rule-mini-btn" type="button" onClick={mergeStarterIntoActiveProfile}>
-                    Merge into active
+                  <button className="settings__rule-mini-btn" type="button" onClick={duplicateSelectedProfile}>
+                    Duplicate selected
                   </button>
                   <button className="settings__rule-mini-btn" type="button" onClick={() => setShowStarterDetails((current) => !current)}>
-                    {showStarterDetails ? "Hide curated details" : "Show curated details"}
+                    {showStarterDetails ? "Hide profile details" : "Show profile details"}
                   </button>
                 </div>
                 {showStarterDetails && (
@@ -952,26 +970,27 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
             ) : (
               <div className="settings__editor-starter-summary">
                 <div className="settings__editor-starter-summary-copy">
-                  <span className="settings__template-kicker">Curated profiles exhausted</span>
-                  <strong>No untouched curated profiles left</strong>
-                  <p>Every built-in baseline in this app has already been edited. They now behave like regular user-owned profiles.</p>
+                  <span className="settings__template-kicker">Profile library</span>
+                  <strong>No profiles available</strong>
+                  <p>Create a profile to start building a local writing mode.</p>
                 </div>
               </div>
             )}
-            <div className="settings__editor-template-list" role="list" aria-label="Curated profiles in this app">
-              {curatedProfiles.map((template) => (
+            <div className="settings__editor-template-list" role="list" aria-label="Profiles in this app">
+              {profileLibrary.map((template) => (
                 <button
                   key={template.id}
                   type="button"
                   className={`settings__template-tile settings__template-tile--compact${selectedTemplate?.id === template.id ? " settings__template-tile--active" : ""}`}
-                  aria-label={`Select ${template.label} curated profile`}
+                  aria-label={`Select ${template.label} profile`}
                   aria-pressed={selectedTemplate?.id === template.id}
                   onClick={() => setSelectedTemplateId(template.id)}
                 >
-                  <span className="settings__template-kicker">{template.curation.audience}</span>
+                  <span className="settings__template-kicker">{isCuratedTextProfile(template) ? template.curation.audience : "User profile"}</span>
                   <strong>{template.label}</strong>
                   <div className="settings__rule-chip-row">
-                    <span className="settings__rule-chip">Curated</span>
+                    <span className="settings__rule-chip">{profileOriginLabel(template)}</span>
+                    <span className="settings__rule-chip">{describeTextProfileWorkMode(template)}</span>
                     <span className="settings__rule-chip">{template.dictionary_entries.length} terms</span>
                     <span className="settings__rule-chip">{template.snippet_entries.length} snippets</span>
                   </div>
@@ -989,7 +1008,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
           </div>
           <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-workspace-pills">
             <span className="settings__template-highlight">{activeTextProfile.label}</span>
-            {isCuratedTextProfile(activeTextProfile) && <span className="settings__template-highlight">Curated</span>}
+            {isCuratedTextProfile(activeTextProfile) && <span className="settings__template-highlight">Included by WordScript</span>}
             <span className="settings__template-highlight">{activeWorkspaceCopy.status}</span>
           </div>
         </article>

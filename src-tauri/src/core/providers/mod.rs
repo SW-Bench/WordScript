@@ -9,432 +9,430 @@ pub const LOCAL_PREVIEW_PROVIDER_ID: &str = "local_preview";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderErrorKind {
-	MissingApiKey,
-	SecretStoreUnavailable,
-	InvalidRequest,
-	Unauthorized,
-	RateLimited,
-	Timeout,
-	Network,
-	ProviderStatus,
-	Parse,
-	Io,
-	LocalSetup,
+    MissingApiKey,
+    SecretStoreUnavailable,
+    InvalidRequest,
+    Unauthorized,
+    RateLimited,
+    Timeout,
+    Network,
+    ProviderStatus,
+    Parse,
+    Io,
+    LocalSetup,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderErrorAction {
-	ConfigureCredential,
-	CheckSecretStore,
-	ChangeRequest,
-	WaitAndRetry,
-	Retry,
-	CheckNetwork,
-	CheckProviderStatus,
-	CheckLocalSetup,
+    ConfigureCredential,
+    CheckSecretStore,
+    ChangeRequest,
+    WaitAndRetry,
+    Retry,
+    CheckNetwork,
+    CheckProviderStatus,
+    CheckLocalSetup,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderCommandError {
-	pub kind: ProviderErrorKind,
-	pub message: String,
-	pub status: Option<u16>,
-	pub retry_after_seconds: Option<u64>,
-	pub retryable: bool,
-	pub user_action: ProviderErrorAction,
+    pub kind: ProviderErrorKind,
+    pub message: String,
+    pub status: Option<u16>,
+    pub retry_after_seconds: Option<u64>,
+    pub retryable: bool,
+    pub user_action: ProviderErrorAction,
 }
 
 impl ProviderCommandError {
-	pub fn new(
-		kind: ProviderErrorKind,
-		message: impl Into<String>,
-		status: Option<u16>,
-		retry_after_seconds: Option<u64>,
-	) -> Self {
-		let retryable = provider_error_is_retryable(&kind);
-		let user_action = provider_error_action(&kind);
+    pub fn new(
+        kind: ProviderErrorKind,
+        message: impl Into<String>,
+        status: Option<u16>,
+        retry_after_seconds: Option<u64>,
+    ) -> Self {
+        let retryable = provider_error_is_retryable(&kind);
+        let user_action = provider_error_action(&kind);
 
-		Self {
-			kind,
-			message: message.into(),
-			status,
-			retry_after_seconds,
-			retryable,
-			user_action,
-		}
-	}
+        Self {
+            kind,
+            message: message.into(),
+            status,
+            retry_after_seconds,
+            retryable,
+            user_action,
+        }
+    }
 
-	pub fn invalid_request(message: impl Into<String>) -> Self {
-		Self::new(ProviderErrorKind::InvalidRequest, message, None, None)
-	}
+    pub fn invalid_request(message: impl Into<String>) -> Self {
+        Self::new(ProviderErrorKind::InvalidRequest, message, None, None)
+    }
 
-	pub fn local_setup(message: impl Into<String>) -> Self {
-		Self::new(ProviderErrorKind::LocalSetup, message, None, None)
-	}
+    pub fn local_setup(message: impl Into<String>) -> Self {
+        Self::new(ProviderErrorKind::LocalSetup, message, None, None)
+    }
 }
 
 fn provider_error_is_retryable(kind: &ProviderErrorKind) -> bool {
-	matches!(
-		kind,
-		ProviderErrorKind::RateLimited
-			| ProviderErrorKind::Timeout
-			| ProviderErrorKind::Network
-			| ProviderErrorKind::ProviderStatus
-			| ProviderErrorKind::Io
-	)
+    matches!(
+        kind,
+        ProviderErrorKind::RateLimited
+            | ProviderErrorKind::Timeout
+            | ProviderErrorKind::Network
+            | ProviderErrorKind::ProviderStatus
+            | ProviderErrorKind::Io
+    )
 }
 
 fn provider_error_action(kind: &ProviderErrorKind) -> ProviderErrorAction {
-	match kind {
-		ProviderErrorKind::MissingApiKey => ProviderErrorAction::ConfigureCredential,
-		ProviderErrorKind::SecretStoreUnavailable => ProviderErrorAction::CheckSecretStore,
-		ProviderErrorKind::InvalidRequest | ProviderErrorKind::Parse => {
-			ProviderErrorAction::ChangeRequest
-		}
-		ProviderErrorKind::Unauthorized => ProviderErrorAction::ConfigureCredential,
-		ProviderErrorKind::RateLimited => ProviderErrorAction::WaitAndRetry,
-		ProviderErrorKind::Timeout => ProviderErrorAction::Retry,
-		ProviderErrorKind::Network => ProviderErrorAction::CheckNetwork,
-		ProviderErrorKind::ProviderStatus => ProviderErrorAction::CheckProviderStatus,
-		ProviderErrorKind::Io => ProviderErrorAction::Retry,
-		ProviderErrorKind::LocalSetup => ProviderErrorAction::CheckLocalSetup,
-	}
+    match kind {
+        ProviderErrorKind::MissingApiKey => ProviderErrorAction::ConfigureCredential,
+        ProviderErrorKind::SecretStoreUnavailable => ProviderErrorAction::CheckSecretStore,
+        ProviderErrorKind::InvalidRequest | ProviderErrorKind::Parse => {
+            ProviderErrorAction::ChangeRequest
+        }
+        ProviderErrorKind::Unauthorized => ProviderErrorAction::ConfigureCredential,
+        ProviderErrorKind::RateLimited => ProviderErrorAction::WaitAndRetry,
+        ProviderErrorKind::Timeout => ProviderErrorAction::Retry,
+        ProviderErrorKind::Network => ProviderErrorAction::CheckNetwork,
+        ProviderErrorKind::ProviderStatus => ProviderErrorAction::CheckProviderStatus,
+        ProviderErrorKind::Io => ProviderErrorAction::Retry,
+        ProviderErrorKind::LocalSetup => ProviderErrorAction::CheckLocalSetup,
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderCredentialStatus {
-	pub provider: String,
-	pub configured: bool,
-	pub storage: String,
-	pub key_preview: Option<String>,
+    pub provider: String,
+    pub configured: bool,
+    pub storage: String,
+    pub key_preview: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderMode {
-	Fast,
-	Quality,
-	Local,
-	SelfHosted,
+    Fast,
+    Quality,
+    Local,
+    SelfHosted,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderProfile {
-	pub id: String,
-	pub provider: String,
-	pub mode: ProviderMode,
-	pub model: String,
-	pub label: String,
-	pub default: bool,
-	pub requires_api_key: bool,
+    pub id: String,
+    pub provider: String,
+    pub mode: ProviderMode,
+    pub model: String,
+    pub label: String,
+    pub default: bool,
+    pub requires_api_key: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderCapabilities {
-	pub transcription: bool,
-	pub chat_completion: bool,
-	pub local: bool,
-	pub requires_api_key: bool,
-	pub supports_prompt_bias: bool,
-	pub supports_language: bool,
-	pub supports_segments: bool,
-	pub model_management: bool,
+    pub transcription: bool,
+    pub chat_completion: bool,
+    pub local: bool,
+    pub requires_api_key: bool,
+    pub supports_prompt_bias: bool,
+    pub supports_language: bool,
+    pub supports_segments: bool,
+    pub model_management: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalProviderReadiness {
-	Ready,
-	SetupRequired,
+    Ready,
+    SetupRequired,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalProviderIssueCode {
-	MissingRunner,
-	InvalidRunnerPath,
-	RunnerProbeFailed,
-	RunnerProbeTimedOut,
-	MissingModel,
-	InvalidModelPath,
-	UnreadableModelDirectory,
-	ModelNotFound,
-	MissingRunnerAndModel,
-	InvalidChatEndpoint,
-	ChatBackendUnavailable,
-	MissingChatModel,
-	ChatModelNotFound,
+    MissingRunner,
+    InvalidRunnerPath,
+    RunnerProbeFailed,
+    RunnerProbeTimedOut,
+    MissingModel,
+    InvalidModelPath,
+    UnreadableModelDirectory,
+    ModelNotFound,
+    MissingRunnerAndModel,
+    InvalidChatEndpoint,
+    ChatBackendUnavailable,
+    MissingChatModel,
+    ChatModelNotFound,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LocalProviderSetupStatus {
-	pub readiness: LocalProviderReadiness,
-	pub runner_ready: bool,
-	pub model_ready: bool,
-	pub chat_ready: bool,
-	pub issue_code: Option<LocalProviderIssueCode>,
-	pub resolved_runner: Option<String>,
-	pub resolved_model: Option<String>,
-	pub resolved_chat_base_url: Option<String>,
-	pub resolved_chat_model: Option<String>,
-	pub available_chat_models: Vec<String>,
-	pub guidance: String,
+    pub readiness: LocalProviderReadiness,
+    pub runner_ready: bool,
+    pub model_ready: bool,
+    pub chat_ready: bool,
+    pub issue_code: Option<LocalProviderIssueCode>,
+    pub resolved_runner: Option<String>,
+    pub resolved_model: Option<String>,
+    pub resolved_chat_base_url: Option<String>,
+    pub resolved_chat_model: Option<String>,
+    pub available_chat_models: Vec<String>,
+    pub guidance: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProviderStatus {
-	pub provider: String,
-	pub default_profile: String,
-	pub credential: ProviderCredentialStatus,
-	pub profiles: Vec<ProviderProfile>,
-	pub capabilities: ProviderCapabilities,
-	pub local_setup: Option<LocalProviderSetupStatus>,
+    pub provider: String,
+    pub default_profile: String,
+    pub credential: ProviderCredentialStatus,
+    pub profiles: Vec<ProviderProfile>,
+    pub capabilities: ProviderCapabilities,
+    pub local_setup: Option<LocalProviderSetupStatus>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderStatusRequest {
-	pub provider: String,
-	pub model: Option<String>,
-	pub correction_model: Option<String>,
+    pub provider: String,
+    pub model: Option<String>,
+    pub correction_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SaveProviderApiKeyRequest {
-	pub provider: String,
-	pub api_key: String,
+    pub provider: String,
+    pub api_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ClearProviderApiKeyRequest {
-	pub provider: String,
+    pub provider: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ValidateProviderApiKeyRequest {
-	pub provider: String,
-	pub api_key: Option<String>,
+    pub provider: String,
+    pub api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ValidateProviderApiKeyResponse {
-	pub ok: bool,
-	pub provider: String,
-	pub checked_with: String,
+    pub ok: bool,
+    pub provider: String,
+    pub checked_with: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TranscribeAudioFileRequest {
-	pub provider: String,
-	pub audio_path: String,
-	pub model: Option<String>,
-	pub profile: Option<String>,
-	pub language: Option<String>,
-	pub prompt: Option<String>,
-	pub carry_initial_prompt: Option<bool>,
-	pub beam_size: Option<u8>,
-	pub best_of: Option<u8>,
-	pub response_format: Option<String>,
-	pub timeout_ms: Option<u64>,
-	pub max_retries: Option<u8>,
+    pub provider: String,
+    pub audio_path: String,
+    pub model: Option<String>,
+    pub profile: Option<String>,
+    pub language: Option<String>,
+    pub prompt: Option<String>,
+    pub carry_initial_prompt: Option<bool>,
+    pub beam_size: Option<u8>,
+    pub best_of: Option<u8>,
+    pub response_format: Option<String>,
+    pub timeout_ms: Option<u64>,
+    pub max_retries: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionResponse {
-	pub text: String,
-	#[serde(default)]
-	pub language: Option<String>,
-	#[serde(default)]
-	pub duration: Option<f64>,
-	#[serde(default)]
-	pub segments: Option<serde_json::Value>,
+    pub text: String,
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub duration: Option<f64>,
+    #[serde(default)]
+    pub segments: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
-	pub role: String,
-	pub content: String,
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionRequest {
-	pub provider: String,
-	pub model: String,
-	pub messages: Vec<ChatMessage>,
-	pub temperature: f32,
-	pub max_tokens: u32,
-	pub timeout_ms: Option<u64>,
-	pub max_retries: Option<u8>,
+    pub provider: String,
+    pub model: String,
+    pub messages: Vec<ChatMessage>,
+    pub temperature: f32,
+    pub max_tokens: u32,
+    pub timeout_ms: Option<u64>,
+    pub max_retries: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProviderId {
-	Groq,
-	LocalPreview,
+    Groq,
+    LocalPreview,
 }
 
 impl ProviderId {
-	fn as_str(self) -> &'static str {
-		match self {
-			Self::Groq => DEFAULT_PROVIDER_ID,
-			Self::LocalPreview => LOCAL_PREVIEW_PROVIDER_ID,
-		}
-	}
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Groq => DEFAULT_PROVIDER_ID,
+            Self::LocalPreview => LOCAL_PREVIEW_PROVIDER_ID,
+        }
+    }
 }
 
 fn resolve_provider_id(provider: &str) -> Result<ProviderId, ProviderCommandError> {
-	match provider.trim().to_ascii_lowercase().as_str() {
-		"" | DEFAULT_PROVIDER_ID => Ok(ProviderId::Groq),
-		"local" | LOCAL_PREVIEW_PROVIDER_ID => Ok(ProviderId::LocalPreview),
-		other => Err(ProviderCommandError::invalid_request(format!(
-			"Provider '{}' is not supported yet.",
-			other
-		))),
-	}
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "" | DEFAULT_PROVIDER_ID => Ok(ProviderId::Groq),
+        "local" | LOCAL_PREVIEW_PROVIDER_ID => Ok(ProviderId::LocalPreview),
+        other => Err(ProviderCommandError::invalid_request(format!(
+            "Provider '{}' is not supported yet.",
+            other
+        ))),
+    }
 }
 
 pub fn normalize_provider_value(provider: &str) -> String {
-	resolve_provider_id(provider)
-		.map(ProviderId::as_str)
-		.unwrap_or(DEFAULT_PROVIDER_ID)
-		.to_string()
+    resolve_provider_id(provider)
+        .map(ProviderId::as_str)
+        .unwrap_or(DEFAULT_PROVIDER_ID)
+        .to_string()
 }
 
 pub fn default_provider_id() -> &'static str {
-	DEFAULT_PROVIDER_ID
+    DEFAULT_PROVIDER_ID
 }
 
-pub fn provider_credentials_configured(
-	provider: &str,
-) -> Result<bool, ProviderCommandError> {
-	Ok(provider_status(ProviderStatusRequest {
-		provider: provider.to_string(),
-		model: None,
-		correction_model: None,
-	})?
-	.credential
-	.configured)
+pub fn provider_credentials_configured(provider: &str) -> Result<bool, ProviderCommandError> {
+    Ok(provider_status(ProviderStatusRequest {
+        provider: provider.to_string(),
+        model: None,
+        correction_model: None,
+    })?
+    .credential
+    .configured)
 }
 
 pub fn migrate_legacy_provider_api_key(
-	provider: &str,
-	api_key: &str,
+    provider: &str,
+    api_key: &str,
 ) -> Result<ProviderCredentialStatus, ProviderCommandError> {
-	match resolve_provider_id(provider)? {
-		ProviderId::Groq => groq::save_api_key(api_key),
-		ProviderId::LocalPreview => local_preview::save_api_key(api_key),
-	}
+    match resolve_provider_id(provider)? {
+        ProviderId::Groq => groq::save_api_key(api_key),
+        ProviderId::LocalPreview => local_preview::save_api_key(api_key),
+    }
 }
 
 #[tauri::command]
 pub fn provider_status(
-	request: ProviderStatusRequest,
+    request: ProviderStatusRequest,
 ) -> Result<ProviderStatus, ProviderCommandError> {
-	match resolve_provider_id(&request.provider)? {
-		ProviderId::Groq => groq::provider_status(),
-		ProviderId::LocalPreview => {
-			local_preview::provider_status(
-				request.model.as_deref(),
-				request.correction_model.as_deref(),
-			)
-		}
-	}
+    match resolve_provider_id(&request.provider)? {
+        ProviderId::Groq => groq::provider_status(),
+        ProviderId::LocalPreview => local_preview::provider_status(
+            request.model.as_deref(),
+            request.correction_model.as_deref(),
+        ),
+    }
 }
 
 #[tauri::command]
 pub fn save_provider_api_key(
-	request: SaveProviderApiKeyRequest,
+    request: SaveProviderApiKeyRequest,
 ) -> Result<ProviderCredentialStatus, ProviderCommandError> {
-	match resolve_provider_id(&request.provider)? {
-		ProviderId::Groq => groq::save_api_key(&request.api_key),
-		ProviderId::LocalPreview => local_preview::save_api_key(&request.api_key),
-	}
+    match resolve_provider_id(&request.provider)? {
+        ProviderId::Groq => groq::save_api_key(&request.api_key),
+        ProviderId::LocalPreview => local_preview::save_api_key(&request.api_key),
+    }
 }
 
 #[tauri::command]
 pub fn clear_provider_api_key(
-	request: ClearProviderApiKeyRequest,
+    request: ClearProviderApiKeyRequest,
 ) -> Result<ProviderCredentialStatus, ProviderCommandError> {
-	match resolve_provider_id(&request.provider)? {
-		ProviderId::Groq => groq::clear_api_key(),
-		ProviderId::LocalPreview => local_preview::clear_api_key(),
-	}
+    match resolve_provider_id(&request.provider)? {
+        ProviderId::Groq => groq::clear_api_key(),
+        ProviderId::LocalPreview => local_preview::clear_api_key(),
+    }
 }
 
 #[tauri::command]
 pub async fn validate_provider_api_key(
-	request: ValidateProviderApiKeyRequest,
+    request: ValidateProviderApiKeyRequest,
 ) -> Result<ValidateProviderApiKeyResponse, ProviderCommandError> {
-	match resolve_provider_id(&request.provider)? {
-		ProviderId::Groq => groq::validate_api_key(request.api_key).await,
-		ProviderId::LocalPreview => local_preview::validate_api_key(request.api_key).await,
-	}
+    match resolve_provider_id(&request.provider)? {
+        ProviderId::Groq => groq::validate_api_key(request.api_key).await,
+        ProviderId::LocalPreview => local_preview::validate_api_key(request.api_key).await,
+    }
 }
 
 #[tauri::command]
 pub async fn transcribe_audio_file(
-	request: TranscribeAudioFileRequest,
+    request: TranscribeAudioFileRequest,
 ) -> Result<TranscriptionResponse, ProviderCommandError> {
-	match resolve_provider_id(&request.provider)? {
-		ProviderId::Groq => groq::transcribe_audio_file(request).await,
-		ProviderId::LocalPreview => local_preview::transcribe_audio_file(request).await,
-	}
+    match resolve_provider_id(&request.provider)? {
+        ProviderId::Groq => groq::transcribe_audio_file(request).await,
+        ProviderId::LocalPreview => local_preview::transcribe_audio_file(request).await,
+    }
 }
 
 pub async fn create_chat_completion(
-	request: ChatCompletionRequest,
+    request: ChatCompletionRequest,
 ) -> Result<String, ProviderCommandError> {
-	match resolve_provider_id(&request.provider)? {
-		ProviderId::Groq => groq::create_chat_completion(request).await,
-		ProviderId::LocalPreview => local_preview::create_chat_completion(request).await,
-	}
+    match resolve_provider_id(&request.provider)? {
+        ProviderId::Groq => groq::create_chat_completion(request).await,
+        ProviderId::LocalPreview => local_preview::create_chat_completion(request).await,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn normalizes_provider_values_to_supported_ids() {
-		assert_eq!(normalize_provider_value("groq"), "groq");
-		assert_eq!(normalize_provider_value(" GrOq "), "groq");
-		assert_eq!(normalize_provider_value("local_preview"), "local_preview");
-		assert_eq!(normalize_provider_value("local"), "local_preview");
-		assert_eq!(normalize_provider_value(""), "groq");
-		assert_eq!(normalize_provider_value("openai"), "groq");
-	}
+    #[test]
+    fn normalizes_provider_values_to_supported_ids() {
+        assert_eq!(normalize_provider_value("groq"), "groq");
+        assert_eq!(normalize_provider_value(" GrOq "), "groq");
+        assert_eq!(normalize_provider_value("local_preview"), "local_preview");
+        assert_eq!(normalize_provider_value("local"), "local_preview");
+        assert_eq!(normalize_provider_value(""), "groq");
+        assert_eq!(normalize_provider_value("openai"), "groq");
+    }
 
-	#[test]
-	fn rejects_unknown_provider_dispatch() {
-		let error = resolve_provider_id("openai").unwrap_err();
+    #[test]
+    fn rejects_unknown_provider_dispatch() {
+        let error = resolve_provider_id("openai").unwrap_err();
 
-		assert!(matches!(error.kind, ProviderErrorKind::InvalidRequest));
-		assert!(error.message.contains("openai"));
-	}
+        assert!(matches!(error.kind, ProviderErrorKind::InvalidRequest));
+        assert!(error.message.contains("openai"));
+    }
 
-	#[test]
-	fn provider_errors_have_stable_recovery_semantics() {
-		let missing_key = ProviderCommandError::new(
-			ProviderErrorKind::MissingApiKey,
-			"missing",
-			None,
-			None,
-		);
-		assert!(!missing_key.retryable);
-		assert_eq!(missing_key.user_action, ProviderErrorAction::ConfigureCredential);
+    #[test]
+    fn provider_errors_have_stable_recovery_semantics() {
+        let missing_key =
+            ProviderCommandError::new(ProviderErrorKind::MissingApiKey, "missing", None, None);
+        assert!(!missing_key.retryable);
+        assert_eq!(
+            missing_key.user_action,
+            ProviderErrorAction::ConfigureCredential
+        );
 
-		let rate_limited = ProviderCommandError::new(
-			ProviderErrorKind::RateLimited,
-			"slow down",
-			Some(429),
-			Some(3),
-		);
-		assert!(rate_limited.retryable);
-		assert_eq!(rate_limited.user_action, ProviderErrorAction::WaitAndRetry);
-		assert_eq!(rate_limited.retry_after_seconds, Some(3));
+        let rate_limited = ProviderCommandError::new(
+            ProviderErrorKind::RateLimited,
+            "slow down",
+            Some(429),
+            Some(3),
+        );
+        assert!(rate_limited.retryable);
+        assert_eq!(rate_limited.user_action, ProviderErrorAction::WaitAndRetry);
+        assert_eq!(rate_limited.retry_after_seconds, Some(3));
 
-		let local_setup = ProviderCommandError::local_setup("missing whisper-cli");
-		assert!(!local_setup.retryable);
-		assert_eq!(local_setup.user_action, ProviderErrorAction::CheckLocalSetup);
-	}
+        let local_setup = ProviderCommandError::local_setup("missing whisper-cli");
+        assert!(!local_setup.retryable);
+        assert_eq!(
+            local_setup.user_action,
+            ProviderErrorAction::CheckLocalSetup
+        );
+    }
 }

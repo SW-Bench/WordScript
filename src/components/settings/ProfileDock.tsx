@@ -3,6 +3,7 @@ import {
   buildTextProfilesPatch,
   cloneTextProfile,
   createTextProfile,
+  describeTextProfileWorkMode,
   displayTextProfileLabel,
   isCuratedTextProfile,
   resolveActiveTextProfile,
@@ -28,6 +29,7 @@ export function ProfileDock({ config, onChange, onOpenTextRules }: ProfileDockPr
   const dictionaryLabel = countLabel(activeProfile.dictionary_entries.length, "term");
   const snippetLabel = countLabel(activeProfile.snippet_entries.length, "snippet");
   const activeProfileCurated = isCuratedTextProfile(activeProfile);
+  const workModeSummary = describeTextProfileWorkMode(activeProfile);
 
   const handleProfileSwitch = (profileId: string) => {
     onChange(buildTextProfilesPatch(config, profiles, profileId));
@@ -50,11 +52,16 @@ export function ProfileDock({ config, onChange, onOpenTextRules }: ProfileDockPr
       </div>
 
       <div className="settings__profile-strip">
-        <span className="settings__profile-mode">{activeProfileCurated ? "Curated" : "Manual"}</span>
+        <span className="settings__profile-mode">{activeProfileCurated ? "Included" : "Manual"}</span>
         <span className="settings__profile-stat">{contextConfigured ? "Context set" : "No context"}</span>
         <span className="settings__profile-stat">{dictionaryLabel}</span>
         <span className="settings__profile-stat">{snippetLabel}</span>
       </div>
+
+      <p className="settings__profile-note">
+        <span className="settings__profile-kicker">Profile defaults</span>
+        <strong>{workModeSummary}</strong>
+      </p>
 
       <label className="settings__profile-field" htmlFor="settings-profile-select">
         <span>Switch profile</span>

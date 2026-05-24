@@ -1,3 +1,5 @@
+import type { TextProfileWorkMode } from "./ipc";
+
 export type SliceStage = "idle" | "capturing" | "processing" | "completed" | "error";
 export type SlicePipelineStep = "capture" | "provider" | "transform" | "insert";
 export type SlicePipelineState = "idle" | "running" | "completed" | "failed" | "skipped";
@@ -51,6 +53,7 @@ export interface SliceRuntimeContract {
   provider: string;
   provider_profile: string;
   model: string;
+  work_mode: TextProfileWorkMode;
   provider_status: SliceProviderRuntimeStatus;
   capture_status: SliceCaptureRuntimeStatus;
   local_preview: SliceLocalPreviewContract | null;

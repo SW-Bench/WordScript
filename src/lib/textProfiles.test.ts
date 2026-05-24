@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { createAppConfig } from "../test/factories";
 import {
   buildTextProfilesPatch,
+  createDefaultTextProfileWorkMode,
   createEmptyTextProfileCuration,
   resolveActiveTextProfile,
+  resolveTextProfileWorkMode,
 } from "./textProfiles";
 
 describe("textProfiles", () => {
@@ -30,6 +32,7 @@ describe("textProfiles", () => {
     expect(profile.stt_hints).toBe("profile hint");
     expect(profile.dictionary_entries).toEqual([]);
     expect(profile.snippet_entries).toEqual([]);
+    expect(resolveTextProfileWorkMode(profile)).toEqual(createDefaultTextProfileWorkMode());
   });
 
   it("builds profile patches without reintroducing top-level mirror fields", () => {
@@ -40,6 +43,11 @@ describe("textProfiles", () => {
         label: "General writing",
         prompt: "owned by profile",
         stt_hints: "owned hint",
+        work_mode: {
+          rewrite_style: "polished",
+          insert_behavior: "clipboard_only",
+          recovery_behavior: "standard",
+        },
         curation: createEmptyTextProfileCuration(),
         dictionary_entries: [],
         snippet_entries: [],
@@ -53,6 +61,11 @@ describe("textProfiles", () => {
           id: "general",
           prompt: "owned by profile",
           stt_hints: "owned hint",
+          work_mode: expect.objectContaining({
+            rewrite_style: "polished",
+            insert_behavior: "clipboard_only",
+            recovery_behavior: "standard",
+          }),
         }),
       ],
     });

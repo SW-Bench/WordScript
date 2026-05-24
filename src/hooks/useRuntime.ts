@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { resolveActiveTextProfile, resolveTextProfileWorkMode } from "../lib/textProfiles";
 import type {
   AppConfig,
   BackendEvent,
   RuntimeState,
+  RuntimeTranscriptionResult,
 } from "../types/ipc";
 
 const RUNTIME_EVENT_CHANNEL = "wordscript-event";
@@ -15,7 +17,8 @@ type Action =
   | { type: "RECORDING_STARTED" }
   | { type: "RECORDING_STOPPED" }
   | { type: "PROCESSING" }
-  | { type: "TRANSCRIPTION"; text: string }
+  | { type: "PREVIEW_READY"; result: RuntimeTranscriptionResult }
+  | { type: "TRANSCRIPTION"; result: RuntimeTranscriptionResult; preserveExisting?: boolean }
   | { type: "EMPTY" }
   | { type: "MUTED"; muted: boolean }
   | { type: "PAUSED"; paused: boolean }
@@ -27,30 +30,93 @@ const initial: RuntimeState = {
   muted: false,
   paused: false,
   lastTranscription: null,
+  pendingResult: null,
+  lastResult: null,
   error: null,
   recordingStartMs: null,
 };
+
+function buildRuntimeTranscriptionResult(
+  payload: Extract<BackendEvent, { event: "preview_ready" | "transcription" }>,
+  config: AppConfig | null,
+): RuntimeTranscriptionResult {
+  const activeProfile = config ? resolveActiveTextProfile(config) : null;
+
+  return {
+    provider: payload.provider ?? null,
+    active_profile: payload.active_profile ?? activeProfile?.label ?? null,
+    work_mode: payload.work_mode ?? (activeProfile ? resolveTextProfileWorkMode(activeProfile) : null),
+    raw_text: payload.raw_text ?? payload.text,
+    final_text: payload.text,
+    corrected: payload.corrected,
+    transform: payload.transform
+      ? {
+          applied_rules: [...payload.transform.applied_rules],
+          warning: payload.transform.warning,
+        }
+      : null,
+    insertion: payload.insertion ?? null,
+    history: payload.history ?? null,
+    occurred_at_ms: Date.now(),
+  };
+}
 
 function reducer(state: RuntimeState, action: Action): RuntimeState {
   switch (action.type) {
     case "READY":
       return { ...state, config: action.config, error: null };
     case "RECORDING_STARTED":
-      return { ...state, status: "recording", muted: false, paused: false, error: null, recordingStartMs: Date.now() };
+      return {
+        ...state,
+        status: "recording",
+        muted: false,
+        paused: false,
+        pendingResult: null,
+        lastResult: null,
+        error: null,
+        recordingStartMs: Date.now(),
+      };
     case "RECORDING_STOPPED":
       return { ...state, paused: false, recordingStartMs: null };
     case "PROCESSING":
-      return { ...state, status: "processing", paused: false };
+      return { ...state, status: "processing", paused: false, pendingResult: null };
+    case "PREVIEW_READY":
+      return {
+        ...state,
+        status: "processing",
+        paused: false,
+        pendingResult: action.result,
+        error: null,
+      };
     case "TRANSCRIPTION":
-      return { ...state, status: "idle", paused: false, lastTranscription: action.text };
+      {
+        const existingResult = state.lastResult ?? state.pendingResult;
+        const mergedResult = action.preserveExisting && existingResult
+          ? {
+              ...existingResult,
+              final_text: action.result.final_text,
+              corrected: action.result.corrected,
+              occurred_at_ms: action.result.occurred_at_ms,
+            }
+          : action.result;
+
+        return {
+          ...state,
+          status: "idle",
+          paused: false,
+          lastTranscription: mergedResult.final_text,
+          pendingResult: null,
+          lastResult: mergedResult,
+        };
+      }
     case "EMPTY":
-      return { ...state, status: "idle", paused: false };
+      return { ...state, status: "idle", paused: false, pendingResult: null, lastResult: null };
     case "MUTED":
       return { ...state, muted: action.muted };
     case "PAUSED":
       return { ...state, paused: action.paused };
     case "ERROR":
-      return { ...state, status: "idle", paused: false, error: action.message };
+      return { ...state, status: "idle", paused: false, pendingResult: null, error: action.message };
     default:
       return state;
   }
@@ -58,6 +124,13 @@ function reducer(state: RuntimeState, action: Action): RuntimeState {
 
 export function useRuntime() {
   const [state, dispatch] = useReducer(reducer, initial);
+  const configRef = useRef<AppConfig | null>(initial.config);
+  const lastResultRef = useRef<RuntimeTranscriptionResult | null>(initial.lastResult);
+
+  useEffect(() => {
+    configRef.current = state.config;
+    lastResultRef.current = state.lastResult;
+  }, [state.config, state.lastResult]);
 
   const configureNativeCapture = useCallback((config: AppConfig) => {
     invoke("configure_native_capture", {
@@ -102,8 +175,11 @@ export function useRuntime() {
         case "processing":
           dispatch({ type: "PROCESSING" });
           break;
+        case "preview_ready":
+          dispatch({ type: "PREVIEW_READY", result: buildRuntimeTranscriptionResult(payload, configRef.current) });
+          break;
         case "transcription":
-          dispatch({ type: "TRANSCRIPTION", text: payload.text });
+          dispatch({ type: "TRANSCRIPTION", result: buildRuntimeTranscriptionResult(payload, configRef.current) });
           break;
         case "empty":
           dispatch({ type: "EMPTY" });
@@ -142,7 +218,25 @@ export function useRuntime() {
             break;
           case "transcription":
           case "transcription_corrected":
-            dispatch({ type: "TRANSCRIPTION", text: payload.status?.last_transcript ?? "" });
+            {
+              const lastResult = lastResultRef.current;
+            dispatch({
+              type: "TRANSCRIPTION",
+              result: {
+                provider: lastResult?.provider ?? null,
+                active_profile: lastResult?.active_profile ?? null,
+                work_mode: lastResult?.work_mode ?? null,
+                raw_text: lastResult?.raw_text ?? payload.status?.last_transcript ?? "",
+                final_text: payload.status?.last_transcript ?? "",
+                corrected: payload.event === "transcription_corrected",
+                transform: lastResult?.transform ?? null,
+                insertion: lastResult?.insertion ?? null,
+                history: lastResult?.history ?? null,
+                occurred_at_ms: Date.now(),
+              },
+              preserveExisting: true,
+            });
+            }
             break;
           case "empty":
           case "aborted":

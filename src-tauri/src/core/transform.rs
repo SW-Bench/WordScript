@@ -32,6 +32,21 @@ pub struct NativeTransformResult {
 
 impl NativeTransformConfig {
     pub fn from_payload(value: &serde_json::Value) -> Self {
+        let rewrite_style = value
+            .get("work_mode")
+            .and_then(|work_mode| work_mode.get("rewrite_style"))
+            .or_else(|| value.get("rewrite_style"))
+            .and_then(|value| value.as_str())
+            .map(normalize_payload_rewrite_style);
+        let default_filter_fillers = rewrite_style
+            .as_deref()
+            .map(filter_fillers_for_rewrite_style)
+            .unwrap_or(true);
+        let default_professionalize = rewrite_style
+            .as_deref()
+            .map(professionalize_for_rewrite_style)
+            .unwrap_or(false);
+
         Self {
             provider: value
                 .get("provider")
@@ -68,13 +83,29 @@ impl NativeTransformConfig {
             filter_fillers: value
                 .get("filter_fillers")
                 .and_then(|value| value.as_bool())
-                .unwrap_or(true),
+                .unwrap_or(default_filter_fillers),
             professionalize: value
                 .get("professionalize")
                 .and_then(|value| value.as_bool())
-                .unwrap_or(false),
+                .unwrap_or(default_professionalize),
         }
     }
+}
+
+fn normalize_payload_rewrite_style(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "verbatim" => "verbatim".to_string(),
+        "polished" | "professional" => "polished".to_string(),
+        _ => "clean".to_string(),
+    }
+}
+
+fn filter_fillers_for_rewrite_style(value: &str) -> bool {
+    !matches!(value, "verbatim")
+}
+
+fn professionalize_for_rewrite_style(value: &str) -> bool {
+    matches!(value, "polished")
 }
 
 pub async fn apply_native_transform(
@@ -655,6 +686,27 @@ mod tests {
 
         assert_eq!(config.profile_prompt, "release freeze\ncustomer follow-up");
         assert_eq!(config.correction_model, DEFAULT_CORRECTION_MODEL);
+    }
+
+    #[test]
+    fn transform_payload_maps_work_mode_rewrite_style_to_cleanup_flags() {
+        let config = NativeTransformConfig::from_payload(&json!({
+            "work_mode": {
+                "rewrite_style": "polished"
+            }
+        }));
+
+        assert!(config.filter_fillers);
+        assert!(config.professionalize);
+
+        let verbatim = NativeTransformConfig::from_payload(&json!({
+            "work_mode": {
+                "rewrite_style": "verbatim"
+            }
+        }));
+
+        assert!(!verbatim.filter_fillers);
+        assert!(!verbatim.professionalize);
     }
 
     #[test]

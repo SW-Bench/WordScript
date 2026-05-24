@@ -38,6 +38,11 @@ function createHistoryEntry(overrides: Partial<TranscriptionHistoryEntry> = {}):
     model: "whisper-large-v3-turbo",
     language: "en",
     active_profile: "Developer",
+    work_mode: {
+      rewrite_style: "clean",
+      insert_behavior: "auto_paste",
+      recovery_behavior: "standard",
+    },
     provider_profile: null,
     local_prompt_strength: null,
     local_prompt_carry: null,

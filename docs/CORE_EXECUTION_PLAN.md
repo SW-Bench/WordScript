@@ -328,6 +328,8 @@ Die Design-System-Referenz dafuer ist nicht dekorativ, sondern operativ:
 
 ### Slice 7 - Profile zu Arbeitsmodi verdichten
 
+Status: gestartet am 2026-05-23. `7.1` bis `7.3` sind als erster durchgehender Pass umgesetzt: `TextProfile` traegt den Work-Mode-Vertrag, Settings zeigt ihn ohne Nebenwahrheit, und Transform, Insert, History sowie der V1-Diagnostics-Slice lesen dieselben Defaults. `7.4` laeuft jetzt als erster Overlay-Pass: ein kurzer Nachlauf-Snapshot zeigt aktives Profil, Work-Mode, Roh-/Finaltext und Insert-Ergebnis aus demselben Runtime-Payload. Der erste vorbereitende Schritt fuer Slice 8 ist ebenfalls gelandet: derselbe Snapshot traegt jetzt `history.entry_id` mit und bietet ehrliche Post-Run-Aktionen fuer `insert`, `retry` und `restore` ueber bestehende Native-Commands. Neu dazu kommt jetzt der erste echte Processing-Preview-Pass fuer `clipboard_only`: nach dem nativen Transform haelt die Session vor dem Commit an und der Overlay-Commit nutzt denselben Insert-, History- und Sessionpfad. Offen bleibt trotzdem der Vollausbau fuer weitere Delivery-Modi.
+
 ### Ziel
 
 Profile von `context + dictionary + snippets` zu echten Arbeitsmodi weiterziehen.
@@ -358,6 +360,34 @@ Profile von `context + dictionary + snippets` zu echten Arbeitsmodi weiterziehen
 - ein Arbeitsmodus kapselt `context`, `dictionary`, `snippets`, `rewrite style`, `insert behavior` und `recovery behavior`
 - Arbeitsmodi sind zuerst manuell sichtbar und explizit waehlbar
 - spaetere app- oder kontextbasierte Aktivierung bleibt permission-basiert und opt-in
+
+### Operative Reihenfolge
+
+1. `7.1 Contract zuerst`: `TextProfile` und `AppConfig` bekommen explizite Arbeitsmodus-Felder fuer Rewrite-, Insert- und Recovery-Defaults, inklusive Normalisierung, Clone-/Factory-Helfern und testbarer Migrationssicherheit. Solange dieser Vertrag fehlt, bleiben Profile nur eine Text-Rules-Huelle.
+2. `7.2 Sichtbarkeit ohne Nebenwahrheit`: Settings-Shell, Profil-Dock und Text-Rules-Workspace zeigen denselben aktiven Arbeitsmodus lesbar an, ohne neue Renderer-Heuristiken zu erfinden. UI liest den Vertrag, sie definiert ihn nicht.
+3. `7.3 Runtime uebernehmen`: `transform.rs`, `insertion.rs`, History und der V1-Slice lesen dieselben Arbeitsmodus-Defaults. Bestehende globale Schalter bleiben nur so lange Fallback, bis derselbe Vertrag nativ durchlaeuft.
+4. `7.4 Erst dann Overlay`: Sobald derselbe Modus in Runtime und History stabil mitlaeuft, darf Slice 8 Overlay-Preview und kontrollierten Commit sichtbar daran aufhaengen.
+
+### Externe Leitplanken fuer diesen Slice
+
+- `VoiceInk/PowerModeSessionManager` bestaetigt den Produktwert expliziter Mode-Sessions mit sauberem Restore statt versteckter Umschalter.
+- `FluidVoice/CommandModeService` bestaetigt die Trennung von Nutzungsabsicht und spaeteren Tool-/Providerpfaden.
+- offizielle Tauri-v2-Doku bestaetigt fuer die spaeteren Setup-/Release-Slices, dass Capabilities und Updater ein explizit konfigurierter, signierter Pfad bleiben; daraus folgt fuer Slice 7, dass auch Arbeitsmodi als sichtbarer Vertrag und nicht als implizite Nebenlogik gebaut werden muessen.
+
+### Erste konkrete Umsetzung
+
+- zuerst die Profilstruktur erweitern und alle Clone-/Factory-/Testpfade nachziehen
+- dann aktive Arbeitsmodus-Zusammenfassungen in Settings sichtbar machen
+- danach erst globale Rewrite-/Insert-Schalter schrittweise hinter denselben Profilvertrag ziehen
+
+Aktueller Stand:
+
+- eingeschlossene ICP-Profile bleiben normale persistierte Profile in `AppConfig.text_profiles`; `curation` ist Herkunftsmetadata, kein Sichtbarkeitsfilter
+- unberuehrte eingeschlossene Profile bekommen aktualisierte Seed-Metadaten und Work-Modes, geloeschte Profile werden aber nicht erneut aufgefuellt
+- Runtime-Verbraucher lesen jetzt Rewrite-, Insert- und Recovery-Defaults aus dem aktiven Profil; History und Diagnostics tragen denselben Work-Mode mit
+- das Overlay liest jetzt denselben guardierten Runtime-Snapshot fuer aktives Profil, Work-Mode, Roh-/Finaltext und Insert-Ergebnis; ein voller Pre-Commit-Pfad bleibt bewusst der naechste Slice
+- der Overlay-Nachlauf-Snapshot kann jetzt `insert`, `retry` und `restore` direkt ueber bestehende Native-Commands ausloesen; `retry` haengt dabei sichtbar an der echten History-ID des letzten Laufs statt an einer Overlay-Heuristik
+- `clipboard_only`-Profile halten jetzt zusaetzlich auf einem echten Processing-Preview vor dem Commit an; der spaetere Commit erzeugt History, Session-Abschluss und Overlay-Ergebnis weiter ueber denselben nativen Pfad
 
 ### Exit-Kriterien
 
@@ -396,6 +426,13 @@ Zwischen Sprechen und Insert einen sichtbaren Preview-/Commit-Pfad aufspannen, d
 - Overlay kann `raw transcript`, bereinigten Text und aktiven Arbeitsmodus sichtbar machen
 - Quick Actions fuer `insert`, `retry`, `scratchpad` und `restore` leben nah an der Preview
 - kontrollierter Commit ist ein expliziter Produktmodus und keine nachtraegliche Log-Ansicht
+
+Aktueller Stand:
+
+- der erste Post-Run-Schritt ist umgesetzt: `insert`, `retry` und `restore` leben direkt am kurzen Nachlauf-Snapshot und nutzen bestehende Native-Commands
+- `retry` ist jetzt an dieselbe `history.entry_id` gebunden, die auch aus der nativen History stammt
+- fuer `clipboard_only` ist jetzt auch der erste echte Pre-Commit-Preview-Pfad umgesetzt: nach dem Transform bleibt die Session sichtbar im Processing stehen, bis der Commit oder Abort erfolgt
+- nicht umgesetzt bleiben der Vollausbau fuer Auto-Paste-/weitere Delivery-Modi und eine sichtbare Scratchpad-Aktion im Overlay
 
 ### Exit-Kriterien
 

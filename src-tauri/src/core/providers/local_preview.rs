@@ -11,10 +11,9 @@ use crate::core::runtime_log;
 
 use super::{
     ChatCompletionRequest, LocalProviderIssueCode, LocalProviderReadiness,
-    LocalProviderSetupStatus, ProviderCapabilities, ProviderCommandError,
-    ProviderCredentialStatus, ProviderErrorKind, ProviderMode, ProviderProfile, ProviderStatus,
-    TranscribeAudioFileRequest, TranscriptionResponse, ValidateProviderApiKeyResponse,
-    LOCAL_PREVIEW_PROVIDER_ID,
+    LocalProviderSetupStatus, ProviderCapabilities, ProviderCommandError, ProviderCredentialStatus,
+    ProviderErrorKind, ProviderMode, ProviderProfile, ProviderStatus, TranscribeAudioFileRequest,
+    TranscriptionResponse, ValidateProviderApiKeyResponse, LOCAL_PREVIEW_PROVIDER_ID,
 };
 
 const DEFAULT_TIMEOUT_MS: u64 = 90_000;
@@ -112,11 +111,7 @@ impl LocalProfileSelection {
     }
 
     fn profile_id(&self) -> String {
-        format!(
-            "local-preview-{}-{}",
-            self.model,
-            self.preset.id_suffix()
-        )
+        format!("local-preview-{}-{}", self.model, self.preset.id_suffix())
     }
 }
 
@@ -229,11 +224,14 @@ pub async fn transcribe_audio_file(
         })
         .unwrap_or_else(|| "base".to_string());
     let started_at = Instant::now();
-    let binary = resolve_local_whisper_binary().map_err(|issue| {
-        ProviderCommandError::local_setup(issue.guidance(&requested_model))
-    })?;
-    let profile = selected_profile
-        .unwrap_or_else(|| LocalProfileSelection::new(&requested_model, preferred_local_decode_preset(&requested_model)));
+    let binary = resolve_local_whisper_binary()
+        .map_err(|issue| ProviderCommandError::local_setup(issue.guidance(&requested_model)))?;
+    let profile = selected_profile.unwrap_or_else(|| {
+        LocalProfileSelection::new(
+            &requested_model,
+            preferred_local_decode_preset(&requested_model),
+        )
+    });
     let model_path = resolve_local_model_path(&profile.model)
         .map_err(|issue| ProviderCommandError::local_setup(issue.guidance()))?;
     let language = request.language.filter(|value| !value.trim().is_empty());
@@ -467,15 +465,12 @@ pub async fn create_chat_completion(
             if detail.is_empty() {
                 format!(
                     "Local runtime cleanup failed with status {} from {}.",
-                    status,
-                    chat_runtime.base_url,
+                    status, chat_runtime.base_url,
                 )
             } else {
                 format!(
                     "Local runtime cleanup failed with status {} from {}: {}",
-                    status,
-                    chat_runtime.base_url,
-                    detail,
+                    status, chat_runtime.base_url, detail,
                 )
             },
             Some(status.as_u16()),
@@ -609,12 +604,7 @@ fn build_local_provider_profiles(
     [LocalDecodePreset::Fast, LocalDecodePreset::Quality]
         .into_iter()
         .map(|preset| {
-            build_local_provider_profile(
-                model,
-                default_preset == Some(preset),
-                source,
-                preset,
-            )
+            build_local_provider_profile(model, default_preset == Some(preset), source, preset)
         })
         .collect()
 }
@@ -631,11 +621,7 @@ fn build_local_provider_profile(
         .unwrap_or_else(|| " (external whisper-cli)".to_string());
 
     ProviderProfile {
-        id: format!(
-            "local-preview-{}-{}",
-            normalized_model,
-            preset.id_suffix()
-        ),
+        id: format!("local-preview-{}-{}", normalized_model, preset.id_suffix()),
         provider: LOCAL_PREVIEW_PROVIDER_ID.to_string(),
         mode: preset.mode(),
         model: normalized_model.clone(),
@@ -674,7 +660,10 @@ fn local_profile_selection_from_id(profile_id: &str) -> Option<LocalProfileSelec
     }
 
     if let Some(model) = rest.strip_suffix("-quality") {
-        return Some(LocalProfileSelection::new(model, LocalDecodePreset::Quality));
+        return Some(LocalProfileSelection::new(
+            model,
+            LocalDecodePreset::Quality,
+        ));
     }
 
     None
@@ -754,8 +743,14 @@ fn inspect_local_setup(model: &str, correction_model: &str) -> LocalProviderSetu
         issue_code,
         resolved_runner: runner.ok(),
         resolved_model: model_path.ok().map(|path| path.display().to_string()),
-        resolved_chat_base_url: chat_runtime.as_ref().ok().map(|runtime| runtime.base_url.clone()),
-        resolved_chat_model: chat_runtime.as_ref().ok().map(|runtime| runtime.model.clone()),
+        resolved_chat_base_url: chat_runtime
+            .as_ref()
+            .ok()
+            .map(|runtime| runtime.base_url.clone()),
+        resolved_chat_model: chat_runtime
+            .as_ref()
+            .ok()
+            .map(|runtime| runtime.model.clone()),
         available_chat_models: chat_runtime
             .as_ref()
             .ok()
@@ -815,8 +810,7 @@ fn local_setup_guidance(
             _,
         ) => local_preview_setup_message(model),
         (None, None, None, None) => {
-            "Local runtime helper, STT model and AI cleanup model are ready."
-                .to_string()
+            "Local runtime helper, STT model and AI cleanup model are ready.".to_string()
         }
         _ => [
             runner_issue.map(|issue| issue.guidance(model)),
@@ -1179,7 +1173,10 @@ fn resolve_local_chat_model(
         });
     }
 
-    if available_models.iter().any(|model| model == requested_model) {
+    if available_models
+        .iter()
+        .any(|model| model == requested_model)
+    {
         return Ok(requested_model.to_string());
     }
 
@@ -1216,12 +1213,12 @@ fn fetch_local_chat_models_blocking(
         });
     }
 
-    let payload = response
-        .json::<OllamaTagsResponse>()
-        .map_err(|error| LocalChatResolutionError::BackendUnavailable {
+    let payload = response.json::<OllamaTagsResponse>().map_err(|error| {
+        LocalChatResolutionError::BackendUnavailable {
             base_url: base_url.to_string(),
             message: format!("Could not parse /api/tags response: {error}"),
-        })?;
+        }
+    })?;
 
     Ok(normalize_available_local_chat_models(payload.models))
 }
@@ -1388,9 +1385,17 @@ impl LocalModelResolutionError {
 
 #[derive(Debug, Clone)]
 enum LocalChatResolutionError {
-    InvalidBaseUrl { url: String },
-    BackendUnavailable { base_url: String, message: String },
-    MissingModel { base_url: String, requested: String },
+    InvalidBaseUrl {
+        url: String,
+    },
+    BackendUnavailable {
+        base_url: String,
+        message: String,
+    },
+    MissingModel {
+        base_url: String,
+        requested: String,
+    },
     ModelNotFound {
         base_url: String,
         requested: String,
@@ -1486,16 +1491,19 @@ mod tests {
         assert_eq!(normalize_local_model_name("base"), "base");
         assert_eq!(normalize_local_model_name("large"), "large-v3");
         assert_eq!(normalize_local_model_name("large_v3"), "large-v3");
-        assert_eq!(
-            normalize_local_model_name("large-v3-q5_0"),
-            "large-v3-q5_0"
-        );
+        assert_eq!(normalize_local_model_name("large-v3-q5_0"), "large-v3-q5_0");
     }
 
     #[test]
     fn classifies_local_preview_profiles_into_fast_vs_quality_modes() {
-        assert_eq!(preferred_local_decode_preset("base"), LocalDecodePreset::Fast);
-        assert_eq!(preferred_local_decode_preset("small"), LocalDecodePreset::Fast);
+        assert_eq!(
+            preferred_local_decode_preset("base"),
+            LocalDecodePreset::Fast
+        );
+        assert_eq!(
+            preferred_local_decode_preset("small"),
+            LocalDecodePreset::Fast
+        );
         assert_eq!(
             preferred_local_decode_preset("distil-whisper-large-v3-en"),
             LocalDecodePreset::Fast
@@ -1504,7 +1512,10 @@ mod tests {
             preferred_local_decode_preset("large-v3-turbo"),
             LocalDecodePreset::Fast
         );
-        assert_eq!(preferred_local_decode_preset("medium"), LocalDecodePreset::Quality);
+        assert_eq!(
+            preferred_local_decode_preset("medium"),
+            LocalDecodePreset::Quality
+        );
         assert_eq!(
             preferred_local_decode_preset("large-v3-q5_0"),
             LocalDecodePreset::Quality
@@ -1648,7 +1659,10 @@ whisper_print_timings: total time = 1337.00 ms
         ]);
         let model_path = std::env::temp_dir().join("wordscript-local-preview-base.bin");
         std::fs::write(&model_path, "model").expect("write model file");
-        std::env::set_var(LOCAL_WHISPER_BINARY_ENV, "/tmp/wordscript-missing-whisper-cli");
+        std::env::set_var(
+            LOCAL_WHISPER_BINARY_ENV,
+            "/tmp/wordscript-missing-whisper-cli",
+        );
         std::env::set_var(LOCAL_MODEL_PATH_ENV, &model_path);
         std::env::remove_var(LOCAL_MODEL_DIR_ENV);
         std::env::set_var("PATH", "");
@@ -1754,10 +1768,7 @@ whisper_print_timings: total time = 1337.00 ms
     #[test]
     fn local_preview_profiles_expose_quality_vs_latency_modes() {
         let _lock = lock_env();
-        let _env = EnvGuard::capture(&[
-            LOCAL_MODEL_PATH_ENV,
-            LOCAL_MODEL_DIR_ENV,
-        ]);
+        let _env = EnvGuard::capture(&[LOCAL_MODEL_PATH_ENV, LOCAL_MODEL_DIR_ENV]);
         std::env::remove_var(LOCAL_MODEL_PATH_ENV);
         std::env::remove_var(LOCAL_MODEL_DIR_ENV);
 
@@ -1767,22 +1778,17 @@ whisper_print_timings: total time = 1337.00 ms
             profile.id == "local-preview-base-fast" && profile.mode == ProviderMode::Fast
         }));
         assert!(profiles.iter().any(|profile| {
-            profile.id == "local-preview-base-quality"
-                && profile.mode == ProviderMode::Quality
+            profile.id == "local-preview-base-quality" && profile.mode == ProviderMode::Quality
         }));
         assert!(profiles.iter().any(|profile| {
-            profile.id == "local-preview-medium-quality"
-                && profile.mode == ProviderMode::Quality
+            profile.id == "local-preview-medium-quality" && profile.mode == ProviderMode::Quality
         }));
     }
 
     #[test]
     fn provider_profiles_discover_models_from_local_model_dir() {
         let _lock = lock_env();
-        let _env = EnvGuard::capture(&[
-            LOCAL_MODEL_PATH_ENV,
-            LOCAL_MODEL_DIR_ENV,
-        ]);
+        let _env = EnvGuard::capture(&[LOCAL_MODEL_PATH_ENV, LOCAL_MODEL_DIR_ENV]);
         let dir = std::env::temp_dir().join("wordscript-local-preview-discovered-profiles");
         let _ = std::fs::create_dir_all(&dir);
         std::fs::write(dir.join("ggml-medium.bin"), "model").expect("write medium");
@@ -1816,14 +1822,14 @@ whisper_print_timings: total time = 1337.00 ms
         std::fs::write(&medium_model, "model").expect("write model file");
         std::env::set_var(LOCAL_MODEL_DIR_ENV, &dir);
         std::env::set_var("PATH", "");
-        std::env::set_var(LOCAL_WHISPER_BINARY_ENV, "/tmp/wordscript-missing-whisper-cli");
+        std::env::set_var(
+            LOCAL_WHISPER_BINARY_ENV,
+            "/tmp/wordscript-missing-whisper-cli",
+        );
 
         let status = provider_status(Some("medium"), None).expect("local preview status");
 
-        assert_eq!(
-            status.default_profile,
-            "local-preview-medium-quality"
-        );
+        assert_eq!(status.default_profile, "local-preview-medium-quality");
         assert_eq!(
             status
                 .local_setup

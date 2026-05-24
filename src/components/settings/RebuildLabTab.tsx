@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { useTranscriptionHistory } from "../../hooks/useTranscriptionHistory";
 import { useRuntimeLogs } from "../../hooks/useRuntimeLogs";
 import { useV1Slice } from "../../hooks/useV1Slice";
+import { describeTextProfileWorkMode } from "../../lib/textProfiles";
 import type { AppConfig } from "../../types/ipc";
 import type {
   TranscriptionHistoryEntry,
@@ -497,6 +498,7 @@ const HistoryEntryCard = memo(function HistoryEntryCard({ entry, isLoading, onRe
         {entry.active_driver && <span className="settings__rule-chip">{humanizeValue(entry.active_driver, "Driver")}</span>}
         {entry.recovery_action && <span className="settings__rule-chip">{historyRecoveryActionLabel(entry.recovery_action)}</span>}
         {entry.clipboard_restore && <span className="settings__rule-chip">{historyClipboardRestoreLabel(entry.clipboard_restore)}</span>}
+        {entry.work_mode && <span className="settings__rule-chip">{describeTextProfileWorkMode({ work_mode: entry.work_mode })}</span>}
         <span className="settings__rule-chip">{entry.active_profile ?? "Global rules"}</span>
       </div>
       <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
@@ -681,6 +683,9 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
   const runtimeProviderStatus = runtimeContract?.provider_status ?? null;
   const runtimeCaptureStatus = runtimeContract?.capture_status ?? null;
   const runtimeLocalSetup = runtimeProviderStatus?.local_setup ?? null;
+  const runtimeWorkModeLabel = runtimeContract?.work_mode
+    ? describeTextProfileWorkMode({ work_mode: runtimeContract.work_mode })
+    : "No active work mode";
   const runtimeDraftDifferences = describeRuntimeDraftDifferences(runtimeContract, config);
 
   const stage = status?.stage;
@@ -817,6 +822,10 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
       <div className="form-row">
         <label>Provider readiness</label>
         <div className="provider-status"><span>{providerReadinessLabel(runtimeContract)}</span></div>
+      </div>
+      <div className="form-row">
+        <label>Work mode</label>
+        <div className="provider-status"><span>{runtimeWorkModeLabel}</span></div>
       </div>
       <div className="form-row">
         <label>Capture runtime</label>
@@ -1016,6 +1025,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
             <span className="settings__rule-chip">{previewProfileLabel}</span>
             <span className="settings__rule-chip">{previewTargetLabel}</span>
             <span className="settings__rule-chip">{previewModeLabel}</span>
+            <span className="settings__rule-chip">{runtimeWorkModeLabel}</span>
           </div>
         </div>
 

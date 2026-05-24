@@ -8,54 +8,420 @@ mod core;
 mod v1_slice;
 
 use crate::core::capture::{NativeCaptureConfig, NativeCaptureState};
-use crate::core::config::AppConfig;
+use crate::core::config::{AppConfig, OverlayAnchor, OverlayPositionMode};
 use crate::core::insertion::{NativeInsertionConfig, NativeInsertionState};
 use crate::core::providers::TranscribeAudioFileRequest;
 use crate::core::sessions::NativeSessionState;
 use crate::core::trigger::{NativeTriggerConfig, NativeTriggerState, TriggerEffect};
 use crate::v1_slice::V1SliceState;
 
-const OVERLAY_WINDOW_WIDTH: f64 = 236.0;
-const OVERLAY_WINDOW_HEIGHT: f64 = 44.0;
-const OVERLAY_BOTTOM_INSET: f64 = 76.0;
+const OVERLAY_COMPACT_WINDOW_WIDTH: f64 = 256.0;
+const OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH: f64 = 300.0;
+const OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH: f64 = 388.0;
+const OVERLAY_WINDOW_HEIGHT: f64 = 52.0;
+const OVERLAY_TOP_INSET: f64 = 34.0;
+const OVERLAY_SIDE_INSET: f64 = 28.0;
+const OVERLAY_BOTTOM_INSET: f64 = 94.0;
+const OVERLAY_PARK_MARGIN: f64 = 72.0;
 const MIN_TRANSCRIPTION_TIMEOUT_MS: u64 = 18_000;
 const MAX_TRANSCRIPTION_TIMEOUT_MS: u64 = 35_000;
 const TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS: u64 = 800;
 const CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS: usize = 896;
 const LOCAL_PREVIEW_PROMPT_MAX_CHARS: usize = 480;
 
-fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>) {
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+struct OverlayMonitorOption {
+    id: String,
+    label: String,
+    is_primary: bool,
+}
+
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum OverlaySurface {
+    Compact,
+    ProcessingPreview,
+    ResultActions,
+}
+
+impl Default for OverlaySurface {
+    fn default() -> Self {
+        Self::Compact
+    }
+}
+
+impl OverlaySurface {
+    fn dimensions(self) -> (f64, f64) {
+        let width = match self {
+            Self::Compact => OVERLAY_COMPACT_WINDOW_WIDTH,
+            Self::ProcessingPreview => OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH,
+            Self::ResultActions => OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH,
+        };
+
+        (width, OVERLAY_WINDOW_HEIGHT)
+    }
+}
+
+// Remember the exact top-left window position, regardless of which overlay surface was dragged.
+fn manual_overlay_reference_position(x: f64, y: f64, _surface: OverlaySurface) -> (f64, f64) {
+    (x, y)
+}
+
+fn manual_overlay_surface_position(
+    reference_x: f64,
+    reference_y: f64,
+    _surface: OverlaySurface,
+) -> (f64, f64) {
+    (reference_x, reference_y)
+}
+
+fn overlay_monitor_work_area(monitor: &tauri::Monitor) -> (f64, f64, f64, f64) {
+    let scale = monitor.scale_factor().max(1.0);
+    let work_area = monitor.work_area();
+
+    (
+        work_area.position.x as f64 / scale,
+        work_area.position.y as f64 / scale,
+        work_area.size.width as f64 / scale,
+        work_area.size.height as f64 / scale,
+    )
+}
+
+fn logical_point_in_work_area(
+    point_x: f64,
+    point_y: f64,
+    work_x: f64,
+    work_y: f64,
+    work_width: f64,
+    work_height: f64,
+) -> bool {
+    point_x >= work_x
+        && point_x <= work_x + work_width
+        && point_y >= work_y
+        && point_y <= work_y + work_height
+}
+
+fn logical_point_distance_to_work_area(
+    point_x: f64,
+    point_y: f64,
+    work_x: f64,
+    work_y: f64,
+    work_width: f64,
+    work_height: f64,
+) -> f64 {
+    let max_x = work_x + work_width;
+    let max_y = work_y + work_height;
+    let distance_x = if point_x < work_x {
+        work_x - point_x
+    } else if point_x > max_x {
+        point_x - max_x
+    } else {
+        0.0
+    };
+    let distance_y = if point_y < work_y {
+        work_y - point_y
+    } else if point_y > max_y {
+        point_y - max_y
+    } else {
+        0.0
+    };
+
+    distance_x.powi(2) + distance_y.powi(2)
+}
+
+fn overlay_monitor_id_for_logical_point<I>(
+    monitors: I,
+    point_x: f64,
+    point_y: f64,
+) -> Option<String>
+where
+    I: IntoIterator<Item = (String, (f64, f64, f64, f64))>,
+{
+    let mut selected: Option<(String, bool, f64)> = None;
+
+    for (id, (work_x, work_y, work_width, work_height)) in monitors {
+        let contains =
+            logical_point_in_work_area(point_x, point_y, work_x, work_y, work_width, work_height);
+        let distance = logical_point_distance_to_work_area(
+            point_x,
+            point_y,
+            work_x,
+            work_y,
+            work_width,
+            work_height,
+        );
+
+        let replace = match &selected {
+            None => true,
+            Some((_, current_contains, current_distance)) => {
+                (contains && !current_contains)
+                    || (contains == *current_contains && distance < *current_distance)
+            }
+        };
+
+        if replace {
+            selected = Some((id, contains, distance));
+        }
+    }
+
+    selected.map(|(id, _, _)| id)
+}
+
+fn overlay_monitor_id_for_manual_reference<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    reference_x: f64,
+    reference_y: f64,
+) -> Option<String> {
+    let monitors = window.available_monitors().ok()?;
+    overlay_monitor_id_for_logical_point(
+        monitors.into_iter().map(|monitor| {
+            (
+                overlay_monitor_id(&monitor),
+                overlay_monitor_work_area(&monitor),
+            )
+        }),
+        reference_x,
+        reference_y,
+    )
+}
+
+fn overlay_monitor_id(monitor: &tauri::Monitor) -> String {
+    let name = monitor.name().cloned().unwrap_or_default();
+    let trimmed = name.trim();
+    if !trimmed.is_empty() {
+        return format!("name:{trimmed}");
+    }
+
+    let work_area = monitor.work_area();
+    format!(
+        "workarea:{}:{}:{}:{}",
+        work_area.position.x, work_area.position.y, work_area.size.width, work_area.size.height,
+    )
+}
+
+fn overlay_monitor_label(monitor: &tauri::Monitor, index: usize, is_primary: bool) -> String {
+    let name = monitor.name().cloned().unwrap_or_default();
+    let trimmed = name.trim();
+    let base = if trimmed.is_empty() {
+        format!("Display {}", index + 1)
+    } else {
+        trimmed.to_string()
+    };
+
+    if is_primary {
+        format!("{base} (Primary)")
+    } else {
+        base
+    }
+}
+
+fn resolve_overlay_monitor<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    monitor_id: &str,
+) -> Option<tauri::Monitor> {
+    let primary = window.primary_monitor().ok().flatten();
+    if monitor_id == "primary" {
+        return primary;
+    }
+
+    let monitors = window.available_monitors().ok()?;
+    monitors
+        .into_iter()
+        .find(|monitor| overlay_monitor_id(monitor) == monitor_id)
+        .or(primary)
+}
+
+fn overlay_work_area_for_config<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    config: &AppConfig,
+) -> Option<(f64, f64, f64, f64)> {
+    let monitor = resolve_overlay_monitor(window, &config.overlay_monitor)?;
+    Some(overlay_monitor_work_area(&monitor))
+}
+
+fn overlay_workspace_bounds<I>(work_areas: I) -> Option<(f64, f64, f64, f64)>
+where
+    I: IntoIterator<Item = (f64, f64, f64, f64)>,
+{
+    let mut bounds: Option<(f64, f64, f64, f64)> = None;
+
+    for (work_x, work_y, work_width, work_height) in work_areas {
+        let right = work_x + work_width;
+        let bottom = work_y + work_height;
+
+        bounds = Some(match bounds {
+            Some((min_x, min_y, max_x, max_y)) => (
+                min_x.min(work_x),
+                min_y.min(work_y),
+                max_x.max(right),
+                max_y.max(bottom),
+            ),
+            None => (work_x, work_y, right, bottom),
+        });
+    }
+
+    bounds
+}
+
+fn clamp_overlay_position(
+    x: f64,
+    y: f64,
+    work_x: f64,
+    work_y: f64,
+    work_width: f64,
+    work_height: f64,
+    window_width: f64,
+    window_height: f64,
+) -> LogicalPosition<f64> {
+    let clamped_x = x.clamp(work_x, (work_x + work_width - window_width).max(work_x));
+    let clamped_y = y.clamp(work_y, (work_y + work_height - window_height).max(work_y));
+
+    LogicalPosition::new(clamped_x.round(), clamped_y.round())
+}
+
+fn overlay_target_position<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    config: &AppConfig,
+    surface: OverlaySurface,
+) -> Option<LogicalPosition<f64>> {
+    let (work_x, work_y, work_width, work_height) = overlay_work_area_for_config(window, config)?;
+    let (window_width, window_height) = surface.dimensions();
+
+    match config.overlay_position_mode {
+        OverlayPositionMode::Manual => {
+            let (surface_x, surface_y) = manual_overlay_surface_position(
+                config.overlay_manual_x as f64,
+                config.overlay_manual_y as f64,
+                surface,
+            );
+
+            Some(clamp_overlay_position(
+                surface_x,
+                surface_y,
+                work_x,
+                work_y,
+                work_width,
+                work_height,
+                window_width,
+                window_height,
+            ))
+        }
+        OverlayPositionMode::Preset => {
+            let left = work_x + OVERLAY_SIDE_INSET;
+            let centered_x = work_x + ((work_width - window_width) / 2.0).max(0.0);
+            let right = work_x + (work_width - window_width - OVERLAY_SIDE_INSET).max(0.0);
+            let top = work_y + OVERLAY_TOP_INSET;
+            let centered_y = work_y + ((work_height - window_height) / 2.0).max(0.0);
+            let bottom = work_y + (work_height - window_height - OVERLAY_BOTTOM_INSET).max(0.0);
+
+            let (x, y) = match config.overlay_anchor {
+                OverlayAnchor::TopLeft => (left, top),
+                OverlayAnchor::TopCenter => (centered_x, top),
+                OverlayAnchor::TopRight => (right, top),
+                OverlayAnchor::CenterLeft => (left, centered_y),
+                OverlayAnchor::CenterRight => (right, centered_y),
+                OverlayAnchor::BottomLeft => (left, bottom),
+                OverlayAnchor::BottomCenter => (centered_x, bottom),
+                OverlayAnchor::BottomRight => (right, bottom),
+            };
+
+            Some(clamp_overlay_position(
+                x,
+                y,
+                work_x,
+                work_y,
+                work_width,
+                work_height,
+                window_width,
+                window_height,
+            ))
+        }
+    }
+}
+
+fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>, surface: OverlaySurface) {
     if let Some(window) = app.get_webview_window("overlay") {
-        let _ = window.set_size(LogicalSize::new(
-            OVERLAY_WINDOW_WIDTH,
-            OVERLAY_WINDOW_HEIGHT,
-        ));
+        let config = AppConfig::load_from_disk();
+        let (window_width, window_height) = surface.dimensions();
+        let _ = window.set_size(LogicalSize::new(window_width, window_height));
         let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-        if let Some(position) = overlay_bottom_center_position(&window) {
+        if let Some(position) = overlay_target_position(&window, &config, surface) {
             let _ = window.set_position(position);
         }
         let _ = window.show();
     }
 }
 
-fn overlay_bottom_center_position<R: Runtime>(
+fn park_overlay_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("overlay") {
+        let (window_width, window_height) = OverlaySurface::Compact.dimensions();
+        let _ = window.set_size(LogicalSize::new(window_width, window_height));
+        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+        if let Some(position) = overlay_offscreen_position(&window) {
+            let _ = window.set_position(position);
+        }
+    }
+}
+
+fn overlay_offscreen_position<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
 ) -> Option<LogicalPosition<f64>> {
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten())?;
-    let scale = monitor.scale_factor().max(1.0);
-    let work_area = monitor.work_area();
-    let work_x = work_area.position.x as f64 / scale;
-    let work_y = work_area.position.y as f64 / scale;
-    let work_width = work_area.size.width as f64 / scale;
-    let work_height = work_area.size.height as f64 / scale;
-    let x = work_x + ((work_width - OVERLAY_WINDOW_WIDTH) / 2.0).max(0.0);
-    let y = work_y + (work_height - OVERLAY_WINDOW_HEIGHT - OVERLAY_BOTTOM_INSET).max(0.0);
+    let monitors = window.available_monitors().ok().unwrap_or_default();
+    let bounds = overlay_workspace_bounds(
+        monitors
+            .into_iter()
+            .map(|monitor| overlay_monitor_work_area(&monitor)),
+    )
+    .or_else(|| {
+        window.current_monitor().ok().flatten().map(|monitor| {
+            let (work_x, work_y, work_width, work_height) = overlay_monitor_work_area(&monitor);
+            (work_x, work_y, work_x + work_width, work_y + work_height)
+        })
+    })
+    .or_else(|| {
+        window.primary_monitor().ok().flatten().map(|monitor| {
+            let (work_x, work_y, work_width, work_height) = overlay_monitor_work_area(&monitor);
+            (work_x, work_y, work_x + work_width, work_y + work_height)
+        })
+    })?;
 
-    Some(LogicalPosition::new(x.round(), y.round()))
+    let (_, _, max_x, max_y) = bounds;
+    Some(LogicalPosition::new(
+        (max_x + OVERLAY_PARK_MARGIN).round(),
+        (max_y + OVERLAY_PARK_MARGIN).round(),
+    ))
+}
+
+#[tauri::command]
+async fn overlay_monitor_options(app: AppHandle) -> Result<Vec<OverlayMonitorOption>, String> {
+    let window = app
+        .get_webview_window("overlay")
+        .or_else(|| app.get_webview_window("settings"))
+        .ok_or_else(|| "Overlay window is not configured.".to_string())?;
+
+    let primary_id = window
+        .primary_monitor()
+        .map_err(|error| format!("Could not read the primary monitor: {error}"))?
+        .map(|monitor| overlay_monitor_id(&monitor));
+
+    let monitors = window
+        .available_monitors()
+        .map_err(|error| format!("Could not list monitors: {error}"))?;
+
+    Ok(monitors
+        .iter()
+        .enumerate()
+        .map(|(index, monitor)| {
+            let id = overlay_monitor_id(monitor);
+            let is_primary = primary_id.as_ref().is_some_and(|current| current == &id);
+            OverlayMonitorOption {
+                id,
+                label: overlay_monitor_label(monitor, index, is_primary),
+                is_primary,
+            }
+        })
+        .collect())
 }
 
 fn reveal_settings_window<R: Runtime>(app: &AppHandle<R>) {
@@ -88,7 +454,7 @@ fn apply_trigger_effect<R: Runtime>(app: &AppHandle<R>, effect: TriggerEffect) {
     match effect {
         TriggerEffect::StartCapture => match core::capture::start_native_capture(app) {
             Ok(status) => {
-                reveal_overlay_window(app);
+                reveal_overlay_window(app, OverlaySurface::Compact);
                 core::sound::play_if_enabled(core::sound::SoundCue::Start);
                 if let Some(capture_id) = status.active_capture_id {
                     spawn_native_capture_monitor(app.clone(), capture_id);
@@ -429,6 +795,53 @@ fn handle_audio_ready<R: Runtime + 'static>(
                         }
                     }
                 } else {
+                    if !app_config.active_text_profile_auto_paste() {
+                        match core::sessions::stage_pending_transcription_preview(
+                            &app,
+                            app_config.clone(),
+                            provider.clone(),
+                            response.text.clone(),
+                            transformed.clone(),
+                        ) {
+                            Ok(preview) => {
+                                core::runtime_log::record(format!(
+                                    "[WordScript] Native pipeline preview ready session_id={} elapsed_ms={} delivery=clipboard_only",
+                                    session_id,
+                                    pipeline_started_at.elapsed().as_millis(),
+                                ));
+                                let _ = app.emit(
+                                    "wordscript-event",
+                                    serde_json::json!({
+                                        "event": "preview_ready",
+                                        "text": preview.text,
+                                        "corrected": preview.corrected,
+                                        "provider": preview.provider,
+                                        "active_profile": preview.active_profile,
+                                        "work_mode": preview.work_mode,
+                                        "raw_text": preview.raw_text,
+                                        "transform": {
+                                            "applied_rules": preview.transform.applied_rules,
+                                            "warning": preview.transform.warning,
+                                        }
+                                    }),
+                                );
+                            }
+                            Err(error) => {
+                                core::sessions::fail_from_native_error(&app, &error);
+                                let _ = app.emit(
+                                    "wordscript-event",
+                                    serde_json::json!({
+                                        "event": "error",
+                                        "message": error
+                                    }),
+                                );
+                            }
+                        }
+
+                        let _ = tokio::fs::remove_file(cleanup_path).await;
+                        return;
+                    }
+
                     if !processing_session_still_current(&app, &session_id, "before_insertion") {
                         let _ = tokio::fs::remove_file(cleanup_path).await;
                         return;
@@ -438,6 +851,7 @@ fn handle_audio_ready<R: Runtime + 'static>(
                         &app,
                         &text,
                         transformed.corrected,
+                        Some(app_config.active_text_profile_auto_paste()),
                     ) {
                         Ok(result) if result.ok => {
                             if !processing_session_still_current(&app, &session_id, "insertion_ok")
@@ -446,13 +860,14 @@ fn handle_audio_ready<R: Runtime + 'static>(
                                 return;
                             }
 
-                            let _ = core::history::history_entry_from_insert_result(
+                            let history_entry = core::history::history_entry_from_insert_result(
                                 &app_config,
                                 None,
                                 Some(response.text.clone()),
                                 transformed.clone(),
                                 &result,
-                            );
+                            )
+                            .ok();
                             let completion_applied =
                                 core::sessions::complete_processing_session_from_transcription(
                                     &app,
@@ -477,10 +892,17 @@ fn handle_audio_ready<R: Runtime + 'static>(
                                             "text": text,
                                             "corrected": transformed.corrected,
                                             "provider": provider,
+                                            "active_profile": app_config.active_text_profile_label(),
+                                            "work_mode": app_config.resolved_active_text_profile_work_mode(),
+                                            "raw_text": response.text,
                                             "transform": {
                                                 "applied_rules": transformed.applied_rules,
                                                 "warning": transformed.warning,
                                             },
+                                            "history": history_entry.as_ref().map(|entry| serde_json::json!({
+                                                "entry_id": entry.id,
+                                                "retry_of": entry.retry_of,
+                                            })),
                                             "insertion": result
                                         }),
                                     );
@@ -721,10 +1143,7 @@ fn optional_u8(value: &serde_json::Value, key: &str) -> Option<u8> {
         .and_then(|value| u8::try_from(value).ok())
 }
 
-fn transcription_prompt_for_request(
-    provider: &str,
-    value: &serde_json::Value,
-) -> Option<String> {
+fn transcription_prompt_for_request(provider: &str, value: &serde_json::Value) -> Option<String> {
     if provider == core::providers::LOCAL_PREVIEW_PROVIDER_ID {
         return local_preview_prompt_for_request(value);
     }
@@ -755,8 +1174,9 @@ fn local_preview_prompt_for_request(value: &serde_json::Value) -> Option<String>
             transcription_stt_hints(value),
             LOCAL_PREVIEW_PROMPT_MAX_CHARS,
         ),
-        _ => optional_string(value, "prompt")
-            .and_then(|prompt| truncate_transcription_prompt(prompt, LOCAL_PREVIEW_PROMPT_MAX_CHARS)),
+        _ => optional_string(value, "prompt").and_then(|prompt| {
+            truncate_transcription_prompt(prompt, LOCAL_PREVIEW_PROMPT_MAX_CHARS)
+        }),
     }
 }
 
@@ -875,6 +1295,50 @@ async fn app_config_file_path() -> Result<String, String> {
         .to_string())
 }
 
+#[tauri::command]
+async fn sync_overlay_window_visibility(
+    app: AppHandle,
+    visible: bool,
+    surface: Option<OverlaySurface>,
+) -> Result<(), String> {
+    if visible {
+        reveal_overlay_window(&app, surface.unwrap_or_default());
+    } else {
+        park_overlay_window(&app);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn remember_overlay_manual_position<R: Runtime>(
+    app: AppHandle<R>,
+    webview_window: tauri::WebviewWindow<R>,
+    x: i32,
+    y: i32,
+    surface: Option<OverlaySurface>,
+) -> Result<AppConfig, String> {
+    let mut config = AppConfig::load_from_disk();
+    let (reference_x, reference_y) =
+        manual_overlay_reference_position(x as f64, y as f64, surface.unwrap_or_default());
+
+    config.overlay_position_mode = OverlayPositionMode::Manual;
+    config.overlay_monitor =
+        overlay_monitor_id_for_manual_reference(&webview_window, reference_x, reference_y)
+            .or_else(|| {
+                webview_window
+                    .primary_monitor()
+                    .ok()
+                    .flatten()
+                    .map(|monitor| overlay_monitor_id(&monitor))
+            })
+            .unwrap_or_else(|| "primary".to_string());
+    config.overlay_manual_x = reference_x.round() as i32;
+    config.overlay_manual_y = reference_y.round() as i32;
+
+    core::config::save_config(app, config)
+}
+
 // ── App entry ─────────────────────────────────────────────────────────────────
 
 pub fn run() {
@@ -983,6 +1447,9 @@ pub fn run() {
             open_settings_window,
             open_rebuild_lab_window,
             app_config_file_path,
+            overlay_monitor_options,
+            sync_overlay_window_visibility,
+            remember_overlay_manual_position,
             core::providers::provider_status,
             core::providers::save_provider_api_key,
             core::providers::clear_provider_api_key,
@@ -996,6 +1463,7 @@ pub fn run() {
             core::sessions::stop_native_session,
             core::sessions::abort_native_session,
             core::sessions::complete_native_session,
+            core::sessions::commit_pending_transcription_preview,
             core::trigger::native_trigger_status,
             core::trigger::configure_native_trigger,
             core::trigger::pause_native_trigger,
@@ -1077,11 +1545,9 @@ mod tests {
             ]
         });
 
-        let prompt = transcription_prompt_for_request(
-            core::providers::LOCAL_PREVIEW_PROVIDER_ID,
-            &payload,
-        )
-        .expect("local preview prompt");
+        let prompt =
+            transcription_prompt_for_request(core::providers::LOCAL_PREVIEW_PROVIDER_ID, &payload)
+                .expect("local preview prompt");
 
         assert!(prompt.contains("Support escalations and product names"));
         assert!(prompt.contains("Preferred terms: word script -> WordScript"));
@@ -1151,5 +1617,95 @@ mod tests {
         let prompt = transcription_prompt_for_request("groq", &payload).expect("cloud prompt");
 
         assert!(prompt.chars().count() <= CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS);
+    }
+
+    #[test]
+    fn manual_overlay_reference_roundtrips_surface_positions() {
+        let compact = manual_overlay_reference_position(320.0, 180.0, OverlaySurface::Compact);
+        assert_eq!(compact, (320.0, 180.0));
+
+        let processing =
+            manual_overlay_reference_position(210.0, 140.0, OverlaySurface::ProcessingPreview);
+        assert_eq!(processing, (210.0, 140.0));
+        assert_eq!(
+            manual_overlay_surface_position(
+                processing.0,
+                processing.1,
+                OverlaySurface::ProcessingPreview
+            ),
+            (210.0, 140.0)
+        );
+
+        let result = manual_overlay_reference_position(412.0, 96.0, OverlaySurface::ResultActions);
+        assert_eq!(result, (412.0, 96.0));
+        assert_eq!(
+            manual_overlay_surface_position(result.0, result.1, OverlaySurface::ResultActions),
+            (412.0, 96.0)
+        );
+    }
+
+    #[test]
+    fn manual_overlay_surface_positions_keep_the_same_top_left_across_states() {
+        let (result_x, result_y) =
+            manual_overlay_surface_position(480.0, 220.0, OverlaySurface::ResultActions);
+        let (preview_x, preview_y) =
+            manual_overlay_surface_position(480.0, 220.0, OverlaySurface::ProcessingPreview);
+
+        assert_eq!((result_x, result_y), (480.0, 220.0));
+        assert_eq!((preview_x, preview_y), (480.0, 220.0));
+    }
+
+    #[test]
+    fn overlay_monitor_selection_prefers_the_work_area_containing_the_manual_reference() {
+        let selected = overlay_monitor_id_for_logical_point(
+            [
+                ("name:Primary".to_string(), (0.0, 0.0, 1920.0, 1040.0)),
+                (
+                    "workarea:-1080:0:1080:1880".to_string(),
+                    (-1080.0, 0.0, 1080.0, 1880.0),
+                ),
+            ],
+            -320.0,
+            240.0,
+        );
+
+        assert_eq!(selected.as_deref(), Some("workarea:-1080:0:1080:1880"));
+    }
+
+    #[test]
+    fn overlay_monitor_selection_falls_back_to_the_nearest_work_area_when_point_is_outside_all_monitors(
+    ) {
+        let selected = overlay_monitor_id_for_logical_point(
+            [
+                ("name:Primary".to_string(), (0.0, 0.0, 1920.0, 1040.0)),
+                (
+                    "workarea:-1080:0:1080:1880".to_string(),
+                    (-1080.0, 0.0, 1080.0, 1880.0),
+                ),
+            ],
+            -1124.0,
+            260.0,
+        );
+
+        assert_eq!(selected.as_deref(), Some("workarea:-1080:0:1080:1880"));
+    }
+
+    #[test]
+    fn overlay_workspace_bounds_cover_the_full_multi_monitor_union() {
+        let bounds = overlay_workspace_bounds([
+            (0.0, 0.0, 1080.0, 1920.0),
+            (1080.0, 411.0, 1920.0, 1080.0),
+            (3000.0, 223.0, 1536.0, 960.0),
+        ]);
+
+        assert_eq!(bounds, Some((0.0, 0.0, 4536.0, 1920.0)));
+    }
+
+    #[test]
+    fn overlay_workspace_bounds_keep_negative_monitor_origins() {
+        let bounds =
+            overlay_workspace_bounds([(-1080.0, 0.0, 1080.0, 1880.0), (0.0, 0.0, 1920.0, 1040.0)]);
+
+        assert_eq!(bounds, Some((-1080.0, 0.0, 1920.0, 1880.0)));
     }
 }

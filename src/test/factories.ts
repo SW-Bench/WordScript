@@ -1,6 +1,6 @@
 import type { AppConfig } from "../types/ipc";
 import { buildCuratedTextProfiles } from "../lib/textProfileTemplates";
-import { createEmptyTextProfileCuration } from "../lib/textProfiles";
+import { createDefaultTextProfileWorkMode, createEmptyTextProfileCuration } from "../lib/textProfiles";
 
 export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -13,6 +13,7 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         label: "General writing",
         prompt: "",
         stt_hints: "",
+        work_mode: createDefaultTextProfileWorkMode(),
         curation: createEmptyTextProfileCuration(),
         dictionary_entries: [],
         snippet_entries: [],
@@ -50,6 +51,11 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     pause_hotkey: "ctrl_l+f10",
     abort_hotkey: "ctrl_l+alt_l+escape",
     activation_mode: "tap",
+    overlay_position_mode: "preset",
+    overlay_monitor: "primary",
+    overlay_anchor: "bottom_center",
+    overlay_manual_x: 0,
+    overlay_manual_y: 0,
     sample_rate: 16000,
     channels: 1,
     dtype: "int16",

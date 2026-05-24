@@ -15,6 +15,11 @@ let v1SliceState: {
       provider: string;
       provider_profile: string;
       model: string;
+      work_mode: {
+        rewrite_style: "verbatim" | "clean" | "polished";
+        insert_behavior: "auto_paste" | "clipboard_only";
+        recovery_behavior: "standard";
+      };
       provider_status: {
         ready: boolean;
         detail: string | null;
@@ -77,6 +82,11 @@ let v1SliceState: {
         provider: string;
         provider_profile: string;
         model: string;
+        work_mode: {
+          rewrite_style: "verbatim" | "clean" | "polished";
+          insert_behavior: "auto_paste" | "clipboard_only";
+          recovery_behavior: "standard";
+        };
         provider_status: {
           ready: boolean;
           detail: string | null;
@@ -190,7 +200,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  const baseStatus = {
+  const baseStatus: NonNullable<typeof v1SliceState.status> = {
     stage: "completed" as const,
     session_id: "slice-1",
     active_trigger: "diagnostic_demo",
@@ -200,6 +210,11 @@ beforeEach(() => {
       provider: "groq",
       provider_profile: "cloud-fast",
       model: "whisper-large-v3-turbo",
+      work_mode: {
+        rewrite_style: "clean",
+        insert_behavior: "auto_paste",
+        recovery_behavior: "standard",
+      },
       provider_status: {
         ready: true,
         detail: "API key loaded",
@@ -302,6 +317,11 @@ beforeEach(() => {
         model: "whisper-large-v3-turbo",
         language: "de",
         active_profile: null,
+        work_mode: {
+          rewrite_style: "clean",
+          insert_behavior: "auto_paste",
+          recovery_behavior: "standard",
+        },
         provider_profile: null,
         local_prompt_strength: null,
         local_prompt_carry: null,
@@ -409,6 +429,11 @@ describe("RebuildLabTab", () => {
           provider: "local_preview",
           provider_profile: "local-preview-base-quality",
           model: "base",
+          work_mode: {
+            rewrite_style: "clean",
+            insert_behavior: "auto_paste",
+            recovery_behavior: "standard",
+          },
           provider_status: {
             ready: true,
             detail: "/usr/bin/whisper-cli · ggml-base.bin",
@@ -507,6 +532,11 @@ describe("RebuildLabTab", () => {
           provider: "local_preview",
           provider_profile: "local-preview-base-fast",
           model: "base",
+          work_mode: {
+            rewrite_style: "clean",
+            insert_behavior: "auto_paste",
+            recovery_behavior: "standard",
+          },
           provider_status: {
             ready: false,
             detail: "Missing local setup",

@@ -7,6 +7,19 @@ on:
         description: Git ref to build (branch, tag or commit SHA)
         required: false
         default: main
+      create_draft_release:
+        description: Create or update an internal draft GitHub release handoff
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: Draft release tag override; defaults to v<package.json version>
+        required: false
+        default: ""
+      release_title:
+        description: Optional title override for the internal draft release
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -82,3 +95,139 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: src-tauri/target/release/bundle
           if-no-files-found: error
+
+  release_handoff:
+    name: Aggregate release handoff
+    needs: bundle
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Download bundle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: wordscript-*-bundles
+          merge-multiple: false
+
+      - name: Prepare aggregated handoff archives
+        id: handoff
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          REQUESTED_TITLE: ${{ inputs.release_title }}
+          SOURCE_REF: ${{ inputs.ref || github.ref }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p release-dist
+          version="$(node -p "require('./package.json').version")"
+          release_tag="${REQUESTED_TAG:-}"
+          if [[ -z "$release_tag" ]]; then
+            release_tag="v${version}"
+          fi
+
+          release_title="${REQUESTED_TITLE:-}"
+          if [[ -z "$release_title" ]]; then
+            release_title="WordScript ${release_tag} draft build-up"
+          fi
+
+          archive_count=0
+          while IFS= read -r -d '' artifact_dir; do
+            artifact_name="$(basename "$artifact_dir")"
+            tar -czf "release-dist/${artifact_name}.tar.gz" -C "$(dirname "$artifact_dir")" "$artifact_name"
+            archive_count=$((archive_count + 1))
+          done < <(find release-artifacts -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+
+          if [[ "$archive_count" -eq 0 ]]; then
+            echo "No bundle artifacts were downloaded for the release handoff."
+            exit 1
+          fi
+
+          (
+            cd release-dist
+            sha256sum ./*.tar.gz > SHA256SUMS.txt
+          )
+
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            cat <<EOF
+# WordScript draft release build-up
+
+- Status: internal draft handoff only
+- Source ref: \`${SOURCE_REF}\`
+- Package version: \`${version}\`
+- Release tag: \`${release_tag}\`
+- Workflow run: ${run_url}
+- Public updater state: unchanged; \`check_app_update\` still reflects only published releases.
+
+## Included release archives
+EOF
+            while IFS=' ' read -r checksum filename; do
+              printf -- "- \`%s\` - \`%s\`\n" "$filename" "$checksum"
+            done < release-dist/SHA256SUMS.txt
+            cat <<EOF
+
+## Notes
+
+- These assets are for maintainer review during release build-up.
+- This draft does not publish installers to users and does not enable the updater trust path.
+- Linux packaging may still fail on the known \`linuxdeploy\` lane.
+EOF
+          } > release-dist/release-build-metadata.md
+
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_title=${release_title}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload aggregated handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordscript-release-handoff
+          path: release-dist
+          if-no-files-found: error
+
+      - name: Create or update internal draft release
+        if: ${{ inputs.create_draft_release }}
+        env:
+          RELEASE_TAG: ${{ steps.handoff.outputs.release_tag }}
+          RELEASE_TITLE: ${{ steps.handoff.outputs.release_title }}
+          SOURCE_REF: ${{ inputs.ref || github.ref }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" --json isDraft >/dev/null 2>&1; then
+            is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+            if [[ "$is_draft" != "true" ]]; then
+              echo "Release ${RELEASE_TAG} already exists and is not a draft; refusing to overwrite a published handoff."
+              exit 1
+            fi
+
+            gh release edit "$RELEASE_TAG" \
+              --draft \
+              --target "$SOURCE_REF" \
+              --title "$RELEASE_TITLE" \
+              --notes-file release-dist/release-build-metadata.md
+
+            gh release upload "$RELEASE_TAG" \
+              release-dist/*.tar.gz \
+              "release-dist/SHA256SUMS.txt#SHA256 checksums" \
+              "release-dist/release-build-metadata.md#Draft release metadata" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              release-dist/*.tar.gz \
+              "release-dist/SHA256SUMS.txt#SHA256 checksums" \
+              "release-dist/release-build-metadata.md#Draft release metadata" \
+              --draft \
+              --latest=false \
+              --target "$SOURCE_REF" \
+              --title "$RELEASE_TITLE" \
+              --notes-file release-dist/release-build-metadata.md
+          fi

@@ -1,4 +1,8 @@
-use std::{path::Path, sync::{Mutex, OnceLock}, time::{Duration, Instant}};
+use std::{
+    path::Path,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 
 use keyring::{Entry, Error as KeyringError};
 use reqwest::{header, multipart, StatusCode};
@@ -610,9 +614,9 @@ fn status_error(
     let kind = match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ProviderErrorKind::Unauthorized,
         StatusCode::TOO_MANY_REQUESTS => ProviderErrorKind::RateLimited,
-        StatusCode::BAD_REQUEST | StatusCode::PAYLOAD_TOO_LARGE | StatusCode::UNPROCESSABLE_ENTITY => {
-            ProviderErrorKind::InvalidRequest
-        }
+        StatusCode::BAD_REQUEST
+        | StatusCode::PAYLOAD_TOO_LARGE
+        | StatusCode::UNPROCESSABLE_ENTITY => ProviderErrorKind::InvalidRequest,
         _ => ProviderErrorKind::ProviderStatus,
     };
 
@@ -788,7 +792,9 @@ mod tests {
         assert!(error.message.contains("34.6 MiB (36284708 bytes)"));
         assert!(error.message.contains("25 MiB"));
         assert!(error.message.contains("100 MiB"));
-        assert!(error.message.contains("file size, not only by recording minutes"));
+        assert!(error
+            .message
+            .contains("file size, not only by recording minutes"));
     }
 
     #[test]

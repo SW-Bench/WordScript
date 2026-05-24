@@ -54,6 +54,8 @@ describe("ProfileDock", () => {
     expect(screen.getByText("Context set")).toBeInTheDocument();
     expect(screen.getByText("1 term")).toBeInTheDocument();
     expect(screen.getByText("1 snippet")).toBeInTheDocument();
+    expect(screen.getByText("Profile defaults")).toBeInTheDocument();
+    expect(screen.getByText(/clean rewrite, auto-paste delivery, standard recovery/i)).toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole("combobox", { name: /active profile/i }), "general");
 
