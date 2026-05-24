@@ -54,10 +54,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Diagnostics history and decoded runtime-log hints now render through isolated memoized subtrees, so filter edits and background refreshes no longer rebuild every visible diagnostics card on each parent render
 - Text Rules now preserves structural sharing for profile patches and isolates dictionary and snippet cards behind memoized components, so editing one rule no longer forces every unchanged rule card to rerender
 - the V1 runtime slice now carries an explicit `provider_profile` through its native contract and uses hermetic default-config test helpers, so diagnostics and transcript previews no longer depend on disk-config drift or cloud-model name heuristics for the active provider label
+- profile-dependent STT bias now drops generic profile categories from both the cloud/local transcription prompt and cleanup context, forwards only concrete lexical hints plus preferred spellings, and ships curated starter profiles without prefilled snippet-like STT hints that could pull dictation off-topic
+- Text Rules analysis now exposes the exact automatic STT bias that will be forwarded plus warnings when profile context or STT hints are too broad for the conservative bias path, so profile quality problems are visible before dictation instead of only after bad transcripts
 
 ### Changed
 
 - the documentation set was consolidated into README, VISION, ARCHITECTURE, DEVELOPMENT, DESIGN_SYSTEM and REFERENCE
+- planning docs now explicitly capture the two remaining transcription-reliability follow-ups: a regression corpus from real failed dictation samples and a profile-owned bias-health / bias-policy layer on top of the new conservative preview and warning contract
 - product scope and wording now consistently describe WordScript as a dictation-first desktop app on `0.2.2-alpha`
 - future planning docs now describe sync as an optional WordScript-owned local-first layer instead of leaving peer-to-peer or external hub ownership ambiguous
 - native session transitions now run through shared session helpers, so trigger, commands and pipeline completion no longer finalize the same lifecycle edges independently
@@ -103,6 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Text Rules documentation now reflects the real native order `active profile -> transcription context -> dictionary -> snippets`
 - planning and design docs now name Settings/Overlay UI polish as the current product bottleneck, with a native-feeling macOS utility-app target plus concrete donor and style-reference repos for the next UI pass
 - planning docs now also describe the next post-core product phase explicitly: work-mode profiles, live preview plus controlled commit, a product-ready provider stack, a first-class local lane and guided setup/permissions/packaging, while deferring broader openwhispr platform scope like notes, search, sync, MCP and assistant features
+- planning docs now explicitly treat profile-dependent transcription reliability as the current launch blocker, keep release build-up as an internal path, prioritize Settings-tab polish over another broad overlay redesign, and clarify that `local` and `self_hosted` are not the same user-facing mode
 - the core execution plan now treats the macOS-utility UI target and user-facing usability as hard product gates for slices 7 to 11 instead of leaving them implicit in the design docs
 - donor catalogs and benchmark docs now track menu bar utilities, keyboard-first tools and desktop productivity shells as secondary UI/UX references for the macOS-native polish pass
 - Settings now uses a calmer utility-style shell with grouped navigation, a persistent profile dock, a compact tab header and one dominant content surface instead of the denser intro-band and context-rail experiment

@@ -14,6 +14,7 @@ Dieses Dokument beschreibt den aktuellen Release-Aufbaupfad fuer WordScript. Es 
 - er aggregiert diese Bundle-Artefakte jetzt zusaetzlich in checksummierte Handoff-Archive fuer Maintainer-Review
 - optional kann derselbe Workflow einen internen Draft-Release auf GitHub erzeugen oder aktualisieren
 - der Workflow ist Teil der Arbeit am ersten offiziellen Cross-Platform-App-Release
+- der Workflow bleibt trotzdem ein interner Maintainer-Pfad; die aktuelle oeffentliche Launch-Reife ist weiter durch profilabhaengige Transkriptionsprobleme und unvollstaendiges guided local setup blockiert
 - vor dem Bundling laufen jetzt Frontend-Tests, Rust-Tests und der Frontend-Build als feste Gates
 - die About-Flaeche und `check_app_update` muessen deshalb weiterhin ehrlich `no published releases yet` bzw. `in progress` signalisieren; GitHubs `releases/latest` bildet nur publizierte Releases ab, nicht interne Drafts
 - Signierung und In-Place-Updater gelten weiterhin als Aufbauarbeit, nicht als fertiger Nutzerpfad
@@ -22,9 +23,10 @@ Dieses Dokument beschreibt den aktuellen Release-Aufbaupfad fuer WordScript. Es 
 ## Vor jedem Release-Track-Build
 
 1. `npm test`, `npm run build` und `cargo test --manifest-path src-tauri/Cargo.toml` muessen gruen sein.
-2. Die Version in `package.json` und `src-tauri/tauri.conf.json` muss dem geplanten Build-Stand entsprechen.
-3. README, REFERENCE, CHANGELOG und About-Copy duerfen keine Verfuegbarkeit behaupten, die es noch nicht gibt.
-4. Wenn ein Draft-Release erzeugt werden soll, muss klar sein, welches Tag den internen Handoff bezeichnet; standardmaessig nutzt der Workflow `v<package.json version>`.
+2. Fuer jeden oeffentlichen Release-Kandidaten muss die Transkriptionsbasis ausserhalb von `General Writing` belastbar sein; solange aktive Profile wie `Customer Success Replies` noch mehrsprachige Fragmente, Fantasietokens oder Topic-Drift in Rohtranskripte ziehen, bleibt der Lauf rein intern.
+3. Die Version in `package.json` und `src-tauri/tauri.conf.json` muss dem geplanten Build-Stand entsprechen.
+4. README, REFERENCE, CHANGELOG und About-Copy duerfen keine Verfuegbarkeit behaupten, die es noch nicht gibt.
+5. Wenn ein Draft-Release erzeugt werden soll, muss klar sein, welches Tag den internen Handoff bezeichnet; standardmaessig nutzt der Workflow `v<package.json version>`.
 
 ## Manueller Build-Matrix-Lauf
 
@@ -56,6 +58,8 @@ Dieses Dokument beschreibt den aktuellen Release-Aufbaupfad fuer WordScript. Es 
 
 ## Vor dem ersten oeffentlichen Release noch offen
 
+- Transkriptionszuverlaessigkeit fuer `General Writing` und aktive Profile auf eine belastbare Alltagsbasis bringen; profilgefuehrte STT-Hinweise duerfen Rohtranskripte nicht schlechter machen als kein Profil
+- den gefuehrten Local-Setup-Pfad soweit schliessen, dass Nutzer nicht mehr den Grossteil von Runner-, Modell- und Cleanup-Konfiguration manuell zusammensuchen muessen
 - Signierung pro Plattform verbindlich schliessen
 - Release-Notes-, Tagging- und Promotion-Prozess vom internen Draft zum ersten publizierten Release festziehen
 - In-Place-Updater-Semantik und Vertrauenspfad definieren

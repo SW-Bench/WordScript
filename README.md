@@ -27,7 +27,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - Repo version: `0.2.2-alpha`
 - Use today: `npm run tauri dev`
 - Current reality: WordScript is usable today as a source-first developer build
-- In progress: the first official cross-platform app release for Linux, macOS and Windows
+- In progress: an internal cross-platform release build-up exists for Linux, macOS and Windows, but public release readiness is still blocked by profile-dependent transcription reliability and unfinished guided local setup
 - Not live yet: published installers, trusted download channel, signed in-place updater
 
 ## What already works
@@ -37,29 +37,36 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - guarded native session finalization, so late provider, transform or insertion results cannot overwrite the current runtime state after aborts or newer captures
 - Groq BYOK transcription with OS secret-store storage
 - first generic provider contract in Rust and Tauri, with typed provider modes, capabilities, recovery actions and local-setup readiness; Groq remains the cloud-first production lane and `local_preview` is the compatibility id for the full local runtime lane with native model discovery, selected STT/cleanup setup truth, a Provider & Models preflight checklist, prompt-bias support, probe-based runner diagnostics and local Ollama cleanup
-- transform pipeline with hallucination guardrails, profile-aware AI cleanup, and profile/dictionary-guided transcription prompts across Groq and the local CLI lane so mixed-language and technical terms survive more reliably, plus local text profiles with explicit STT hints, included baselines, dictionary, snippets and work-mode defaults for rewrite, insertion and recovery
+- transform pipeline with hallucination guardrails, profile-aware AI cleanup, and profile/dictionary-guided transcription prompts across Groq and the local CLI lane, plus local text profiles with explicit STT hints, included baselines, dictionary, snippets and work-mode defaults for rewrite, insertion and recovery; the automatic bias path now only forwards concrete lexical profile hints plus preferred spellings, and included profiles now start from conservative vocabulary baselines instead of prefilled snippet-like STT hints, but reliability outside `General Writing` is still not yet good enough for launch
 - native insertion with direct paste, clipboard fallback, typed recovery actions, clipboard-restore status, scratchpad recovery and last-transcript restore, with recovery wording separated from diagnostics preview and durable history
 - a compact live overlay stage that widens only for processing-preview and result-action states so full button labels stay visible, remembers manual drag placement across later runs, updates that remembered placement only from real user drags, reuses one shared remembered top-left position across compact and action states, gives recording, `working`, and action states their own right-side spacing instead of one shared timer/status layout, supports preset display anchors in Settings, uses movement-threshold dragging so action buttons stay single-clickable, drives a calmer idle waveform but much stronger active speech bars, and parks the transparent window offscreen when idle so Linux/Wayland-style stale black buffers are less likely to linger while `clipboard_only` profiles still use the same real processing-time preview before commit
 - native transcription history with retention policy, server-side filters, JSON export, retry and persisted insert-recovery semantics, plus a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
 - diagnostics history, decoded runtime-log hints and long Text Rules card lists now keep stable render boundaries, so routine filter edits and rule changes no longer force every visible card to rebuild at once
 - platform diagnostics and runtime logs, including a stage timeline for capture, provider, transform and insert with per-step state, duration and stable error-code truth
 - active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a grouped utility sidebar with a persistent profile dock, a Provider & Models local-runtime preflight, an Input first-dictation preflight and a sequenced Text Rules workspace with a compact process summary, profile library for user and included profiles, pinned stage navigation and one dominant working canvas at a time
+- Text Rules now also shows the effective automatic STT bias for the active profile, including the concrete vocabulary that will actually be forwarded plus warnings when broad profile context or overlong STT hints are ignored by the conservative bias path
 - a calmer utility-style Settings shell with native window controls, grouped navigation, a compact tab header, explicit runtime/save-state chips and one dominant content surface that behaves more predictably on Linux
 - a dedicated native diagnostics preview window that reuses the same Rebuild Lab surface in a calmer pop-out instead of falling back to a separate fake-chrome shell
 - manual release build-up lanes for Linux, macOS and Windows, plus an aggregated checksummed handoff and optional internal draft GitHub release for maintainer review
 
 ## What still needs work
 
+- transcription reliability whenever any profile beyond `General Writing` is active; the automatic bias path is now more conservative and starter profiles are less aggressive by default, but user-authored or still-too-broad profile context can still introduce multilingual drift, garbage tokens and topic drift instead of making dictation more dependable
+- real regression fixtures from failed dictation samples are still missing; until bad profile-driven transcripts are captured as fixed native tests for bias filtering, prompt building and Text Rules analysis, reliability work remains too anecdotal
+- a profile-owned bias-health and bias-policy layer is still missing; Text Rules can warn today, but profiles cannot yet declare whether their automatic bias should stay effectively off, remain conservative, or later opt into stronger manual steering independent of the existing provider-specific local prompt controls
 - first published installers and signing flow beyond the new internal draft-release handoff
 - stable release handoff across Linux, macOS and Windows
 - Linux AppImage packaging that no longer stalls on the current linuxdeploy lane
 - live updater path after the first real release
 - stronger Linux Wayland reliability beyond the current compact overlay stage, native offscreen parking and remembered drag placement
+- clearer user-facing mode semantics for `fast`, `quality`, `local` and `self_hosted`, including an honest explanation that `local` is the current on-device path while `self_hosted` is still a later lane
+- smoother guided local setup so users are led through runner, model and cleanup setup instead of having to assemble the full environment by hand
+- final polish for the Settings tabs as the primary utility-app surface, especially hierarchy, calm, spacing and motion across Provider & Models, Text Rules, About and Diagnostics
 - opt-in app- or context-based activation for the now-manual work-mode profiles
 - a full live-preview and controlled-commit overlay across every delivery mode; the current overlay now has a real processing-time preview for `clipboard_only` profiles plus honest post-run `copy`, `retry`, `restore` and dismiss actions, but auto-paste modes still do not pause on a pre-commit decision path and there is still no scratchpad-open action
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
 - automated local model management, install/pull actions and a smoother first-run path beyond the current local runtime preflight checklist
-- final live-host verification and cross-window polish so the calmer utility direction stays consistent across settings and overlay states on Windows, macOS and Linux without platform-fake chrome
+- final live-host verification and cross-window polish so the calmer utility direction stays consistent across the Settings shell, Diagnostics and overlay states on Windows, macOS and Linux without platform-fake chrome
 - guided permissions and packaging that complete the path from install to first useful dictation beyond the current Provider & Models and Input preflight surfaces
 
 ## Planning references
@@ -74,10 +81,13 @@ If you want a real open desktop dictation tool instead of another subscription-h
 
 Good contribution areas right now:
 
+- transcription reliability across profiles, prompt bias and mixed-language dictation
 - runtime stability on Linux, macOS and Windows
 - capture, insertion and recovery edge cases
-- release engineering and packaging
-- UI clarity, diagnostics and support messaging
+- Settings polish, diagnostics and support messaging
+- provider and profile semantics, especially `local` vs `self_hosted`
+- guided local setup and model-management UX
+- release engineering and packaging once the dictation baseline is trustworthy enough
 - text rules, tests and product polish
 
 ## Use today

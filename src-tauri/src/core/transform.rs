@@ -5,6 +5,7 @@ use regex::{Captures, NoExpand, Regex, RegexBuilder};
 use super::config::{DictionaryEntry, SnippetEntry, DEFAULT_CORRECTION_MODEL};
 use super::providers::{create_chat_completion, ChatCompletionRequest, ChatMessage};
 use super::runtime_log;
+use super::transcription_hints::filter_profile_hint_lines;
 
 const MAX_PROFILE_HINT_LINES: usize = 8;
 const MAX_DICTIONARY_HINTS: usize = 12;
@@ -466,12 +467,11 @@ fn correction_context_hint(config: &NativeTransformConfig) -> Option<String> {
 }
 
 fn prompt_context_hints(prompt: &str) -> Vec<String> {
-    prompt
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
+    filter_profile_hint_lines(prompt)
+        .accepted
+        .into_iter()
         .take(MAX_PROFILE_HINT_LINES)
-        .map(truncate_prompt_hint)
+        .map(|hint| truncate_prompt_hint(&hint))
         .collect()
 }
 
@@ -710,10 +710,10 @@ mod tests {
     }
 
     #[test]
-    fn correction_prompt_preserves_mixed_language_and_profile_terms() {
+    fn correction_prompt_keeps_only_concrete_profile_terms() {
         let prompt = correction_system_prompt(&NativeTransformConfig {
             provider: "groq".to_string(),
-            profile_prompt: "customer follow-up\nrelease freeze".to_string(),
+            profile_prompt: "customer names\ncustomer follow-up\nWordScript\nrefund policy".to_string(),
             dictionary_entries: vec![DictionaryEntry {
                 id: "brand".to_string(),
                 phrase: "word script".to_string(),
@@ -728,6 +728,7 @@ mod tests {
 
         assert!(prompt.contains("Sprachmix exakt beibehalten"));
         assert!(prompt.contains("gemischtsprachige Wörter erhalten"));
+        assert!(!prompt.contains("customer names"));
         assert!(prompt.contains("customer follow-up"));
         assert!(prompt.contains("word script -> WordScript"));
     }

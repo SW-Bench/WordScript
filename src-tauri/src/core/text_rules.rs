@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     config::{DictionaryEntry, SnippetEntry},
+    transcription_hints::{analyze_transcription_bias, TranscriptionBiasPreview},
     transform::NativeTransformConfig,
 };
 
@@ -49,6 +50,10 @@ pub enum TextRulesIssueCode {
     DuplicateSnippetTrigger,
     DictionarySnippetOverlap,
     DuplicateRuleId,
+    BroadProfileContextIgnored,
+    NoConcreteProfileHints,
+    IgnoredSttHint,
+    NoUsableSttHints,
     ImportSchemaMismatch,
     ImportParseFailed,
 }
@@ -73,6 +78,7 @@ pub struct TextRulesAnalysis {
     pub blocking: bool,
     pub issues: Vec<TextRulesIssue>,
     pub preview: TextRulesPreview,
+    pub transcription_bias: TranscriptionBiasPreview,
     pub dictionary_count: usize,
     pub snippet_count: usize,
 }
@@ -289,6 +295,12 @@ pub fn analyze_document(
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_PREVIEW_TEXT);
     let (output, applied_rules) = preview_transform(document, sample_text);
+    let transcription_bias = analyze_transcription_bias(
+        &document.prompt,
+        &document.stt_hints,
+        &document.dictionary_entries,
+    );
+    issues.extend(bias_warning_issues(document, &transcription_bias));
 
     TextRulesAnalysis {
         blocking: issues
@@ -300,9 +312,74 @@ pub fn analyze_document(
             output,
             applied_rules,
         },
+        transcription_bias,
         dictionary_count: document.dictionary_entries.len(),
         snippet_count: document.snippet_entries.len(),
     }
+}
+
+fn bias_warning_issues(
+    document: &TextRulesDocument,
+    bias: &TranscriptionBiasPreview,
+) -> Vec<TextRulesIssue> {
+    let mut issues = Vec::new();
+
+    let prompt_line_count = document
+        .prompt
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .count();
+    let stt_hint_line_count = document
+        .stt_hints
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .count();
+
+    if !bias.ignored_profile_lines.is_empty() {
+        issues.push(issue(
+            TextRulesIssueSeverity::Warning,
+            TextRulesIssueCode::BroadProfileContextIgnored,
+            format!(
+                "{} context line(s) are too broad for the automatic STT bias path and will be ignored. Keep automatic context lexical and concrete.",
+                bias.ignored_profile_lines.len()
+            ),
+            Vec::new(),
+        ));
+    }
+
+    if prompt_line_count > 0 && bias.profile_hints.is_empty() {
+        issues.push(issue(
+            TextRulesIssueSeverity::Warning,
+            TextRulesIssueCode::NoConcreteProfileHints,
+            "This profile currently contributes no concrete automatic STT vocabulary. Add short lexical terms like product names, acronyms or ticket prefixes instead of broad categories.".to_string(),
+            Vec::new(),
+        ));
+    }
+
+    if !bias.ignored_stt_hint_lines.is_empty() {
+        issues.push(issue(
+            TextRulesIssueSeverity::Warning,
+            TextRulesIssueCode::IgnoredSttHint,
+            format!(
+                "{} STT hint line(s) are too long for the conservative bias path and will be ignored. Keep STT hints short and phrase-like.",
+                bias.ignored_stt_hint_lines.len()
+            ),
+            Vec::new(),
+        ));
+    }
+
+    if stt_hint_line_count > 0 && bias.stt_hints.is_empty() {
+        issues.push(issue(
+            TextRulesIssueSeverity::Warning,
+            TextRulesIssueCode::NoUsableSttHints,
+            "None of the current STT hints qualify for the automatic bias path. Keep them to a few short spoken cues instead of full sentences or macros.".to_string(),
+            Vec::new(),
+        ));
+    }
+
+    issues
 }
 
 fn parse_document(raw: &str) -> Result<TextRulesDocument, String> {
@@ -598,5 +675,75 @@ mod tests {
         assert_eq!(merged.dictionary_entries[0].replace_with, "Imported");
         assert_eq!(merged.snippet_entries.len(), 1);
         assert_eq!(merged.snippet_entries[0].expansion, "Imported expansion");
+    }
+
+    #[test]
+    fn analysis_surfaces_effective_bias_and_ignored_lines() {
+        let analysis = analyze_document(
+            &TextRulesDocument {
+                schema_version: TEXT_RULES_SCHEMA_VERSION,
+                prompt: "customer names\nWordScript\nSEV-1\nrefund policy".to_string(),
+                stt_hints: "status update\nthis hint is too long to stay in the automatic bias path".to_string(),
+                dictionary_entries: vec![DictionaryEntry {
+                    id: "dict-1".to_string(),
+                    phrase: "sev one".to_string(),
+                    replace_with: "SEV-1".to_string(),
+                }],
+                snippet_entries: Vec::new(),
+            },
+            None,
+        );
+
+        assert_eq!(
+            analysis.transcription_bias.profile_hints,
+            vec!["WordScript", "SEV-1"]
+        );
+        assert_eq!(
+            analysis.transcription_bias.dictionary_terms,
+            vec!["SEV-1"]
+        );
+        assert_eq!(
+            analysis.transcription_bias.stt_hints,
+            vec!["status update"]
+        );
+        assert_eq!(
+            analysis.transcription_bias.ignored_profile_lines,
+            vec!["customer names", "refund policy"]
+        );
+        assert_eq!(
+            analysis.transcription_bias.ignored_stt_hint_lines,
+            vec!["this hint is too long to stay in the automatic bias path"]
+        );
+        assert!(analysis.issues.iter().any(|issue| matches!(
+            issue.code,
+            TextRulesIssueCode::BroadProfileContextIgnored
+        )));
+        assert!(analysis.issues.iter().any(|issue| matches!(
+            issue.code,
+            TextRulesIssueCode::IgnoredSttHint
+        )));
+    }
+
+    #[test]
+    fn analysis_warns_when_profile_context_or_stt_hints_produce_no_usable_bias() {
+        let analysis = analyze_document(
+            &TextRulesDocument {
+                schema_version: TEXT_RULES_SCHEMA_VERSION,
+                prompt: "customer names\nrefund policy".to_string(),
+                stt_hints: "this hint is too long to stay in the automatic bias path".to_string(),
+                dictionary_entries: Vec::new(),
+                snippet_entries: Vec::new(),
+            },
+            None,
+        );
+
+        assert!(analysis.issues.iter().any(|issue| matches!(
+            issue.code,
+            TextRulesIssueCode::NoConcreteProfileHints
+        )));
+        assert!(analysis.issues.iter().any(|issue| matches!(
+            issue.code,
+            TextRulesIssueCode::NoUsableSttHints
+        )));
     }
 }

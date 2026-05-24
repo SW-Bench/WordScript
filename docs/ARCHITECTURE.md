@@ -163,7 +163,10 @@ Die Textverarbeitung ist im aktiven Pfad keine Black Box. Die Reihenfolge ist be
 Wichtig:
 
 - `prompt` bleibt primaer Transcription Context fuer die STT-Anfrage; `lib.rs` baut daraus fuer Groq und je nach `local_prompt_strength` auch fuer `local_preview` einen begrenzten Bias-Prompt mit Profil-Context, expliziten `stt_hints` und Dictionary-Schreibweisen
+- dieser Bias-Prompt ist jetzt konservativer gefiltert: generische Profilkategorien oder breite Themenlisten werden nicht mehr automatisch an STT und Cleanup durchgereicht; im automatischen Pfad bleiben nur konkrete lexikale Hinweise, explizite `stt_hints` und bevorzugte Schreibweisen uebrig
 - dieser STT-Bias ist konservativ und providerbegrenzt; er soll Fachwoerter, Produktnamen, Sprachmix und haeufige Phrasen erhalten, nicht freie semantische Rewrites oder Halluzinationen erzeugen
+- `text_rules::analyze_document` zeigt denselben Vertrag inzwischen sichtbar im Settings-Tab: konkrete automatisch uebernommene Vokabeln, bevorzugte Schreibweisen, explizite STT-Hints sowie Warnings fuer ignorierte breite Kontextzeilen oder unbrauchbare STT-Hints
+- wenn Profil-Context, `stt_hints` oder Dictionary-Schreibweisen dennoch zu schlechteren Rohtranskripten als `General Writing` fuehren, ist das ein Vertragsbruch dieses Pfads; mehrsprachige Fragmente, Fantasietokens oder Topic-Drift sind dann nicht "nur Profilrauschen", sondern ein Kernproblem der Diktierlane
 - Dictionary- und Snippet-Matches sind literal und case-insensitive
 - Snippet-Trigger sind kein automatischer Teil des STT-Bias; wenn kurze gesprochene Cues oder alternative Phrasen in die STT-Anfrage sollen, muessen sie explizit ueber `stt_hints` im Profil gepflegt werden
 - lokale Textprofile kapseln heute `prompt`, optionale `stt_hints`, Dictionary, Snippets und Work-Mode-Defaults fuer Rewrite, Insert und Recovery als aktive Runtime-Konfiguration
@@ -222,6 +225,7 @@ Architekturregeln dafuer:
 - der API-Key liegt im OS secret store
 - die JSON-Config wird beim Speichern gescrubbt
 - `ProviderStatus` liefert neben Profilen auch typisierte Modi (`fast`, `quality`, `local`, spaeter `self_hosted`) und Capabilities wie Transcription, Chat-Cleanup, Prompt-Bias, Segments, Local und API-Key-Pflicht
+- `local` und `self_hosted` sind keine austauschbaren Labels: `local` meint den aktuellen on-device beziehungsweise lokalen Runtime-Pfad, `self_hosted` bleibt fuer spaetere nutzerbetriebene Remote- oder LAN-Dienste reserviert und existiert heute noch nicht als aktive Lane
 - `ProviderCommandError` traegt Fehlerart, Status, Retry-After, `retryable` und eine `user_action`, damit Runtime-Events und Settings dieselbe Recovery-Semantik verwenden
 - `local_preview` nutzt keine API-Keys, sondern sichtbare lokale Runtime-Voraussetzungen in Settings und Diagnostics
 - diese lokalen Voraussetzungen laufen jetzt ueber einen typed `local_setup`-Vertrag mit `readiness`, stabilem `issue_code`, aufgeloestem Runner- und Modellpfad sowie aufgeloestem Cleanup-Endpoint und Cleanup-Modell; der Vertrag wird gegen das aktuell gewaehlte lokale STT-Modell und das aktuell gewaehlte lokale Cleanup-Modell ausgewertet und darf lokale Readiness nicht aus `credential.configured` oder Copy rekonstruieren

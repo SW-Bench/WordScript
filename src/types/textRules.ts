@@ -12,6 +12,10 @@ export type TextRulesIssueCode =
   | "duplicate_snippet_trigger"
   | "dictionary_snippet_overlap"
   | "duplicate_rule_id"
+  | "broad_profile_context_ignored"
+  | "no_concrete_profile_hints"
+  | "ignored_stt_hint"
+  | "no_usable_stt_hints"
   | "import_schema_mismatch"
   | "import_parse_failed";
 
@@ -28,10 +32,19 @@ export interface TextRulesPreview {
   applied_rules: string[];
 }
 
+export interface TextRulesBiasPreview {
+  profile_hints: string[];
+  dictionary_terms: string[];
+  stt_hints: string[];
+  ignored_profile_lines: string[];
+  ignored_stt_hint_lines: string[];
+}
+
 export interface TextRulesAnalysis {
   blocking: boolean;
   issues: TextRulesIssue[];
   preview: TextRulesPreview;
+  transcription_bias: TextRulesBiasPreview;
   dictionary_count: number;
   snippet_count: number;
 }

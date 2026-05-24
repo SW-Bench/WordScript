@@ -111,11 +111,12 @@ Der Produktkern ist real:
 
 Was noch fehlt, ist vor allem Produktkonsolidierung:
 
+- die Transkriptionszuverlaessigkeit faellt ausserhalb von `General Writing` oder keinem Profil noch zu oft hinter die Basis zurueck; profilgebundener STT-Bias darf keine mehrsprachigen Fragmente, Fantasietokens oder Topic-Drift in Rohtranskripte ziehen
 - heute wird WordScript praktisch als Dev-Version via `npm run tauri dev` benutzt
 - ein sauberer kommerzieller Release-Aufbau ohne falsche Release- oder Update-Versprechen
-- weitere Schaerfung bei Recovery, Support-Kommunikation und Text Rules
+- weitere Schaerfung bei Recovery, Support-Kommunikation, Text Rules und gefuehrter lokaler Einrichtung
 
-Parallel dazu wird das erste offizielle Cross-Platform-App-Release fuer Linux, macOS und Windows aufgebaut.
+Parallel dazu wird ein interner Cross-Platform-Release-Aufbau fuer Linux, macOS und Windows weiter gepflegt. Er ist aber nicht die aktuelle Launch-Freigabe und ersetzt keine belastbare Diktierqualitaet.
 
 ## Aktuelle Entscheidungen
 
@@ -140,6 +141,8 @@ Parallel dazu wird das erste offizielle Cross-Platform-App-Release fuer Linux, m
 Die aktuelle Arbeit darf nicht wieder in diese Richtung driften:
 
 - Scope-Ausweitung auf Assistant-, Agent- oder Account-Themen vor einem stabilen Kern
+- den internen Release-Aufbau mit Launch-Reife zu verwechseln, solange profilabhaengige Transkriptionsfehler die Alltagsnutzung noch untergraben
+- aggressiven Profil- oder Prompt-Bias auszurollen, der Rohtranskripte gegenueber `General Writing` verschlechtert
 - neue tote Settings-Optionen ohne echten Runtime-Pfad
 - Dokumentation, die geplante Themen als implementiert beschreibt
 
@@ -147,20 +150,24 @@ Die aktuelle Arbeit darf nicht wieder in diese Richtung driften:
 
 Die unmittelbaren Produktprioritaeten sind:
 
-1. Den kommerziellen Release-Aufbau ehrlich zeigen, ohne publizierte Releases oder funktionierende Updates vorzutaeuschen.
-2. Settings und Overlay als ruhigere, klarere und nativer wirkende Produktoberflaeche weiterdenken, im Ziel eher wie eine kleine macOS Utility-App als wie eine Web-Konfigurationsflaeche.
-3. Im bestehenden V1-Pfad Text Rules, Recovery und Supportfuehrung weiter schaerfen, inklusive lokaler kuratierter Starter-Profile fuer zentrale ICPs.
-4. Plattformgrenzen und Diagnostics im aktiven Produktpfad weiter schaerfen.
+1. Die Transkriptionszuverlaessigkeit im aktiven Diktierpfad haerten. Aktive Profile wie `Customer Success Replies` duerfen Rohtranskripte nicht unzuverlaessiger machen als `General Writing` oder kein Profil. Die zwei naechsten konkreten Ausfuehrungsschritte darunter sind ein fixes Regression-Korpus aus realen Fehltranskripten und danach eine sichtbare Profilgesundheit mit expliziter profilgebundener Bias-Policy statt nur impliziter konservativer Defaults.
+2. Die Settings-Tabs als ruhigere, klarere und nativer wirkende Produktoberflaeche weiterziehen, im Ziel eher wie eine kleine macOS Utility-App als wie eine Web-Konfigurationsflaeche. Das Overlay ist dafuer aktuell nicht die primaere Baustelle.
+3. Profile von statischen Rule-Sets zu sichtbaren lokalen Arbeitsmodi fuer Context, Dictionary, Snippets, Rewrite-, Insert- und Recovery-Defaults verdichten, aber vorerst lokal und manuell halten.
+4. Den Provider-Stack von Groq plus `local_preview` zu einem echten Modellsystem mit mindestens einem zweiten Produktionsprovider und klaren Modi wie `fast`, `quality`, `local` und spaeter `self_hosted` ausbauen; die Semantik von `local` vs `self_hosted` muss davor klar und ehrlich erklaert sein.
+5. Die lokale Runtime-Lane von env-basierter Expertenkonfiguration zu einer first-class lokalen Produktoption mit gefuehrtem Modellmanagement, Pull-Checks, Health-Diagnostics, Bias-Prompting und Setup-Hilfe weiterziehen.
+6. Den kommerziellen Release-Aufbau ehrlich intern halten, ohne publizierte Releases oder funktionierende Updates vorzutaeuschen, bis die Produktbasis diese Freigabe wirklich traegt.
 
-Die aktuelle Produktluecke gegenueber bezahlten Alternativen ist damit nicht primaer ein weiterer Plattform-Scope, sondern die UI-Fuehrung: Die bestehende Settings-Shell und das Overlay sind eine brauchbare Basis, muessen aber in Informationsarchitektur, Motion, Hierarchie und wahrgenommener Ruhe noch einmal bewusst ueberarbeitet werden.
+Die akuteste Produktluecke gegenueber bezahlten Alternativen ist derzeit nicht primaer Packaging oder weiterer Plattform-Scope, sondern die Kombination aus profilabhaengiger Transkriptionszuverlaessigkeit und der UI-Fuehrung der Settings-Shell. Die bestehende Settings-Shell ist eine brauchbare Basis, muss aber in Informationsarchitektur, Motion, Hierarchie und wahrgenommener Ruhe noch einmal bewusst ueberarbeitet werden.
 
-Die naechste Produktphase nach dem bisherigen Kern ist daher:
+Sobald die Transkriptionsbasis fuer `General Writing` und aktive Profile wieder belastbar ist, ist die naechste Produktphase nach dem bisherigen Kern daher:
 
 1. Profile von statischen Rule-Sets zu sichtbaren Arbeitsmodi fuer Context, Dictionary, Snippets, spaetere Rewrite-Defaults, Insert-Verhalten und Recovery-Verhalten verdichten.
 2. Live-Preview und kontrollierten Commit zwischen Sprechen und finalem Insert einziehen, damit WordScript mehr Vertrauen und weniger Dev-Tool-Gefuehl erzeugt.
 3. den Provider-Stack von einem ersten Adapter zu einem echten Modellsystem mit mindestens einem zweiten Produktionsprovider und klaren Modi wie `fast`, `quality`, `local` und `self_hosted` ausbauen.
 4. die lokale Runtime-Lane von env-basierter Expertenkonfiguration zu einer first-class lokalen Produktoption mit gefuehrtem Modellmanagement, Pull-Checks, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets weiterziehen.
 5. Setup, Permissions und Packaging als gefuehrten Produktpfad behandeln, damit Nutzer von Install bis erster brauchbarer Diktation nicht durch verstreute Diagnostics stolpern.
+
+Solange aktive Profile die Rohtranskription noch sichtbar destabilisieren, bleibt dieser Ausbau eine Folgephase und kein Argument, Release-Aufbau oder Packaging als eigentliche Hauptarbeit voranzuziehen.
 
 Was wir dafuer bewusst noch nicht in die naechste Baustelle ziehen:
 

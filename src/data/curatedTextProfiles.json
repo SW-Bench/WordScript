@@ -2,8 +2,8 @@
   {
     "id": "curated-customer-success",
     "label": "Customer success replies",
-    "prompt": "customer names\nticket IDs\nincident severity\nSLA commitments\nnext update time\naccount owner names\nproduct plan names\nrefund policy",
-    "stt_hints": "status update\nescalation needed\nclosing note\nhandoff summary",
+    "prompt": "WordScript\nSEV-1\nSEV-2\nSLA\nRCA\nKB\nStatuspage\nEnterprise plan",
+    "stt_hints": "",
     "work_mode": {
       "rewrite_style": "polished",
       "insert_behavior": "auto_paste",
@@ -53,8 +53,8 @@
   {
     "id": "curated-sales",
     "label": "Sales follow-ups",
-    "prompt": "account names\npipeline stage\ndecision makers\nprocurement timing\nrenewal scope\nsecurity review\nmutual action plan\ncontract terms",
-    "stt_hints": "demo follow up\nnext steps recap\npricing handoff\nsecurity review follow up",
+    "prompt": "WordScript\nCRM\nMRR\nACV\nPOC\nROI\nMSA\nMutual Action Plan",
+    "stt_hints": "",
     "work_mode": {
       "rewrite_style": "polished",
       "insert_behavior": "auto_paste",
@@ -105,8 +105,8 @@
   {
     "id": "curated-founder-ops",
     "label": "Founder ops notes",
-    "prompt": "company priorities\nboard updates\nowner names\ndeadlines\nfinancial terms\nquarter goals\nbudget variance\nhiring plan",
-    "stt_hints": "decision log\nweekly update\naction items\nrisk review",
+    "prompt": "WordScript\nP&L\nOKR\nQBR\nSOP\n1:1\nBoard update\nBudget variance",
+    "stt_hints": "",
     "work_mode": {
       "rewrite_style": "clean",
       "insert_behavior": "clipboard_only",
@@ -156,8 +156,8 @@
   {
     "id": "curated-recruiting",
     "label": "Hiring pipeline",
-    "prompt": "candidate names\nrole titles\ninterview stages\nhiring manager feedback\noffer timing\nlevelling\nsalary band\nstart date",
-    "stt_hints": "interview debrief\ncandidate update\noffer follow up\nhiring manager recap",
+    "prompt": "WordScript\nHR\nATS\nHM\nEOD\n1:1\nscorecard\nheadcount",
+    "stt_hints": "",
     "work_mode": {
       "rewrite_style": "polished",
       "insert_behavior": "auto_paste",
@@ -208,8 +208,8 @@
   {
     "id": "curated-product-engineering",
     "label": "Product and engineering",
-    "prompt": "feature names\nbug IDs\nrelease scope\nAPI names\nplatform constraints\nservice names\nmigration steps\ninfra constraints",
-    "stt_hints": "triage summary\nrelease note\nqa handoff\nincident update",
+    "prompt": "WordScript\nAPI\nSDK\nSQL\nCI/CD\nSLO\nPR\nTauri",
+    "stt_hints": "",
     "work_mode": {
       "rewrite_style": "clean",
       "insert_behavior": "clipboard_only",

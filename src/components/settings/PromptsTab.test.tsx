@@ -52,6 +52,13 @@ describe("PromptsTab", () => {
             output: `current preview: ${sampleText}`,
             applied_rules: [],
           },
+          transcription_bias: {
+            profile_hints: [],
+            dictionary_terms: [],
+            stt_hints: [],
+            ignored_profile_lines: [],
+            ignored_stt_hint_lines: [],
+          },
           dictionary_count: 0,
           snippet_count: 0,
         };
@@ -81,6 +88,13 @@ describe("PromptsTab", () => {
               input: sampleText,
               output: `import preview: ${sampleText}`,
               applied_rules: ["snippet:follow-up"],
+            },
+            transcription_bias: {
+              profile_hints: ["ImportedTerm"],
+              dictionary_terms: [],
+              stt_hints: [],
+              ignored_profile_lines: [],
+              ignored_stt_hint_lines: [],
             },
             dictionary_count: 0,
             snippet_count: 1,
@@ -174,6 +188,57 @@ describe("PromptsTab", () => {
     expect(screen.getByText(/snippet triggers do not feed stt automatically anymore/i)).toBeInTheDocument();
   });
 
+  it("shows the effective transcription bias and ignored lines from analysis", async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "analyze_text_rules") {
+        return {
+          blocking: false,
+          issues: [
+            {
+              severity: "warning",
+              code: "broad_profile_context_ignored",
+              message: "1 context line is too broad for the automatic STT bias path and will be ignored. Keep automatic context lexical and concrete.",
+              rule_ids: [],
+            },
+            {
+              severity: "warning",
+              code: "ignored_stt_hint",
+              message: "1 STT hint line is too long for the conservative bias path and will be ignored. Keep STT hints short and phrase-like.",
+              rule_ids: [],
+            },
+          ],
+          preview: {
+            input: "sample",
+            output: "sample",
+            applied_rules: [],
+          },
+          transcription_bias: {
+            profile_hints: ["WordScript", "ticket IDs"],
+            dictionary_terms: ["SEV-1"],
+            stt_hints: ["status update"],
+            ignored_profile_lines: ["customer names"],
+            ignored_stt_hint_lines: ["this hint is too long to stay in the automatic bias path"],
+          },
+          dictionary_count: 1,
+          snippet_count: 0,
+        };
+      }
+
+      throw new Error(`Unexpected invoke command: ${command}`);
+    });
+
+    render(<Harness />);
+
+    expect(await screen.findByText("Automatic STT vocabulary")).toBeInTheDocument();
+    expect(await screen.findByText("ticket IDs")).toBeInTheDocument();
+    expect(screen.getByText("SEV-1")).toBeInTheDocument();
+    expect(screen.getByText("status update")).toBeInTheDocument();
+    expect(screen.getByText("Context ignored: customer names")).toBeInTheDocument();
+    expect(screen.getByText("STT ignored: this hint is too long to stay in the automatic bias path")).toBeInTheDocument();
+    expect(screen.getByText(/too broad for the automatic stt bias path/i)).toBeInTheDocument();
+    expect(screen.getByText(/stt hint line is too long for the conservative bias path/i)).toBeInTheDocument();
+  });
+
   it("reorders dictionary entries so the current sequence matches the authored priority", async () => {
     const user = userEvent.setup();
 
@@ -239,6 +304,13 @@ describe("PromptsTab", () => {
             input: "word script follow up note",
             output: "WordScript Thanks for the update.",
             applied_rules: ["dictionary:dict-1", "snippet:snippet-1"],
+          },
+          transcription_bias: {
+            profile_hints: ["WordScript"],
+            dictionary_terms: ["WordScript"],
+            stt_hints: [],
+            ignored_profile_lines: [],
+            ignored_stt_hint_lines: [],
           },
           dictionary_count: 1,
           snippet_count: 1,
@@ -310,7 +382,7 @@ describe("PromptsTab", () => {
 
     expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies");
 
-    expect((screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement).value).toContain("ticket IDs");
+    expect((screen.getByRole("textbox", { name: /transcription context/i }) as HTMLTextAreaElement).value).toContain("Statuspage");
 
     await user.click(screen.getByRole("tab", { name: /open dictionary workspace/i }));
     expect(screen.getByDisplayValue("SEV-1")).toBeInTheDocument();

@@ -8,10 +8,11 @@ mod core;
 mod v1_slice;
 
 use crate::core::capture::{NativeCaptureConfig, NativeCaptureState};
-use crate::core::config::{AppConfig, OverlayAnchor, OverlayPositionMode};
+use crate::core::config::{AppConfig, DictionaryEntry, OverlayAnchor, OverlayPositionMode};
 use crate::core::insertion::{NativeInsertionConfig, NativeInsertionState};
 use crate::core::providers::TranscribeAudioFileRequest;
 use crate::core::sessions::NativeSessionState;
+use crate::core::transcription_hints::{analyze_transcription_bias, build_transcription_prompt};
 use crate::core::trigger::{NativeTriggerConfig, NativeTriggerState, TriggerEffect};
 use crate::v1_slice::V1SliceState;
 
@@ -1152,10 +1153,12 @@ fn transcription_prompt_for_request(provider: &str, value: &serde_json::Value) -
 }
 
 fn cloud_transcription_prompt_for_request(value: &serde_json::Value) -> Option<String> {
+    let bias = transcription_bias_preview_from_payload(value);
+
     build_transcription_prompt(
-        optional_string(value, "prompt"),
-        transcription_dictionary_hints(value),
-        transcription_stt_hints(value),
+        &bias.profile_hints,
+        &bias.dictionary_terms,
+        &bias.stt_hints,
         CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS,
     )
 }
@@ -1165,18 +1168,22 @@ fn local_preview_prompt_for_request(value: &serde_json::Value) -> Option<String>
         .get("local_prompt_strength")
         .and_then(|raw| raw.as_str())
         .unwrap_or("profile");
+    let bias = transcription_bias_preview_from_payload(value);
 
     match strength {
         "off" => None,
         "profile_and_terms" => build_transcription_prompt(
-            optional_string(value, "prompt"),
-            transcription_dictionary_hints(value),
-            transcription_stt_hints(value),
+            &bias.profile_hints,
+            &bias.dictionary_terms,
+            &bias.stt_hints,
             LOCAL_PREVIEW_PROMPT_MAX_CHARS,
         ),
-        _ => optional_string(value, "prompt").and_then(|prompt| {
-            truncate_transcription_prompt(prompt, LOCAL_PREVIEW_PROMPT_MAX_CHARS)
-        }),
+        _ => build_transcription_prompt(
+            &bias.profile_hints,
+            &[],
+            &[],
+            LOCAL_PREVIEW_PROMPT_MAX_CHARS,
+        ),
     }
 }
 
@@ -1187,70 +1194,47 @@ fn local_preview_prompt_carry(value: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-fn build_transcription_prompt(
-    base_prompt: Option<String>,
-    dictionary_hints: Vec<String>,
-    stt_hints: Vec<String>,
-    max_chars: usize,
-) -> Option<String> {
-    let mut sections = Vec::new();
-
-    if let Some(prompt) = base_prompt {
-        sections.push(prompt);
-    }
-
-    if !dictionary_hints.is_empty() {
-        sections.push(format!("Preferred terms: {}", dictionary_hints.join("; ")));
-    }
-
-    if !stt_hints.is_empty() {
-        sections.push(format!("STT hints: {}", stt_hints.join("; ")));
-    }
-
-    truncate_transcription_prompt(sections.join("\n"), max_chars)
-}
-
-fn transcription_dictionary_hints(value: &serde_json::Value) -> Vec<String> {
-    value
+fn transcription_bias_preview_from_payload(
+    value: &serde_json::Value,
+) -> crate::core::transcription_hints::TranscriptionBiasPreview {
+    let dictionary_entries = value
         .get("dictionary_entries")
         .and_then(|entries| entries.as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| {
-            let phrase = entry.get("phrase")?.as_str()?.trim();
-            let replace_with = entry.get("replace_with")?.as_str()?.trim();
-            if phrase.is_empty() || replace_with.is_empty() {
-                return None;
-            }
-
-            Some(format!("{} -> {}", phrase, replace_with))
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|entry| DictionaryEntry {
+                    id: entry
+                        .get("id")
+                        .and_then(|id| id.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    phrase: entry
+                        .get("phrase")
+                        .and_then(|phrase| phrase.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    replace_with: entry
+                        .get("replace_with")
+                        .and_then(|replace_with| replace_with.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                })
+                .collect::<Vec<DictionaryEntry>>()
         })
-        .take(8)
-        .collect()
-}
+        .unwrap_or_default();
 
-fn transcription_stt_hints(value: &serde_json::Value) -> Vec<String> {
-    value
-        .get("stt_hints")
-        .and_then(|hints| hints.as_str())
-        .into_iter()
-        .flat_map(|hints| hints.lines())
-        .map(str::trim)
-        .filter(|hint| !hint.is_empty())
-        .take(6)
-        .map(ToString::to_string)
-        .collect()
-}
-
-fn truncate_transcription_prompt(prompt: String, max_chars: usize) -> Option<String> {
-    let trimmed = prompt.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let truncated = trimmed.chars().take(max_chars).collect::<String>();
-
-    Some(truncated.trim().to_string())
+    analyze_transcription_bias(
+        value
+            .get("prompt")
+            .and_then(|prompt| prompt.as_str())
+            .unwrap_or_default(),
+        value
+            .get("stt_hints")
+            .and_then(|hints| hints.as_str())
+            .unwrap_or_default(),
+        &dictionary_entries,
+    )
 }
 
 fn runtime_transcription_timeout_ms(audio_duration_seconds: Option<f64>) -> u64 {
@@ -1534,7 +1518,7 @@ mod tests {
     #[test]
     fn local_preview_prompt_strength_can_enrich_bias_with_terms() {
         let payload = json!({
-            "prompt": "Support escalations and product names",
+            "prompt": "WordScript\ncustomer escalation\nSEV-1",
             "stt_hints": "status update\nhandoff summary",
             "local_prompt_strength": "profile_and_terms",
             "dictionary_entries": [
@@ -1549,15 +1533,16 @@ mod tests {
             transcription_prompt_for_request(core::providers::LOCAL_PREVIEW_PROVIDER_ID, &payload)
                 .expect("local preview prompt");
 
-        assert!(prompt.contains("Support escalations and product names"));
-        assert!(prompt.contains("Preferred terms: word script -> WordScript"));
-        assert!(prompt.contains("STT hints: status update; handoff summary"));
+        assert!(prompt.contains("Vocabulary: WordScript; SEV-1"));
+        assert!(!prompt.contains("customer escalation"));
+        assert!(prompt.contains("Preferred spellings: WordScript"));
+        assert!(prompt.contains("Likely phrases: status update; handoff summary"));
     }
 
     #[test]
-    fn cloud_transcription_prompt_includes_profile_terms_and_phrases() {
+    fn cloud_transcription_prompt_keeps_only_conservative_profile_terms_and_phrases() {
         let payload = json!({
-            "prompt": "German and English customer support terminology",
+            "prompt": "customer names\nWordScript\nticket IDs\nrefund policy\nSEV-1",
             "stt_hints": "status update\ntriage summary",
             "dictionary_entries": [
                 {
@@ -1573,9 +1558,11 @@ mod tests {
 
         let prompt = transcription_prompt_for_request("groq", &payload).expect("cloud prompt");
 
-        assert!(prompt.contains("German and English customer support terminology"));
-        assert!(prompt.contains("Preferred terms: word script -> WordScript; sev one -> SEV-1"));
-        assert!(prompt.contains("STT hints: status update; triage summary"));
+        assert!(prompt.contains("Vocabulary: WordScript; ticket IDs; SEV-1"));
+        assert!(!prompt.contains("customer names"));
+        assert!(!prompt.contains("refund policy"));
+        assert!(prompt.contains("Preferred spellings: WordScript; SEV-1"));
+        assert!(prompt.contains("Likely phrases: status update; triage summary"));
     }
 
     #[test]
@@ -1598,7 +1585,7 @@ mod tests {
 
         let prompt = transcription_prompt_for_request("groq", &payload).expect("cloud prompt");
 
-        assert!(prompt.contains("STT hints: status update"));
+        assert!(prompt.contains("Likely phrases: status update"));
         assert!(!prompt.contains("should not leak"));
     }
 

@@ -30,7 +30,9 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - Groq-BYOK mit OS secret store
 - `local_preview` als lokale Runtime-Lane ueber externes `whisper-cli`, lokale ggml-Modelle und lokales Ollama-Cleanup
 - Provider-&-Models-Preflight fuer die lokale Runtime-Lane mit nativer Runner-, STT-Modell-, Cleanup-Endpoint- und Cleanup-Modell-Readiness
-- bounded STT-Promptbias fuer Groq und `local_preview` aus aktivem Profil-Context, Dictionary-Schreibweisen und wahrscheinlichen Phrasen
+- bounded STT-Promptbias fuer Groq und `local_preview` aus aktivem Profil-Context, Dictionary-Schreibweisen und wahrscheinlichen Phrasen; der Mechanismus ist aktiv, aber einige nicht-generische Profile sind damit noch nicht verlaesslich genug fuer Alltagsdiktate
+- der automatische Bias-Pfad ist inzwischen konservativer: generische Profilkategorien werden nicht mehr automatisch an STT und Cleanup weitergereicht, und eingeschlossene Profiles starten ohne vorbefuellte snippetartige `stt_hints`
+- Text Rules zeigt diesen konservativen Bias-Vertrag jetzt direkt an und warnt, wenn Profil- oder Hint-Zeilen fuer den automatischen Pfad ignoriert werden oder gar keine konkreten STT-Hinweise uebrig bleiben
 - Halluzinationsfilter und optionale AI-Nachkorrektur mit konservativen Preserve-Hinweisen aus aktivem Profil-Context und Dictionary-Schreibweisen; lokal und cloud nutzen dafuer getrennte Modell-Slots
 - lokale Textprofile fuer Transcription Context, Dictionary, Snippets und Work-Mode-Defaults im nativen Transform-/Insert-/History-Pfad
 - kurzer Overlay-Nachlauf innerhalb derselben kompakten Host-Buehne mit nativen `copy`-, `retry`-, `restore`- und Dismiss-Aktionen, breiterem Preview-/Result-Frame fuer voll lesbare Action-Labels, echter `clipboard_only`-Preview vor dem Commit, gemerkter Manual-Position oder preset-basiertem Display-Anchor, bewegungsbasiertem Drag statt Sofort-Drag und nativem Offscreen-Parking im Idle statt einer vergroesserten zweiten Preview-Flaeche
@@ -86,6 +88,13 @@ Die native Plattformdiagnostik kommt aus `core::insertion` und wird sichtbar in 
 - Provider-Status enthaelt typisierte Modi (`fast`, `quality`, `local`, spaeter `self_hosted`) und Capabilities fuer Transcription, Chat-Cleanup, Local, API-Key-Pflicht, Prompt-Bias, Language, Segments und Modellmanagement
 - Provider-Fehler enthalten neben Text auch `kind`, HTTP-Status, Retry-After, `retryable` und eine `user_action`; Settings und Runtime-Events sollen diese Semantik weiterreichen statt eigene Fehlerkategorien zu bauen
 - ein WordScript-Proxy oder Hosted Mode existiert nicht
+
+### Modus-Semantik heute
+
+- `fast` und `quality` beschreiben heute Qualitaets-/Latenz-Presets innerhalb derselben Provider-Lane
+- `local` bedeutet einen lokalen oder on-device Laufzeitpfad ohne WordScript-Backend; bei WordScript ist das aktuell die `local_preview`-Lane mit lokalem Runner, lokalem Modellpfad und lokalem Cleanup-Endpoint
+- `self_hosted` ist noch keine aktive Produktlane; der Begriff bleibt fuer spaetere nutzerbetriebene Remote- oder LAN-Dienste reserviert, die nicht WordScripts eigener Hosted Mode waeren
+- diese Begriffe duerfen in UI und Doku nicht zusammengeschoben werden, solange die zweite Produktionslane und der gefuehrte Setup-Pfad noch fehlen
 
 ### Lokale Runtime-Voraussetzungen
 
@@ -175,6 +184,9 @@ Zusatzregeln des aktiven Pfads:
 
 ## Bekannte offene Produktluecken
 
+- die Transkriptionszuverlaessigkeit ist ausserhalb von `General Writing` oder keinem Profil noch nicht belastbar genug; einzelne kuratierte Profile wie `Customer Success Replies` koennen Rohtranskripte aktuell mit mehrsprachigen Fragmenten, Fantasietokens und Topic-Drift sichtbar verschlechtern
+- reale Regression-Faelle aus misslungenen Diktaten fehlen noch; solange problematische Profilbeispiele nicht als feste native Tests fuer Bias-Filter, Prompt-Building und Text-Rules-Analyse vorliegen, bleibt Reliability-Fortschritt zu stark an manueller Reproduktion haengen
+- Text Rules warnt heute ueber schwachen automatischen Bias, aber eine explizite profilgebundene Bias-Policy und sichtbare Profilgesundheit fehlen noch; damit sind Ignorierfaelle sichtbar, aber nicht bereits als bewusste Profilentscheidung fuehrbar
 - keine publizierten versionierten Releases
 - kein signierter In-Place-Auto-Updater
 - Release- und Signing-Validation mit echten Secrets ist noch kein regelmaessiger Routinepfad
@@ -182,7 +194,7 @@ Zusatzregeln des aktiven Pfads:
 - ein vollstaendiger gefuehrter Setup-, Permissions- und Packaging-Pfad von Install bis erster brauchbarer Diktation ist noch nicht implementiert; lokale Runtime und Input haben aber bereits Preflight-Flaechen fuer die wichtigsten ersten Schritte
 - die lokale Runtime-Lane braucht noch automatisches Modellmanagement, Pull-/Install-Aktionen und einen nutzerfaehigen Erststartpfad ueber die aktuelle env-basierte Runtime-Verdrahtung hinaus
 - mehrere vollwertige Produktionsprovider ueber Groq hinaus sind noch nicht implementiert; ebenso fehlt noch ein explizites Mode-Modell wie `fast`, `quality`, `local` oder `self_hosted`
-- Settings- und Overlay-UI brauchen noch eine klarere Informationshierarchie und mehr native macOS-Produktpolish; die aktuelle Shell ist brauchbar, aber noch nicht der Zielzustand
+- Settings-Tabs brauchen noch eine klarere Informationshierarchie und mehr native macOS-Produktpolish; die aktuelle Shell ist brauchbar, aber noch nicht der Zielzustand. Das Overlay ist derzeit nicht die primaere UI-Baustelle
 - spaetere app- oder mode-basierte automatische Aktivierung fuer Arbeitsmodi bleibt offen
 - Overlay ist noch kein vollstaendiger Live-Preview- und Controlled-Commit-Pfad; aktuell zeigt es einen festen In-Pill-Nachlauf mit `copy`, `retry`, `restore` und Dismiss nach erfolgreichem Lauf sowie einen echten Processing-Preview-Stop fuer `clipboard_only`, aber noch keinen allgemeinen Pre-Commit-Entscheidungsweg fuer alle Delivery-Modi oder feinere Placement-Regeln jenseits des aktuellen Manual-vs-Preset-Vertrags
 - spaetere Notes- und weitergehende Workflow-Aufbauten auf Basis des neuen History-Kerns sind noch nicht implementiert
@@ -193,7 +205,8 @@ Explizit nicht naechste Baustelle dieser Produktphase sind `openwhispr`-Themen w
 
 - der aktive Repo-Pfad bleibt source-first mit `tauri dev`, hat aber wieder einen Build-Matrix-Workflow und Bundle-Ziele fuer Linux, macOS und Windows
 - die aktuelle Nutzerrealitaet bleibt die Dev-Version via `npm run tauri dev`
-- parallel entsteht das erste offizielle Cross-Platform-App-Release fuer Linux, macOS und Windows
+- parallel entsteht ein interner Cross-Platform-Build-Up fuer Linux, macOS und Windows; er ist aber kein Signal, dass WordScript schon release-ready waere
+- die aktuelle Launch-Blockade liegt vor allem bei der profilabhaengigen Transkriptionszuverlaessigkeit und beim noch unvollstaendigen gefuehrten Local-Setup, nicht beim Fehlen weiterer Packaging-Mechanik
 - `check_app_update` signalisiert aktuell ehrlich, dass noch keine publizierten Releases existieren; interne Draft-Handoffs aendern diese Oeffentlichkeitswahrheit bewusst nicht
 - es gibt aktuell keinen aktiven Installer-Kanal und keinen vertrauenswuerdigen Download-Handoff fuer Endnutzer; der neue Draft-Handoff bleibt maintainer-intern
 - PR-CI validiert Frontend-Tests, Frontend-Build, `cargo check` und `cargo test` auf Ubuntu, macOS und Windows

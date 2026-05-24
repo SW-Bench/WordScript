@@ -687,6 +687,12 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
     () => (previewSource?.preview.applied_rules ?? []).map((rule) => buildPreviewRuleChip(rule, previewRuleLookup)),
     [previewRuleLookup, previewSource?.preview.applied_rules],
   );
+  const biasPreview = previewSource?.transcription_bias;
+  const biasProfileHints = biasPreview?.profile_hints ?? [];
+  const biasDictionaryTerms = biasPreview?.dictionary_terms ?? [];
+  const biasSttHints = biasPreview?.stt_hints ?? [];
+  const ignoredProfileLines = biasPreview?.ignored_profile_lines ?? [];
+  const ignoredSttHintLines = biasPreview?.ignored_stt_hint_lines ?? [];
   const hasImportedOnlyIssues = Boolean(pendingImport && issueList.some((entry) => entry.rule_ids.some((ruleId) => !currentRuleLookup.has(ruleId))));
   const activePromptLineCount = countPromptLines(activeTextProfile.prompt);
   const activeSttHintLineCount = countPromptLines(activeTextProfile.stt_hints);
@@ -1124,6 +1130,61 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
               <p className="form-dim">
                 Validation checks for empty fields, duplicates and collisions. Preview runs the literal dictionary-plus-snippet pass on the sample text below, with no microphone capture or semantic guessing.
               </p>
+              <div className="settings__editor-context-notes" aria-label="Effective transcription bias preview">
+                <div className="settings__editor-context-note">
+                  <strong>Automatic STT vocabulary</strong>
+                  <span>Only these concrete profile lines are forwarded automatically into speech-to-text.</span>
+                  {biasProfileHints.length > 0 ? (
+                    <div className="settings__rule-chip-row">
+                      {biasProfileHints.map((hint) => (
+                        <span key={`profile-hint-${hint}`} className="settings__rule-chip">{hint}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>No concrete context lines are forwarded automatically right now.</span>
+                  )}
+                </div>
+                <div className="settings__editor-context-note">
+                  <strong>Preferred spellings</strong>
+                  <span>Dictionary replacements contribute these target spellings as preserve hints.</span>
+                  {biasDictionaryTerms.length > 0 ? (
+                    <div className="settings__rule-chip-row">
+                      {biasDictionaryTerms.map((term) => (
+                        <span key={`dictionary-term-${term}`} className="settings__rule-chip">{term}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>No dictionary spellings are being forwarded yet.</span>
+                  )}
+                </div>
+                <div className="settings__editor-context-note">
+                  <strong>Explicit STT hints</strong>
+                  <span>These short cues are forwarded exactly as explicit bias hints.</span>
+                  {biasSttHints.length > 0 ? (
+                    <div className="settings__rule-chip-row">
+                      {biasSttHints.map((hint) => (
+                        <span key={`stt-hint-${hint}`} className="settings__rule-chip">{hint}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>No explicit STT hints are currently forwarded.</span>
+                  )}
+                </div>
+                {(ignoredProfileLines.length > 0 || ignoredSttHintLines.length > 0) && (
+                  <div className="settings__editor-context-note">
+                    <strong>Ignored from automatic bias</strong>
+                    <span>These lines stay in the profile, but are not forwarded automatically because they are too broad or too long for the conservative bias path.</span>
+                    <div className="settings__rule-chip-row">
+                      {ignoredProfileLines.map((line) => (
+                        <span key={`ignored-profile-${line}`} className="settings__rule-chip">Context ignored: {line}</span>
+                      ))}
+                      {ignoredSttHintLines.map((line) => (
+                        <span key={`ignored-stt-${line}`} className="settings__rule-chip">STT ignored: {line}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <label className="settings__rule-field settings__rule-field--wide">
                 <span>Preview sample transcription</span>
                 <textarea

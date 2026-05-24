@@ -8,6 +8,7 @@ pub mod runtime_log;
 pub mod sessions;
 pub mod sound;
 pub mod text_rules;
+pub mod transcription_hints;
 pub mod transform;
 pub mod trigger;
 pub mod updates;

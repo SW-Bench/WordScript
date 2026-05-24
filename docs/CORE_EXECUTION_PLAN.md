@@ -389,6 +389,11 @@ Aktueller Stand:
 - der Overlay-Nachlauf-Snapshot kann jetzt `insert`, `retry` und `restore` direkt ueber bestehende Native-Commands ausloesen; `retry` haengt dabei sichtbar an der echten History-ID des letzten Laufs statt an einer Overlay-Heuristik
 - `clipboard_only`-Profile halten jetzt zusaetzlich auf einem echten Processing-Preview vor dem Commit an; der spaetere Commit erzeugt History, Session-Abschluss und Overlay-Ergebnis weiter ueber denselben nativen Pfad
 
+### Akut offene Reliability-Follow-ups
+
+1. `7.5 Regressionskorpus fuer Profil-STT`: Reale Fehltranskripte aus problematischen Profilen muessen als feste native Faelle fuer `transcription_hints`, Prompt-Building in `lib.rs` und `text_rules::analyze_document` abgelegt werden, damit neue Bias-Anpassungen nicht wieder nur gegen manuelle Reproduktionen laufen.
+2. `7.6 Profilgesundheit und Bias-Policy`: Auf Basis des neuen Bias-Preview-/Warning-Vertrags braucht WordScript eine sichtbare Profilgesundheit und spaeter eine explizite profilgebundene Bias-Policy. Diese Entscheidung gehoert an die Profilebene und darf nicht mit den bestehenden provider-spezifischen `local_prompt_strength`-Reglern vermischt werden.
+
 ### Exit-Kriterien
 
 - der aktive Modus aendert mehr als nur Text Rules

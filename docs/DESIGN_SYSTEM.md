@@ -17,9 +17,10 @@ Das Design System beschreibt die aktive Produktsprache von WordScript. Es ist ke
 ## Aktuelles UI-Zielbild
 
 - Das aktuelle Problem ist nicht mehr fehlende Flaeche, sondern fehlende Ruhe, Hierarchie und Produktklarheit.
+- Die aktuelle UI-Hauptbaustelle sind vor allem die Settings-Tabs und ihre Fuehrung. Das Overlay ist derzeit nicht die primaere Design-Baustelle und soll ohne neue Runtime-Anforderung nicht noch einmal breit umgestaltet werden.
 - Das Zielbild fuer Settings und Overlay ist eine kleine, fokussierte Utility-App mit klarer Sidebar/Main-Struktur, wenigen visuellen Ebenen und knapper, weicher Motion.
 - macOS bleibt eine Referenz fuer Produktpolish, ist aber keine Einladung fuer generische OS-Mockups, fake Traffic-Lights oder andere plattformfremde Desktop-Parodien in WordScript.
-- Die bestehende Settings-Shell und das Overlay sind eine gute Basis, muessen aber vor weiterem Scope-Ausbau in Informationsarchitektur, Spacing, Zustandsklarheit und wahrgenommener Smoothness bewusst ruhig gehalten werden.
+- Die bestehende Settings-Shell ist die Hauptbasis fuer den aktuellen Utility-Pass und muss vor weiterem Scope-Ausbau in Informationsarchitektur, Spacing, Zustandsklarheit und wahrgenommener Smoothness bewusst ruhig gehalten werden.
 - Der aktive UI-Pass fuehrt diese Richtung jetzt ueber eine gruppierte Utility-Sidebar, native Fensterkontrollen im Host, einen kompakten Tab-Header und genau eine dominante Content-Surface pro Tab fort.
 
 ## UI-Donoren und Stilreferenzen
@@ -68,6 +69,7 @@ Die aktive Shell nutzt jetzt eine klare Utility-Orientierung: gruppierte Sidebar
 Fuer scrollende Utility-Flaechen gilt zusaetzlich: lange Kartenlisten muessen ruhig bleiben. Wiederholte Diagnostics- oder Text-Rules-Karten duerfen nicht ueber per-render Deep-Clones oder unnötige Parent-Renders permanent neu aufgebaut werden.
 
 Profile sind jetzt sichtbare manuelle Arbeitsmodi mit Defaults fuer Rewrite, Insert und Recovery. Die Shell darf diese Werte anzeigen und zwischen Profilen umschalten, muss aber weiterhin aus dem aktiven Profilvertrag lesen; automatische App-/Kontextaktivierung und Overlay-Commit-Entscheidungen duerfen nicht vorweggenommen werden.
+Solange profilabhaengige Transkription ausserhalb von `General Writing` noch unzuverlaessig ist, darf die UI diese Profile nicht wie fertige Produktmodi inszenieren. Die Shell muss Fuehrung und Erwartungsmanagement leisten, nicht falsche Sicherheit.
 Provider & Models muss Provider-Faehigkeiten, lokale Runtime-Grenzen und Recovery-Aktionen aus dem nativen Provider-Status anzeigen. Der Tab darf nicht aus Modellnamen raten, ob Cleanup, Prompt-Bias, Segments oder Local-Setup verfuegbar sind.
 Fuer `local_preview` muessen Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Probleme ueber den nativen `local_setup`-Vertrag sichtbar werden. Labels wie `Runner path invalid`, `Runner probe failed`, `Cleanup backend unavailable` oder `Cleanup model not found` sind Produkttext, keine UI-Erfindungen.
 Provider & Models soll diesen Vertrag als kompakte Preflight-Checkliste zeigen: vier Schritte fuer Speech Runner, STT-Modell, Cleanup-Endpoint und Cleanup-Modell, jeweils mit Status, konkretem aufgeloestem Wert oder naechster lokaler Voraussetzung.
@@ -151,6 +153,7 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 - Sidebar fuer Orientierung, Main-Panel fuer Inhalt
 - gruppierte Sidebar-Navigation darf `Configure` und `Inspect` sichtbar trennen, solange die Reihenfolge stabil bleibt
 - der kompakte Tab-Header darf genau einen Snapshot aus Runtime-Status und Save-Zustand zeigen; er ist Orientierung, nicht Marketing
+- der aktuelle Polish-Pass priorisiert Provider & Models, Text Rules, About und Diagnostics als Utility-Flaechen. Overlay-only Restyling ist nachgeordnet, solange Transkriptionsvertrauen und Setup-Fuehrung noch die groesseren Produktluecken sind
 - Fenster-Minima muessen gross genug bleiben, damit Sidebar, Footer und Hauptinhalte beim nativen Resize nicht visuell verschwinden oder in mobileartige Notlayouts kippen
 - Section-Blurb nur dort, wo er echte Entscheidungsunterstuetzung liefert
 - Formkarten muessen die Runtime-Wahrheit abbilden, nicht Platzhalter simulieren
@@ -168,6 +171,8 @@ Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 - lokale Textprofile kapseln `Transcription Context`, optionale `STT hints`, Dictionary, Snippets sowie Rewrite-, Insert- und Recovery-Defaults als konkreten Arbeitsmodus
 - `Transcription Context` bleibt innerhalb des aktiven Profils primaer STT-Hilfe; wenn AI cleanup laeuft, darf derselbe Context nur als konservativer Preserve-Hinweis fuer Termini und Sprachmix dienen, nie als semantische Regelmaschine
 - `STT hints` sind ein eigenes explizites Feld fuer wenige kurze gesprochene Cues oder Alternativphrasen, die wirklich in den STT-Bias sollen; Snippet-Trigger duerfen nicht stillschweigend denselben Zweck uebernehmen
+- eingeschlossene Profile sollen deshalb mit konservativen Wortschatz-Baselines starten. Vorgefuellte snippetartige STT-Hinweise oder breite Kategorienlisten, die jede Diktation in einen Szenariomodus ziehen, gehoeren nicht in den Default-Zustand
+- die Text-Rules-Flaeche soll diese Grenze auch sichtbar fuehren: der Context-Workspace zeigt deshalb den effektiven automatischen Bias und Warnings fuer ignorierte breite Kontext- oder Hint-Zeilen, statt Profilinhalt stillschweigend als aktive Runtime-Wahrheit zu inszenieren
 - Dictionary und Snippets arbeiten literal und case-insensitive
 - Dictionary laeuft vor Snippets
 - Preview und Validation muessen gegen denselben nativen Analysepfad laufen
