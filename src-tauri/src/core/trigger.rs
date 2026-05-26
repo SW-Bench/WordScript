@@ -841,7 +841,7 @@ fn default_hotkey() -> String {
     if cfg!(target_os = "macos") {
         "ctrl_l+cmd+space".to_string()
     } else if cfg!(target_os = "windows") {
-        "ctrl_l+win+space".to_string()
+        "ctrl_l+alt_l+space".to_string()
     } else {
         "ctrl_l+f9".to_string()
     }

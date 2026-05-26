@@ -584,7 +584,7 @@ fn default_hotkey() -> &'static str {
     if cfg!(target_os = "macos") {
         "ctrl_l+cmd+space"
     } else if cfg!(target_os = "windows") {
-        "ctrl_l+win+space"
+        "ctrl_l+alt_l+space"
     } else {
         "ctrl_l+f9"
     }
