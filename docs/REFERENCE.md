@@ -186,6 +186,7 @@ Zusatzregeln des aktiven Pfads:
 
 - die Transkriptionszuverlaessigkeit ist ausserhalb von `General Writing` oder keinem Profil noch nicht belastbar genug; einzelne kuratierte Profile wie `Customer Success Replies` koennen Rohtranskripte aktuell mit mehrsprachigen Fragmenten, Fantasietokens und Topic-Drift sichtbar verschlechtern
 - reale Regression-Faelle aus misslungenen Diktaten fehlen noch; solange problematische Profilbeispiele nicht als feste native Tests fuer Bias-Filter, Prompt-Building und Text-Rules-Analyse vorliegen, bleibt Reliability-Fortschritt zu stark an manueller Reproduktion haengen
+- AI-Cleanup antwortet auf Fragen statt sie zu transkribieren: wenn der Nutzer waehrend eines Diktats eine Frage formuliert (z.B. "Was bedeutet X?" oder "Wie funktioniert Y?"), behandelt das Cleanup-Modell den Text als an sich gerichteten Prompt und antwortet darauf statt ihn als diktierten Text durchzureichen; WordScript ist ein Transkriptionspfad, kein Assistant, und der Cleanup-Schritt darf keine eigenen Antworten generieren
 - Text Rules warnt heute ueber schwachen automatischen Bias, aber eine explizite profilgebundene Bias-Policy und sichtbare Profilgesundheit fehlen noch; damit sind Ignorierfaelle sichtbar, aber nicht bereits als bewusste Profilentscheidung fuehrbar
 - keine publizierten versionierten Releases
 - kein signierter In-Place-Auto-Updater
