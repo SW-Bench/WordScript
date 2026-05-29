@@ -30,18 +30,18 @@ Wir lesen die geklonten Repos nicht breit, sondern entlang der owning surfaces.
 
 ### Donor-Dateien fuer den aktiven Kern
 
-- `../Handy/src-tauri/src/transcription_coordinator.rs`
-- `../Handy/src-tauri/src/commands/history.rs`
-- `../voxtype/src/output/mod.rs`
-- `../voxtype/config/default.toml`
-- `../openwhispr/src/stores/settingsStore.ts`
-- `../openwhispr/src/helpers/enterpriseAiProviders.js`
-- `../openwhispr/src/helpers/audioManager.js`
-- `../hyprwhspr/bin/hyprwhspr`
-- `../VoiceInk/VoiceInk/Services/DictionaryService.swift`
-- `../VoiceInk/VoiceInk/PowerMode/PowerModeSessionManager.swift`
-- `../FluidVoice/Sources/Fluid/Persistence/TranscriptionHistoryStore.swift`
-- `../FluidVoice/Sources/Fluid/Services/CommandModeService.swift`
+- `donors/app/desktop-shells/Handy/src-tauri/src/transcription_coordinator.rs`
+- `donors/app/desktop-shells/Handy/src-tauri/src/commands/history.rs`
+- `donors/app/linux-dictation/voxtype/src/output/mod.rs`
+- `donors/app/linux-dictation/voxtype/config/default.toml`
+- `donors/app/desktop-shells/openwhispr/src/stores/settingsStore.ts`
+- `donors/app/desktop-shells/openwhispr/src/helpers/enterpriseAiProviders.js`
+- `donors/app/desktop-shells/openwhispr/src/helpers/audioManager.js`
+- `donors/app/linux-dictation/hyprwhspr/bin/hyprwhspr`
+- `donors/app/macos-native-dictation/VoiceInk/VoiceInk/Services/DictionaryService.swift`
+- `donors/app/macos-native-dictation/VoiceInk/VoiceInk/PowerMode/PowerModeSessionManager.swift`
+- `donors/app/macos-native-dictation/FluidVoice/Sources/Fluid/Persistence/TranscriptionHistoryStore.swift`
+- `donors/app/macos-native-dictation/FluidVoice/Sources/Fluid/Services/CommandModeService.swift`
 
 ### Was diese Donoren konkret liefern
 

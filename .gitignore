@@ -55,3 +55,6 @@ tmpclaude-*
 CLAUDE.local.md
 .claude/settings.local.json
 CREDENTIALS.md
+
+# ── donors (third-party reference repos, not committed) ──────────
+donors/
