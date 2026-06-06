@@ -17,6 +17,7 @@ const MIN_BAR_HEIGHT = 4;
 const MAX_BAR_HEIGHT = 30;
 const DRAG_DISTANCE_THRESHOLD = 6;
 const DRAG_CLICK_SUPPRESS_MS = 1000;
+const RESULT_ACTIONS_AUTO_CLOSE_MS = 9000;
 
 type OverlayMotion = "idle" | "entering" | "open" | "leaving";
 type OverlaySurface = "compact" | "processing_preview" | "result_actions";
@@ -55,6 +56,7 @@ export default function OverlayWindow() {
   const movePersistTimeoutRef = useRef<number | null>(null);
   const dragSessionActiveRef = useRef(false);
   const dragSessionEndTimeoutRef = useRef<number | null>(null);
+  const autoCloseResultTimerRef = useRef<number | null>(null);
   const suppressNextClickRef = useRef(false);
   const suppressClickUntilRef = useRef(0);
   const suppressMovedPersistenceUntilRef = useRef(0);
@@ -286,6 +288,30 @@ export default function OverlayWindow() {
     setActionMessage(null);
     setActionFailed(false);
   }, [state.lastResult?.occurred_at_ms]);
+
+  useEffect(() => {
+    if (!showResultPreview || actionPending) {
+      if (autoCloseResultTimerRef.current) {
+        window.clearTimeout(autoCloseResultTimerRef.current);
+        autoCloseResultTimerRef.current = null;
+      }
+      return;
+    }
+
+    autoCloseResultTimerRef.current = window.setTimeout(() => {
+      autoCloseResultTimerRef.current = null;
+      setShowPreview(false);
+      setActionMessage(null);
+      setActionFailed(false);
+    }, RESULT_ACTIONS_AUTO_CLOSE_MS);
+
+    return () => {
+      if (autoCloseResultTimerRef.current) {
+        window.clearTimeout(autoCloseResultTimerRef.current);
+        autoCloseResultTimerRef.current = null;
+      }
+    };
+  }, [showResultPreview, actionPending]);
 
   useEffect(() => {
     if (status === "recording" || (status === "processing" && !pendingPreviewResult)) {
