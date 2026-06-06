@@ -349,8 +349,15 @@ fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>, surface: OverlaySurface
         let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
         if let Some(position) = overlay_target_position(&window, &config, surface) {
             let _ = window.set_position(position);
+            let _ = window.show();
+            // On Windows, ShowWindow can discard a position set on a hidden window,
+            // restoring the window to its creation coordinates (0, 0). Re-applying
+            // after show() ensures the overlay lands at the correct location.
+            #[cfg(target_os = "windows")]
+            let _ = window.set_position(position);
+        } else {
+            let _ = window.show();
         }
-        let _ = window.show();
     }
 }
 

@@ -54,6 +54,7 @@ export default function OverlayWindow() {
   const dragIntentRef = useRef<{ pointerId: number; startX: number; startY: number; dragged: boolean } | null>(null);
   const movePersistTimeoutRef = useRef<number | null>(null);
   const dragSessionActiveRef = useRef(false);
+  const dragSessionEndTimeoutRef = useRef<number | null>(null);
   const suppressNextClickRef = useRef(false);
   const suppressClickUntilRef = useRef(0);
   const suppressMovedPersistenceUntilRef = useRef(0);
@@ -166,6 +167,13 @@ export default function OverlayWindow() {
         } catch {
           // Ignore transient move persistence failures during drag.
         }
+        // End drag session here so trailing onMoved events after a native drag
+        // (where pointerup already fired before the window moved) are still captured.
+        dragSessionActiveRef.current = false;
+        if (dragSessionEndTimeoutRef.current) {
+          window.clearTimeout(dragSessionEndTimeoutRef.current);
+          dragSessionEndTimeoutRef.current = null;
+        }
       }, 180);
     });
 
@@ -173,6 +181,10 @@ export default function OverlayWindow() {
       if (movePersistTimeoutRef.current) {
         window.clearTimeout(movePersistTimeoutRef.current);
         movePersistTimeoutRef.current = null;
+      }
+      if (dragSessionEndTimeoutRef.current) {
+        window.clearTimeout(dragSessionEndTimeoutRef.current);
+        dragSessionEndTimeoutRef.current = null;
       }
       void unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
     };
@@ -209,7 +221,18 @@ export default function OverlayWindow() {
 
     const clearDragIntent = () => {
       if (dragIntentRef.current?.dragged) {
-        dragSessionActiveRef.current = false;
+        // On Windows, startDragging() causes WebView2 to fire pointercancel/pointerup
+        // immediately (native drag takes pointer ownership), before any onMoved events
+        // arrive. Do not clear dragSessionActive here; let the onMoved persist handler
+        // clear it after saving the position. A fallback timeout covers the case where
+        // onMoved never fires (e.g. window not actually moved).
+        if (dragSessionEndTimeoutRef.current) {
+          window.clearTimeout(dragSessionEndTimeoutRef.current);
+        }
+        dragSessionEndTimeoutRef.current = window.setTimeout(() => {
+          dragSessionActiveRef.current = false;
+          dragSessionEndTimeoutRef.current = null;
+        }, 2000);
         suppressNextClickRef.current = true;
         suppressClickUntilRef.current = Date.now() + DRAG_CLICK_SUPPRESS_MS;
       }
