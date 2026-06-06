@@ -129,12 +129,13 @@ body.overlay-window.overlay-idle,
 }
 
 .pill--compact {
-  width: 248px;
-  grid-template-columns: 40px minmax(0, 1fr) 6px 52px;
+  width: 174px;
+  grid-template-columns: 38px minmax(0, 1fr) 6px 46px;
 }
 
 .pill--compact.pill--processing {
-  grid-template-columns: 40px minmax(0, 1fr) 6px 64px;
+  width: 184px;
+  grid-template-columns: 38px minmax(0, 1fr) 6px 56px;
 }
 
 .pill--preview-actions {
@@ -143,36 +144,35 @@ body.overlay-window.overlay-idle,
 }
 
 .pill--result-actions {
-  width: 380px;
-  grid-template-columns: minmax(0, 1fr) 6px 64px;
+  width: 238px;
+  grid-template-columns: minmax(0, 1fr) 6px 58px;
 }
 
 .pill__center--actions {
-  justify-content: flex-start;
+  justify-content: center;
   padding: 0 8px;
 }
 
 .pill__action-strip {
-  width: 100%;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .pill__action-button {
   min-width: 0;
-  flex: 1 1 0;
-  height: 30px;
+  flex: 0 0 auto;
+  height: 28px;
   border: none;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.9);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.035em;
   text-transform: uppercase;
-  padding: 0 10px;
+  padding: 0 9px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -393,7 +393,7 @@ body.overlay-window.overlay-idle,
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 0 6px;
+  padding: 0 2px;
 }
 
 .pill__bars {
