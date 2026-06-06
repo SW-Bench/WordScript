@@ -8,11 +8,11 @@ WordScript is a community-built desktop dictation app for one job: trigger recor
 
 It is being built in public under SW bench, the open-source brand of SW labs, where tools like WordScript are built with contributors instead of behind a closed product paywall.
 
-## Interface
+## Interface (Overlay screenshots were squeezed through an image-upscaler)
 
-![WordScript settings UI](assets/screenshot_12.5.26.png)
+![WordScript settings UI](assets/settings-ui.png)
 
-![WordScript overlay while recording](assets/overlay-recording-screenshot.png)
+![WordScript overlay while recording](assets/overlay-ui.png)
 
 ## Why this exists
 
