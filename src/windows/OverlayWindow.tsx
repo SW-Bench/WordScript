@@ -394,6 +394,7 @@ export default function OverlayWindow() {
       setBarHeights(IDLE_WAVEFORM);
     }
   }, [status, muted, paused]);
+
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<number | null>(null);
   const sessionActiveRef = useRef(false);
@@ -448,6 +449,7 @@ export default function OverlayWindow() {
       startY: event.clientY,
       dragged: false,
     };
+
   };
 
   const handleInteractiveClickCapture = (event: MouseEvent<HTMLElement>) => {
@@ -663,7 +665,7 @@ export default function OverlayWindow() {
   }
 
   return (
-    <div className="overlay-shell" onPointerDownCapture={handleOverlayPointerDownCapture}>
+      <div className="overlay-shell" onPointerDownCapture={handleOverlayPointerDownCapture}>
       <div className={pillClass}>
         <button
           type="button"

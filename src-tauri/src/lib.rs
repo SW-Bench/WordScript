@@ -4,6 +4,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri::utils::config::Color;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime};
 
+
 mod core;
 mod v1_slice;
 
@@ -62,6 +63,7 @@ impl OverlaySurface {
 
         (width, OVERLAY_WINDOW_HEIGHT)
     }
+
 }
 
 // Remember the exact top-left window position, regardless of which overlay surface was dragged.
