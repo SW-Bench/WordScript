@@ -13,7 +13,7 @@
   --accent-strong: #ffd56c;
   --accent-soft: rgba(243, 206, 123, 0.16);
   --voice: #87e6d7;
-  --voice-soft: rgba(135, 230, 215, 0.18);
+  --voice-soft: rgba(244, 177, 57, 0.18);
   --btn-bg: #202a33;
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.18);
@@ -60,7 +60,7 @@ body {
 body:not(.overlay-window) {
   background-image:
     radial-gradient(circle at top left, rgba(243, 206, 123, 0.14), transparent 28%),
-    radial-gradient(circle at 80% 20%, rgba(135, 230, 215, 0.12), transparent 24%),
+    radial-gradient(circle at 80% 20%, rgba(244, 177, 57, 0.12), transparent 24%),
     linear-gradient(180deg, #0f1418 0%, #0b1014 100%);
 }
 
