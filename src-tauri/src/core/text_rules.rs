@@ -127,6 +127,241 @@ pub struct ImportTextRulesResponse {
     pub analysis: TextRulesAnalysis,
 }
 
+// ── Profile Health ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum LengthBiasDirection {
+    Inflating,
+    Deflating,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProfileHealthFlag {
+    LengthBias {
+        direction: LengthBiasDirection,
+        entry_count: usize,
+        hint: String,
+    },
+    FormConflict {
+        hint: String,
+    },
+    CleanupInterference {
+        hint: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileHealthLevel {
+    Green,
+    Yellow,
+    Red,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProfileHealthStatus {
+    pub level: ProfileHealthLevel,
+    pub flags: Vec<ProfileHealthFlag>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetProfileHealthRequest {
+    pub prompt: String,
+    pub dictionary_entries: Vec<DictionaryEntry>,
+    #[serde(default)]
+    pub acknowledged_flags: Vec<String>,
+}
+
+pub fn analyze_profile_health(
+    prompt: &str,
+    dictionary_entries: &[DictionaryEntry],
+    acknowledged_flags: &[String],
+) -> ProfileHealthStatus {
+    let mut flags = Vec::new();
+
+    if let Some(flag) = detect_length_bias(dictionary_entries) {
+        flags.push(flag);
+    }
+    if let Some(flag) = detect_form_conflict(prompt) {
+        flags.push(flag);
+    }
+    if let Some(flag) = detect_cleanup_interference(prompt) {
+        flags.push(flag);
+    }
+
+    let acked: std::collections::HashSet<&str> =
+        acknowledged_flags.iter().map(String::as_str).collect();
+    let level = derive_health_level(&flags, &acked);
+
+    ProfileHealthStatus { level, flags }
+}
+
+fn derive_health_level(
+    flags: &[ProfileHealthFlag],
+    acknowledged: &std::collections::HashSet<&str>,
+) -> ProfileHealthLevel {
+    let has_unacked_red = flags
+        .iter()
+        .any(|f| !acknowledged.contains(flag_kind(f)) && is_red_flag(f));
+
+    if has_unacked_red {
+        return ProfileHealthLevel::Red;
+    }
+
+    let has_any_unacked = flags.iter().any(|f| !acknowledged.contains(flag_kind(f)));
+
+    if has_any_unacked {
+        ProfileHealthLevel::Yellow
+    } else {
+        ProfileHealthLevel::Green
+    }
+}
+
+fn flag_kind(flag: &ProfileHealthFlag) -> &'static str {
+    match flag {
+        ProfileHealthFlag::LengthBias { .. } => "length_bias",
+        ProfileHealthFlag::FormConflict { .. } => "form_conflict",
+        ProfileHealthFlag::CleanupInterference { .. } => "cleanup_interference",
+    }
+}
+
+fn is_red_flag(flag: &ProfileHealthFlag) -> bool {
+    matches!(flag, ProfileHealthFlag::FormConflict { .. })
+}
+
+fn detect_length_bias(entries: &[DictionaryEntry]) -> Option<ProfileHealthFlag> {
+    let qualified: Vec<_> = entries
+        .iter()
+        .filter(|e| !e.phrase.trim().is_empty() && !e.replace_with.trim().is_empty())
+        .collect();
+
+    if qualified.len() < 3 {
+        return None;
+    }
+
+    let total = qualified.len();
+    let threshold = ((total as f64) * 0.6).ceil() as usize;
+
+    let inflating = qualified
+        .iter()
+        .filter(|e| {
+            let phrase_len = e.phrase.trim().len() as f64;
+            let replace_len = e.replace_with.trim().len() as f64;
+            replace_len >= phrase_len * 2.0
+        })
+        .count();
+
+    if inflating >= threshold {
+        return Some(ProfileHealthFlag::LengthBias {
+            direction: LengthBiasDirection::Inflating,
+            entry_count: inflating,
+            hint: format!(
+                "{inflating} of {total} dictionary entries expand text to 2× or more. \
+                AI-Cleanup will see consistently longer raw text than you dictated."
+            ),
+        });
+    }
+
+    let deflating = qualified
+        .iter()
+        .filter(|e| {
+            let phrase_len = e.phrase.trim().len() as f64;
+            let replace_len = e.replace_with.trim().len() as f64;
+            phrase_len > 0.0 && replace_len <= phrase_len * 0.4
+        })
+        .count();
+
+    if deflating >= threshold {
+        return Some(ProfileHealthFlag::LengthBias {
+            direction: LengthBiasDirection::Deflating,
+            entry_count: deflating,
+            hint: format!(
+                "{deflating} of {total} dictionary entries shrink text to less than half the original length. \
+                AI-Cleanup will see consistently shorter raw text than you dictated."
+            ),
+        });
+    }
+
+    None
+}
+
+fn detect_form_conflict(prompt: &str) -> Option<ProfileHealthFlag> {
+    let lower = prompt.to_lowercase();
+
+    const CONFLICTING_PAIRS: &[(&str, &[&str])] = &[
+        ("formal", &["casual", "informal", "relaxed", "conversational"]),
+        ("professional", &["casual", "informal", "relaxed"]),
+        ("concise", &["detailed", "comprehensive", "verbose", "elaborate", "thorough"]),
+        ("brief", &["detailed", "comprehensive", "verbose", "elaborate", "thorough", "long"]),
+        ("short", &["detailed", "comprehensive", "verbose", "long", "elaborate"]),
+        ("bullet", &["paragraph", "prose", "narrative", "flowing"]),
+    ];
+
+    let mut found = Vec::new();
+    for (term_a, terms_b) in CONFLICTING_PAIRS {
+        if lower.contains(term_a) {
+            for term_b in *terms_b {
+                if lower.contains(term_b) {
+                    found.push(format!("\"{term_a}\" vs \"{term_b}\""));
+                    break;
+                }
+            }
+        }
+    }
+
+    if found.is_empty() {
+        return None;
+    }
+
+    Some(ProfileHealthFlag::FormConflict {
+        hint: format!(
+            "Contradictory style instructions detected: {}. \
+            The AI-Cleanup model receives conflicting signals and will produce inconsistent output.",
+            found.join(", ")
+        ),
+    })
+}
+
+fn detect_cleanup_interference(prompt: &str) -> Option<ProfileHealthFlag> {
+    let lower = prompt.to_lowercase();
+
+    const PATTERNS: &[(&str, &str)] = &[
+        ("do not change", "\"Do not change\" instructions prevent AI-Cleanup from improving the text."),
+        ("don't change", "\"Don't change\" instructions prevent AI-Cleanup from improving the text."),
+        ("keep as is", "\"Keep as is\" instructions prevent AI-Cleanup from making corrections."),
+        ("keep exactly", "\"Keep exactly\" instructions conflict with AI-Cleanup's rewrite pass."),
+        ("verbatim", "\"Verbatim\" instructions conflict with AI-Cleanup. Use Verbatim work mode instead."),
+        ("word for word", "\"Word for word\" conflicts with AI-Cleanup. Use Verbatim work mode instead."),
+        ("word-for-word", "\"Word-for-word\" conflicts with AI-Cleanup. Use Verbatim work mode instead."),
+        ("answer any question", "Instructions to answer questions conflict with the AI-Cleanup guardrail."),
+        ("respond to question", "Instructions to respond to questions conflict with the AI-Cleanup guardrail."),
+        ("act as ", "\"Act as\" persona instructions cause AI-Cleanup to behave inconsistently."),
+    ];
+
+    for (pattern, hint) in PATTERNS {
+        if lower.contains(pattern) {
+            return Some(ProfileHealthFlag::CleanupInterference {
+                hint: (*hint).to_string(),
+            });
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
+pub fn get_profile_health(request: GetProfileHealthRequest) -> Result<ProfileHealthStatus, String> {
+    Ok(analyze_profile_health(
+        &request.prompt,
+        &request.dictionary_entries,
+        &request.acknowledged_flags,
+    ))
+}
+
+// ── Text Rules Analysis ───────────────────────────────────────────────────────
+
 #[tauri::command]
 pub fn analyze_text_rules(request: AnalyzeTextRulesRequest) -> Result<TextRulesAnalysis, String> {
     Ok(analyze_document(

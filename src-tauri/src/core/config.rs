@@ -208,6 +208,7 @@ pub struct AppConfig {
     pub audio_device: String,
     pub max_recording_seconds: u64,
     pub silence_timeout_seconds: u64,
+    pub result_actions_timeout_ms: u64,
     pub auto_paste: bool,
     pub play_sounds: bool,
     pub log_level: String,
@@ -267,6 +268,7 @@ impl Default for AppConfig {
             audio_device: String::new(),
             max_recording_seconds: 720,
             silence_timeout_seconds: 30,
+            result_actions_timeout_ms: 9000,
             auto_paste: true,
             play_sounds: true,
             log_level: "INFO".to_string(),
@@ -566,6 +568,20 @@ pub fn save_config<R: Runtime>(app: AppHandle<R>, config: AppConfig) -> Result<A
     super::sound::set_enabled(sanitized.play_sounds);
     emit_ready_event(&app, &sanitized);
     Ok(sanitized)
+}
+
+#[tauri::command]
+pub fn switch_active_text_profile<R: Runtime>(
+    app: AppHandle<R>,
+    profile_id: String,
+) -> Result<AppConfig, String> {
+    let mut config = AppConfig::load_from_disk();
+    config.active_text_profile_id = profile_id;
+    config.normalize_for_runtime();
+    config.save_to_disk()?;
+    super::sound::set_enabled(config.play_sounds);
+    emit_ready_event(&app, &config);
+    Ok(config.without_secrets())
 }
 
 pub fn emit_ready_event<R: Runtime>(app: &AppHandle<R>, config: &AppConfig) {

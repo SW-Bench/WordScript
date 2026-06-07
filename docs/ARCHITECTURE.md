@@ -109,7 +109,7 @@ Der aktive Produktkern sitzt in `src-tauri/src/core/`.
 - `providers/groq.rs`: erste produktive Cloud-Implementierung fuer BYOK, Secret Store und Groq-spezifische HTTP-Fehler
 - `providers/local_preview.rs`: lokale Runtime-Lane mit `whisper-cli` fuer STT, lokalem Ollama-Cleanup, nativer Modell-Discovery, probe-basierter Runner-Gesundheit und selected-model-/cleanup-Setup-Wahrheit ueber denselben Antwortvertrag
 - `transform.rs`: Halluzinationsfilter, optionale Nachkorrektur, Dictionary- und Snippet-Aufloesung
-- `text_rules.rs`: Analyse, Preview, Import/Export und Konfliktbehandlung der Text Rules
+- `text_rules.rs`: Analyse, Preview, Import/Export, Konfliktbehandlung und Profile-Health-Analyse der Text Rules
 
 ### Insertion und Recovery
 
@@ -166,6 +166,7 @@ Wichtig:
 - dieser Bias-Prompt ist jetzt konservativer gefiltert: generische Profilkategorien oder breite Themenlisten werden nicht mehr automatisch an STT und Cleanup durchgereicht; im automatischen Pfad bleiben nur konkrete lexikale Hinweise, explizite `stt_hints` und bevorzugte Schreibweisen uebrig
 - dieser STT-Bias ist konservativ und providerbegrenzt; er soll Fachwoerter, Produktnamen, Sprachmix und haeufige Phrasen erhalten, nicht freie semantische Rewrites oder Halluzinationen erzeugen
 - `text_rules::analyze_document` zeigt denselben Vertrag inzwischen sichtbar im Settings-Tab: konkrete automatisch uebernommene Vokabeln, bevorzugte Schreibweisen, explizite STT-Hints sowie Warnings fuer ignorierte breite Kontextzeilen oder unbrauchbare STT-Hints
+- `text_rules::analyze_profile_health` analysiert zusaetzlich das gesamte Profil auf systemische Verhaltensverzerrungen, die AI-Cleanup beeinflussen: LengthBias (Woerterlaenge-Asymmetrie in Dictionary-Eintraegen), FormConflict (widerspruechliche Stil-Anweisungen im Prompt) und CleanupInterference (Prompt-Muster, die AI-Cleanup aktiv unterdruecken); die resultierenden Flags werden im Text-Rules-Tab als Bias Policy angezeigt und koennen per Acknowledge-Toggle pro Flag unterdrückt werden, ohne die Konfiguration zu aendern; der Healthstatus (green / yellow / red) erscheint ausserdem als kleiner Farbpunkt im Profil-Dock der Settings-Sidebar
 - wenn Profil-Context, `stt_hints` oder Dictionary-Schreibweisen dennoch zu schlechteren Rohtranskripten als `General Writing` fuehren, ist das ein Vertragsbruch dieses Pfads; mehrsprachige Fragmente, Fantasietokens oder Topic-Drift sind dann nicht "nur Profilrauschen", sondern ein Kernproblem der Diktierlane
 - Dictionary- und Snippet-Matches sind literal und case-insensitive
 - Snippet-Trigger sind kein automatischer Teil des STT-Bias; wenn kurze gesprochene Cues oder alternative Phrasen in die STT-Anfrage sollen, muessen sie explizit ueber `stt_hints` im Profil gepflegt werden

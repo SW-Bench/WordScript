@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { AppConfig } from "../../types/ipc";
 import {
   buildTextProfilesPatch,
@@ -14,13 +15,16 @@ function countLabel(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+import type { ProfileHealthLevel } from "../../types/textRules";
+
 interface ProfileDockProps {
   config: AppConfig;
   onChange: (patch: Partial<AppConfig>) => void;
   onOpenTextRules: () => void;
+  healthStatus?: ProfileHealthLevel;
 }
 
-export function ProfileDock({ config, onChange, onOpenTextRules }: ProfileDockProps) {
+export function ProfileDock({ config, onChange, onOpenTextRules, healthStatus }: ProfileDockProps) {
   const profiles = config.text_profiles?.length
     ? config.text_profiles.map((profile) => cloneTextProfile(profile))
     : [resolveActiveTextProfile(config)];
@@ -33,6 +37,7 @@ export function ProfileDock({ config, onChange, onOpenTextRules }: ProfileDockPr
 
   const handleProfileSwitch = (profileId: string) => {
     onChange(buildTextProfilesPatch(config, profiles, profileId));
+    void invoke("switch_active_text_profile", { profileId });
   };
 
   const handleCreateProfile = () => {
@@ -47,7 +52,15 @@ export function ProfileDock({ config, onChange, onOpenTextRules }: ProfileDockPr
         <div className="settings__profile-avatar" aria-hidden="true">{textProfileInitials(activeProfile)}</div>
         <div className="settings__profile-copy">
           <span className="settings__profile-kicker">Active profile</span>
-          <strong>{activeProfile.label}</strong>
+          <strong>
+            {activeProfile.label}
+            {healthStatus && healthStatus !== "green" && (
+              <span
+                className={`settings__profile-health-dot settings__profile-health-dot--${healthStatus}`}
+                aria-label={healthStatus === "red" ? "Profile has a structural conflict" : "Profile has a potential friction"}
+              />
+            )}
+          </strong>
         </div>
       </div>
 

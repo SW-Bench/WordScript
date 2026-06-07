@@ -1,5 +1,26 @@
 import type { DictionaryEntry, SnippetEntry } from "./ipc";
 
+// ── Profile Health ─────────────────────────────────────────────────────────────
+
+export type ProfileHealthLevel = "green" | "yellow" | "red";
+export type LengthBiasDirection = "inflating" | "deflating";
+
+export type ProfileHealthFlag =
+  | { kind: "length_bias"; direction: LengthBiasDirection; entry_count: number; hint: string }
+  | { kind: "form_conflict"; hint: string }
+  | { kind: "cleanup_interference"; hint: string };
+
+export interface ProfileHealthStatus {
+  level: ProfileHealthLevel;
+  flags: ProfileHealthFlag[];
+}
+
+export interface GetProfileHealthRequest {
+  prompt: string;
+  dictionary_entries: DictionaryEntry[];
+  acknowledged_flags: string[];
+}
+
 export type TextRulesConflictResolution = "merge_imported_wins" | "replace_current";
 export type TextRulesIssueSeverity = "error" | "warning";
 export type TextRulesIssueCode =

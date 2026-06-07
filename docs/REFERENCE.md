@@ -1,6 +1,6 @@
 # WordScript — Reference
 
-Stand: 2026-05-24
+Stand: 2026-06-07
 
 ## Zweck
 
@@ -38,6 +38,7 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 - kurzer Overlay-Nachlauf innerhalb derselben kompakten Host-Buehne mit nativen `copy`-, `retry`-, `restore`- und Dismiss-Aktionen, breiterem Preview-/Result-Frame fuer voll lesbare Action-Labels, echter `clipboard_only`-Preview vor dem Commit, gemerkter Manual-Position oder preset-basiertem Display-Anchor, bewegungsbasiertem Drag statt Sofort-Drag und nativem Offscreen-Parking im Idle statt einer vergroesserten zweiten Preview-Flaeche
 - persistenter nativer Transkriptverlauf mit Retry, Delete/Clear, serverseitigen Filtern, JSON-Export und separater Diagnostics-Darstellung neben Runtime-Logs
 - Text-Rules-Validation, Preview, Import/Export und Konfliktbehandlung
+- Profile Health und Bias Policy: automatische Erkennung systemischer Verhaltensverzerrungen in einem Profil (Laengen-Asymmetrie im Dictionary, widerspruechliche Stil-Anweisungen im Prompt, Cleanup-unterdrueckende Prompt-Muster) mit Traffic-Light-Anzeige (gruen / gelb / rot) im Text-Rules-Tab und als Punkt im Profil-Dock; einzelne Flags koennen per Acknowledge-Toggle unterdrückt werden, ohne die Konfiguration anzufassen
 - native Insertion mit mehreren Fallback-Stufen
 - Scratchpad und Last-Transcript-Restore
 - Input-Preflight fuer die erste Diktation mit Trigger-, Mikrofon-, Insert- und Recovery-Status aus nativer Wahrheit
@@ -151,6 +152,52 @@ Wichtige Doku-Regel dazu:
 - Profile sind implementiert, aber bleiben lokal und manuell aktiviert
 - eingeschlossene Profile sind lokale Baselines fuer zentrale ICPs und keine serverseitige Prompt-Library
 - geplante Profil-Automation duerfen nicht als aktive Funktion beschrieben werden
+
+### Profile Health und Bias Policy
+
+#### Was ist Profile Health?
+
+AI-Cleanup ist kein freier Rewrite-Agent. Er bekommt ein fertig transkribiertes Dokument, das Profil als Stil-Kontext und Dictionary-Schreibweisen als Preserve-Hinweise. Wenn die Profil-Konfiguration sich selbst widerspricht oder bestimmte Muster enthaelt, gibt es keinen Fehler zur Laufzeit — der Cleanup arbeitet einfach mit widerspruechilichen oder bremsenden Anweisungen. Das Ergebnis verschlechtert sich still.
+
+Profile Health erkennt drei solcher Muster bevor der erste Diktat-Lauf passiert:
+
+**LengthBias (gelb):** Wenn mindestens 60 Prozent aller Dictionary-Eintraege konsequent laengere (Faktor 2×) oder kuerzere Schreibweisen (unter 40 Prozent der Originallaenge) produzieren, sieht AI-Cleanup ein strukturell verzerrtes Eingabedokument. Das Modell versucht dann, diese systematische Laengen-Asymmetrie selbst zu korrigieren — was zu unerwarteten Rerewrites fuehrt, die nichts mit dem tatsaechlichen Diktat zu tun haben. Nur Eintraege mit mindestens drei Zeichen werden gezaehlt.
+
+**FormConflict (rot):** Wenn der Prompt gleichzeitig widerspruchliche Stil-Anweisungen enthaelt (formal + casual, concise + verbose, add punctuation + no punctuation, technical + simple, direct + elaborate, professional + casual), bekommt das Cleanup-Modell zwei Geloebde, die es nicht beide halten kann. Es waehlt intern irgendwie zwischen ihnen — oder wechselt zwischen Saetzen ab. Das Ergebnis ist nicht vorhersehbar.
+
+**CleanupInterference (gelb):** Wenn der Prompt Muster enthaelt, die direkt gegen AI-Cleanup arbeiten — "verbatim", "do not change", "act as", "do not correct", "transcript only", "preserve exactly", "no cleanup", "raw output", "keep as is" — unterdruecken diese Anweisungen teilweise oder vollstaendig den Cleanup-Durchlauf. In bestimmten Faellen kann AI-Cleanup gar nicht mehr zwischen Stilkorrektur und Respektierung des Verbots unterscheiden.
+
+#### Traffic Light
+
+- Gruen: kein Flag aktiv oder alle Flags acknowledged
+- Gelb: mindestens ein LengthBias- oder CleanupInterference-Flag unbestaetigt
+- Rot: mindestens ein FormConflict-Flag unbestaetigt
+
+Das Level erscheint als kleiner Farbpunkt neben dem aktiven Profilnamen im Profil-Dock der Settings-Sidebar. Gruen wird nicht explizit angezeigt.
+
+#### Bias Policy — Acknowledge statt Loeschen
+
+Jedes Flag hat einen individuellen Acknowledge-Toggle. Wer einen Flag bestaetigt, unterdrueckt die Warnung ohne die Konfiguration zu aendern. Das ist beabsichtigt: manchmal ist ein LengthBias korrekt — zum Beispiel wenn ein Kuerzel explizit auf einen vollen Ausdruck expandiert werden soll. Wer weiss, was er tut, kann das Flag wegklicken. Wer das Profil wechselt oder den Tab neu laedt, bekommt alle Flags zurueck.
+
+Die acknowledged_flags werden nicht in der Profil-Konfiguration gespeichert. Sie sind Session-State in der Text-Rules-UI und werden beim Profilwechsel zurueckgesetzt.
+
+#### Technische Details
+
+Backend-Seite (`src-tauri/src/core/text_rules.rs`):
+
+- `analyze_profile_health(prompt, dictionary_entries, acknowledged_flags) -> ProfileHealthStatus`
+- `ProfileHealthFlag` ist ein enum mit drei Varianten: `LengthBias { direction, entry_count, hint }`, `FormConflict { hint }`, `CleanupInterference { hint }`
+- `ProfileHealthLevel` ist `green | yellow | red`
+- `derive_health_level` berechnet das Level aus den Flags minus acknowledged: jeder unbestaetigt FormConflict → red; jeder andere unbestaetigt Flag → yellow; alles acknowledged oder kein Flag → green
+- `get_profile_health` ist ein Tauri-Command, der eine `GetProfileHealthRequest` (prompt, dictionary_entries, acknowledged_flags) annimmt und `ProfileHealthStatus` (level, flags) zurueckgibt
+- Serde-Tag: `#[serde(tag = "kind", rename_all = "snake_case")]` fuer diskriminierte Union auf TypeScript-Seite
+
+Frontend-Seite:
+
+- `src/types/textRules.ts`: `ProfileHealthFlag` als TypeScript-Union ueber `kind`-Discriminant, `ProfileHealthStatus`, `GetProfileHealthRequest`
+- `src/components/settings/PromptsTab.tsx`: ruft `get_profile_health` parallel zu `analyze_text_rules` in demselben 120ms-Debounce-Effekt auf; `acknowledgedFlags` ist ein `Set<string>` im lokalen State, der bei Profilwechsel zurueckgesetzt wird; `onHealthChange` Callback propagiert `ProfileHealthStatus | null` an SettingsWindow
+- `src/components/settings/ProfileDock.tsx`: bekommt `healthStatus?: ProfileHealthLevel` als Prop und zeigt bei yellow/red einen kleinen Farbpunkt neben dem Profilnamen
+- `src/windows/SettingsWindow.tsx`: haelt `profileHealthLevel` als State, empfaengt ihn ueber `onHealthChange` aus PromptsTab und reicht ihn als `healthStatus` an ProfileDock weiter
 
 ## Planungsstand fuer spaetere Sync-Themen
 

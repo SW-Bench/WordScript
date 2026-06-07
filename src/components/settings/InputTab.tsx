@@ -12,7 +12,7 @@ import type {
 import { HotkeyRecorder } from "./HotkeyRecorder";
 
 type ShortcutField = "hotkey" | "pause_hotkey" | "abort_hotkey";
-type CaptureField = "max_recording_seconds" | "silence_timeout_seconds";
+type CaptureField = "max_recording_seconds" | "silence_timeout_seconds" | "result_actions_timeout_ms";
 
 const SHORTCUT_FIELDS: Array<{
   field: ShortcutField;
@@ -224,6 +224,7 @@ export function InputTab({ config, onChange }: Props) {
   );
   const maxRecordingSeconds = clampCaptureNumber(config.max_recording_seconds, 10, 3600, 720);
   const silenceTimeoutSeconds = clampCaptureNumber(config.silence_timeout_seconds, 0, 300, 30);
+  const resultActionsTimeoutMs = clampCaptureNumber(config.result_actions_timeout_ms, 1000, 60000, 9000);
   const hasExplicitAudioDevice = Boolean(config.audio_device.trim());
   const selectedAudioDeviceAvailable = !hasExplicitAudioDevice || audioDevices.some((device) => device.name === config.audio_device);
   const selectedAudioDeviceLabel = hasExplicitAudioDevice
@@ -414,6 +415,23 @@ export function InputTab({ config, onChange }: Props) {
         <p className="settings__overlay-note">
           {overlayPlacementSummary}
           {overlayUsesPreset ? ` ${overlayPlacementDetail}` : ""}
+        </p>
+        <div className="form-row">
+          <label>Result overlay timeout</label>
+          <input
+            type="number"
+            value={config.result_actions_timeout_ms}
+            min={1000}
+            max={60000}
+            step={500}
+            onChange={(event) => onChange({ result_actions_timeout_ms: Number(event.target.value) })}
+            onBlur={() => normalizeCaptureField("result_actions_timeout_ms", 1000, 60000, 9000)}
+            style={{ maxWidth: 90 }}
+          />
+          <span style={{ fontSize: 12, color: "var(--fg-dim)", marginLeft: 8 }}>{formatDurationCompact(Math.round(resultActionsTimeoutMs / 1000))}</span>
+        </div>
+        <p className="form-dim">
+          How long the result overlay stays visible before auto-dismissing. Editing the transcript pauses the timer.
         </p>
       </div>
 

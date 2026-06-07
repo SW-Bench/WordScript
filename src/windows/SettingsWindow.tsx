@@ -14,7 +14,7 @@ import { getHotkeyValidationMessage, normalizeManualHotkey } from "../lib/hotkey
 import { APP_VERSION } from "../lib/appMeta";
 import type { AppConfig } from "../types/ipc";
 import type { ProviderId } from "../types/providers";
-import type { TextRulesAnalysis } from "../types/textRules";
+import type { ProfileHealthLevel, TextRulesAnalysis } from "../types/textRules";
 import { ApiModelsTab }   from "../components/settings/ApiModelsTab";
 import { InputTab }       from "../components/settings/InputTab";
 import { ProfileDock } from "../components/settings/ProfileDock";
@@ -100,6 +100,7 @@ export default function SettingsWindow() {
   const [active, setActive]   = useState<Tab>("Provider & Models");
   const [status, setStatus]   = useState<{ msg: string; ok: boolean } | null>(null);
   const [textRulesAnalysis, setTextRulesAnalysis] = useState<TextRulesAnalysis | null>(null);
+  const [profileHealthLevel, setProfileHealthLevel] = useState<ProfileHealthLevel | null>(null);
   const selectedProvider: ProviderId = (form?.provider ?? state.config?.provider) === "local_preview"
     ? "local_preview"
     : "groq";
@@ -199,6 +200,7 @@ export default function SettingsWindow() {
       audio_device: form.audio_device.trim(),
       max_recording_seconds: clampSettingsNumber(form.max_recording_seconds, 10, 3600, 720),
       silence_timeout_seconds: clampSettingsNumber(form.silence_timeout_seconds, 0, 300, 30),
+      result_actions_timeout_ms: clampSettingsNumber(form.result_actions_timeout_ms, 1000, 60000, 9000),
     };
 
     try {
@@ -298,7 +300,7 @@ export default function SettingsWindow() {
           </nav>
 
           <div className="settings__sidebar-bottom">
-            <ProfileDock config={form} onChange={patch} onOpenTextRules={() => setActive("Text Rules")} />
+            <ProfileDock config={form} onChange={patch} onOpenTextRules={() => setActive("Text Rules")} healthStatus={profileHealthLevel ?? undefined} />
 
             <div className="settings__project">
               <span className="settings__project-kicker">Open-source brand by SW labs</span>
@@ -362,7 +364,7 @@ export default function SettingsWindow() {
                   <InputTab config={form} onChange={patch} />
                 </div>
                 <div className={`tab${active === "Text Rules" ? " tab--active" : ""}`}>
-                  <PromptsTab config={form} onChange={patch} onValidationChange={setTextRulesAnalysis} />
+                  <PromptsTab config={form} onChange={patch} onValidationChange={setTextRulesAnalysis} onHealthChange={(s) => setProfileHealthLevel(s?.level ?? null)} />
                 </div>
                 <div className={`tab${active === "About" ? " tab--active" : ""}`}>
                   <AboutTab isActive={active === "About"} />

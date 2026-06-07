@@ -62,6 +62,7 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     audio_device: "",
     max_recording_seconds: 180,
     silence_timeout_seconds: 2,
+    result_actions_timeout_ms: 9000,
     auto_paste: true,
     play_sounds: true,
     log_level: "info",

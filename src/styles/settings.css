@@ -3164,3 +3164,109 @@
     justify-content: flex-end;
   }
 }
+
+/* ── Profile Health ──────────────────────────────────────────────────────────── */
+
+.settings__profile-health-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.settings__profile-health-dot--green  { background: #4caf7d; box-shadow: 0 0 4px rgba(76, 175, 125, 0.6); }
+.settings__profile-health-dot--yellow { background: #e6b94d; box-shadow: 0 0 4px rgba(230, 185, 77, 0.6); }
+.settings__profile-health-dot--red    { background: #e05252; box-shadow: 0 0 4px rgba(224, 82, 82, 0.6); }
+
+.settings__profile-health-card {
+  border-left: 3px solid transparent;
+}
+
+.settings__profile-health-card--yellow { border-left-color: #e6b94d; }
+.settings__profile-health-card--red    { border-left-color: #e05252; }
+
+.settings__profile-health-flags {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings__profile-health-flag {
+  background: var(--settings-panel-bg);
+  border: 1px solid var(--settings-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+
+.settings__profile-health-flag--acknowledged {
+  opacity: 0.45;
+}
+
+.settings__profile-health-flag-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settings__profile-health-severity {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.settings__profile-health-severity--yellow {
+  background: rgba(230, 185, 77, 0.15);
+  color: #e6b94d;
+  border: 1px solid rgba(230, 185, 77, 0.3);
+}
+
+.settings__profile-health-severity--red {
+  background: rgba(224, 82, 82, 0.15);
+  color: #e05252;
+  border: 1px solid rgba(224, 82, 82, 0.3);
+}
+
+.settings__profile-health-flag-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--settings-copy);
+}
+
+.settings__profile-health-ack {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--settings-copy-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.settings__profile-health-ack input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #4caf7d;
+}
+
+.settings__profile-health-flag-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--settings-copy-dim);
+  line-height: 1.5;
+}

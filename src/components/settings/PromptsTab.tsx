@@ -16,7 +16,9 @@ import {
 } from "../../lib/textProfiles";
 import type {
   ExportTextRulesResponse,
+  GetProfileHealthRequest,
   ImportTextRulesResponse,
+  ProfileHealthStatus,
   TextRulesAnalysis,
   TextRulesConflictResolution,
   TextRulesIssue,
@@ -26,6 +28,7 @@ interface Props {
   config: AppConfig;
   onChange: (p: Partial<AppConfig>) => void;
   onValidationChange?: (analysis: TextRulesAnalysis | null) => void;
+  onHealthChange?: (status: ProfileHealthStatus | null) => void;
 }
 
 const DEFAULT_SAMPLE_TEXT = "word script follow up note";
@@ -386,7 +389,7 @@ const SnippetRuleCard = memo(function SnippetRuleCard({
   );
 });
 
-export function PromptsTab({ config, onChange, onValidationChange }: Props) {
+export function PromptsTab({ config, onChange, onValidationChange, onHealthChange }: Props) {
   const textProfiles = config.text_profiles?.length
     ? config.text_profiles
     : [resolveActiveTextProfile(config)];
@@ -396,6 +399,8 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   const snippetEntries = activeTextProfile.snippet_entries ?? [];
   const [sampleText, setSampleText] = useState(DEFAULT_SAMPLE_TEXT);
   const [analysis, setAnalysis] = useState<TextRulesAnalysis | null>(null);
+  const [profileHealth, setProfileHealth] = useState<ProfileHealthStatus | null>(null);
+  const [acknowledgedFlags, setAcknowledgedFlags] = useState<Set<string>>(new Set());
   const [pendingImport, setPendingImport] = useState<{
     path: string;
     resolution: TextRulesConflictResolution;
@@ -433,24 +438,41 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
   }, [activeTextProfile.id, profileLibrary, selectedTemplateId]);
 
   useEffect(() => {
+    setAcknowledgedFlags(new Set());
+    setProfileHealth(null);
+  }, [activeTextProfile.id]);
+
+  useEffect(() => {
     let cancelled = false;
+    const healthRequest: GetProfileHealthRequest = {
+      prompt: activeTextProfile.prompt,
+      dictionary_entries: dictionaryEntries,
+      acknowledged_flags: [...acknowledgedFlags],
+    };
     const timeoutId = window.setTimeout(() => {
-      void invoke<TextRulesAnalysis>("analyze_text_rules", {
-        request: {
-          prompt: activeTextProfile.prompt,
-          stt_hints: sttHints,
-          dictionary_entries: dictionaryEntries,
-          snippet_entries: snippetEntries,
-          sample_text: sampleText,
-        },
-      }).then((next) => {
+      void Promise.all([
+        invoke<TextRulesAnalysis>("analyze_text_rules", {
+          request: {
+            prompt: activeTextProfile.prompt,
+            stt_hints: sttHints,
+            dictionary_entries: dictionaryEntries,
+            snippet_entries: snippetEntries,
+            sample_text: sampleText,
+          },
+        }),
+        invoke<ProfileHealthStatus>("get_profile_health", { request: healthRequest }),
+      ]).then(([nextAnalysis, nextHealth]) => {
         if (cancelled) return;
-        setAnalysis(next);
-        onValidationChange?.(next);
+        setAnalysis(nextAnalysis);
+        onValidationChange?.(nextAnalysis);
+        setProfileHealth(nextHealth);
+        onHealthChange?.(nextHealth);
       }).catch((error) => {
         if (cancelled) return;
         setAnalysis(null);
         onValidationChange?.(null);
+        setProfileHealth(null);
+        onHealthChange?.(null);
         setFeedback({ ok: false, text: `Text-rule validation failed: ${error}` });
       });
     }, ANALYSIS_DEBOUNCE_MS);
@@ -459,7 +481,7 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [activeTextProfile.prompt, dictionaryEntries, onValidationChange, sampleText, snippetEntries, sttHints]);
+  }, [acknowledgedFlags, activeTextProfile.prompt, dictionaryEntries, onHealthChange, onValidationChange, sampleText, snippetEntries, sttHints]);
 
   const applyProfiles = useCallback((nextProfiles: TextProfile[], nextActiveProfileId = activeTextProfileIdRef.current) => {
     onChange(buildTextProfilesPatch(configRef.current, nextProfiles, nextActiveProfileId));
@@ -1277,6 +1299,58 @@ export function PromptsTab({ config, onChange, onValidationChange }: Props) {
               <strong>Literal rule model</strong>
               <span>Text Rules match transcript phrases, not raw audio and not semantic intent. Dictionary runs first, snippets second. For everyday reliability, add separate rules for common transcript variants instead of expecting fuzzy matching.</span>
             </div>
+
+            {profileHealth && profileHealth.flags.length > 0 && (
+              <article className={`settings__editor-stage-card settings__profile-health-card settings__profile-health-card--${profileHealth.level}`}>
+                <div className="settings__editor-stage-card-head">
+                  <div className="settings__rule-card-heading">
+                    <span className="settings__template-kicker">Profile Health</span>
+                    <strong className="settings__rule-card-title">
+                      <span className={`settings__profile-health-dot settings__profile-health-dot--${profileHealth.level}`} aria-hidden="true" />
+                      {profileHealth.level === "red" ? "Structural conflict detected" : profileHealth.level === "yellow" ? "Potential AI-Cleanup friction" : "No issues found"}
+                    </strong>
+                  </div>
+                </div>
+                <p className="form-dim">
+                  These diagnostics describe how the profile configuration may affect AI-Cleanup behavior systemically — not individual rule correctness. Acknowledge a flag to suppress it without changing anything.
+                </p>
+                <ul className="settings__profile-health-flags">
+                  {profileHealth.flags.map((flag) => {
+                    const isAcknowledged = acknowledgedFlags.has(flag.kind);
+                    return (
+                      <li key={flag.kind} className={`settings__profile-health-flag${isAcknowledged ? " settings__profile-health-flag--acknowledged" : ""}`}>
+                        <div className="settings__profile-health-flag-head">
+                          <span className={`settings__profile-health-severity settings__profile-health-severity--${flag.kind === "form_conflict" ? "red" : "yellow"}`}>
+                            {flag.kind === "form_conflict" ? "Conflict" : "Warning"}
+                          </span>
+                          <span className="settings__profile-health-flag-title">
+                            {flag.kind === "length_bias" && `Length bias — ${flag.direction === "inflating" ? "expanding" : "compressing"} replacements (${flag.entry_count} entries)`}
+                            {flag.kind === "form_conflict" && "Contradictory style instructions"}
+                            {flag.kind === "cleanup_interference" && "Cleanup-suppressing prompt patterns"}
+                          </span>
+                          <label className="settings__profile-health-ack">
+                            <input
+                              type="checkbox"
+                              checked={isAcknowledged}
+                              onChange={() =>
+                                setAcknowledgedFlags((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(flag.kind)) next.delete(flag.kind);
+                                  else next.add(flag.kind);
+                                  return next;
+                                })
+                              }
+                            />
+                            Acknowledge
+                          </label>
+                        </div>
+                        <p className="settings__profile-health-flag-hint">{flag.hint}</p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </article>
+            )}
           </section>
         )}
 

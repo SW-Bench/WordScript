@@ -20,7 +20,14 @@ use crate::v1_slice::V1SliceState;
 const OVERLAY_COMPACT_WINDOW_WIDTH: f64 = 256.0;
 const OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH: f64 = 300.0;
 const OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH: f64 = 388.0;
+const OVERLAY_EDIT_MODE_WINDOW_WIDTH: f64 = 420.0;
 const OVERLAY_WINDOW_HEIGHT: f64 = 52.0;
+const OVERLAY_EDIT_MODE_WINDOW_HEIGHT: f64 = 164.0;
+const OVERLAY_EDIT_MODE_WINDOW_HEIGHT_MIN: f64 = 140.0;
+const OVERLAY_EDIT_MODE_WINDOW_HEIGHT_MAX: f64 = 280.0;
+const OVERLAY_EDIT_MODE_WINDOW_WIDTH_MIN: f64 = 380.0;
+const OVERLAY_EDIT_MODE_WINDOW_WIDTH_MAX: f64 = 560.0;
+const OVERLAY_EDIT_MODE_RESIZE_HEIGHT_MAX: f64 = 380.0;
 const OVERLAY_TOP_INSET: f64 = 34.0;
 const OVERLAY_SIDE_INSET: f64 = 28.0;
 const OVERLAY_BOTTOM_INSET: f64 = 94.0;
@@ -45,6 +52,7 @@ enum OverlaySurface {
     Compact,
     ProcessingPreview,
     ResultActions,
+    EditMode,
 }
 
 impl Default for OverlaySurface {
@@ -55,13 +63,12 @@ impl Default for OverlaySurface {
 
 impl OverlaySurface {
     fn dimensions(self) -> (f64, f64) {
-        let width = match self {
-            Self::Compact => OVERLAY_COMPACT_WINDOW_WIDTH,
-            Self::ProcessingPreview => OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH,
-            Self::ResultActions => OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH,
-        };
-
-        (width, OVERLAY_WINDOW_HEIGHT)
+        match self {
+            Self::Compact => (OVERLAY_COMPACT_WINDOW_WIDTH, OVERLAY_WINDOW_HEIGHT),
+            Self::ProcessingPreview => (OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH, OVERLAY_WINDOW_HEIGHT),
+            Self::ResultActions => (OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH, OVERLAY_WINDOW_HEIGHT),
+            Self::EditMode => (OVERLAY_EDIT_MODE_WINDOW_WIDTH, OVERLAY_EDIT_MODE_WINDOW_HEIGHT),
+        }
     }
 
 }
@@ -287,9 +294,11 @@ fn overlay_target_position<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     config: &AppConfig,
     surface: OverlaySurface,
+    height_override: Option<f64>,
 ) -> Option<LogicalPosition<f64>> {
     let (work_x, work_y, work_width, work_height) = overlay_work_area_for_config(window, config)?;
-    let (window_width, window_height) = surface.dimensions();
+    let (window_width, default_height) = surface.dimensions();
+    let window_height = height_override.unwrap_or(default_height);
 
     match config.overlay_position_mode {
         OverlayPositionMode::Manual => {
@@ -343,13 +352,14 @@ fn overlay_target_position<R: Runtime>(
     }
 }
 
-fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>, surface: OverlaySurface) {
+fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>, surface: OverlaySurface, height_override: Option<f64>) {
     if let Some(window) = app.get_webview_window("overlay") {
         let config = AppConfig::load_from_disk();
-        let (window_width, window_height) = surface.dimensions();
+        let (window_width, default_height) = surface.dimensions();
+        let window_height = height_override.unwrap_or(default_height);
         let _ = window.set_size(LogicalSize::new(window_width, window_height));
         let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-        if let Some(position) = overlay_target_position(&window, &config, surface) {
+        if let Some(position) = overlay_target_position(&window, &config, surface, height_override) {
             let _ = window.set_position(position);
             let _ = window.show();
             // On Windows, ShowWindow can discard a position set on a hidden window,
@@ -464,7 +474,7 @@ fn apply_trigger_effect<R: Runtime>(app: &AppHandle<R>, effect: TriggerEffect) {
     match effect {
         TriggerEffect::StartCapture => match core::capture::start_native_capture(app) {
             Ok(status) => {
-                reveal_overlay_window(app, OverlaySurface::Compact);
+                reveal_overlay_window(app, OverlaySurface::Compact, None);
                 core::sound::play_if_enabled(core::sound::SoundCue::Start);
                 if let Some(capture_id) = status.active_capture_id {
                     spawn_native_capture_monitor(app.clone(), capture_id);
@@ -1164,8 +1174,12 @@ fn transcription_prompt_for_request(provider: &str, value: &serde_json::Value) -
 fn cloud_transcription_prompt_for_request(value: &serde_json::Value) -> Option<String> {
     let bias = transcription_bias_preview_from_payload(value);
 
+    // profile_hints come from the profile's `prompt` field, which is LLM cleanup context.
+    // Sending English vocabulary terms as Whisper initial_prompt biases language detection
+    // to English even when the user speaks another language. Only stt_hints and
+    // dictionary_terms are legitimate STT vocabulary signals.
     build_transcription_prompt(
-        &bias.profile_hints,
+        &[],
         &bias.dictionary_terms,
         &bias.stt_hints,
         CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS,
@@ -1182,15 +1196,15 @@ fn local_preview_prompt_for_request(value: &serde_json::Value) -> Option<String>
     match strength {
         "off" => None,
         "profile_and_terms" => build_transcription_prompt(
-            &bias.profile_hints,
+            &[],
             &bias.dictionary_terms,
             &bias.stt_hints,
             LOCAL_PREVIEW_PROMPT_MAX_CHARS,
         ),
         _ => build_transcription_prompt(
-            &bias.profile_hints,
             &[],
             &[],
+            &bias.stt_hints,
             LOCAL_PREVIEW_PROMPT_MAX_CHARS,
         ),
     }
@@ -1293,13 +1307,36 @@ async fn sync_overlay_window_visibility(
     app: AppHandle,
     visible: bool,
     surface: Option<OverlaySurface>,
+    height: Option<f64>,
 ) -> Result<(), String> {
     if visible {
-        reveal_overlay_window(&app, surface.unwrap_or_default());
+        reveal_overlay_window(&app, surface.unwrap_or_default(), height);
     } else {
         park_overlay_window(&app);
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+async fn resize_overlay_to_height(app: AppHandle, height: f64) -> Result<(), String> {
+    let clamped = height.clamp(OVERLAY_EDIT_MODE_WINDOW_HEIGHT_MIN, OVERLAY_EDIT_MODE_WINDOW_HEIGHT_MAX);
+    if let Some(window) = app.get_webview_window("overlay") {
+        let current_size = window.outer_size().map_err(|e| e.to_string())?;
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let current_width = current_size.width as f64 / scale;
+        let _ = window.set_size(LogicalSize::new(current_width, clamped));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn resize_edit_overlay(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+    let clamped_w = width.clamp(OVERLAY_EDIT_MODE_WINDOW_WIDTH_MIN, OVERLAY_EDIT_MODE_WINDOW_WIDTH_MAX);
+    let clamped_h = height.clamp(OVERLAY_EDIT_MODE_WINDOW_HEIGHT_MIN, OVERLAY_EDIT_MODE_RESIZE_HEIGHT_MAX);
+    if let Some(window) = app.get_webview_window("overlay") {
+        let _ = window.set_size(LogicalSize::new(clamped_w, clamped_h));
+    }
     Ok(())
 }
 
@@ -1437,11 +1474,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             core::config::load_app_config,
             core::config::save_config,
+            core::config::switch_active_text_profile,
             open_settings_window,
             open_rebuild_lab_window,
             app_config_file_path,
             overlay_monitor_options,
             sync_overlay_window_visibility,
+            resize_overlay_to_height,
+            resize_edit_overlay,
             remember_overlay_manual_position,
             core::providers::provider_status,
             core::providers::save_provider_api_key,
@@ -1451,6 +1491,7 @@ pub fn run() {
             core::text_rules::analyze_text_rules,
             core::text_rules::export_text_rules,
             core::text_rules::import_text_rules,
+            core::text_rules::get_profile_health,
             core::sessions::native_session_status,
             core::sessions::start_native_session,
             core::sessions::stop_native_session,
@@ -1525,7 +1566,9 @@ mod tests {
     }
 
     #[test]
-    fn local_preview_prompt_strength_can_enrich_bias_with_terms() {
+    fn local_preview_prompt_strength_profile_and_terms_uses_stt_hints_and_dictionary() {
+        // profile.prompt is LLM cleanup context — must NOT reach Whisper initial_prompt.
+        // Only explicit stt_hints and dictionary preferred spellings are STT signals.
         let payload = json!({
             "prompt": "WordScript\ncustomer escalation\nSEV-1",
             "stt_hints": "status update\nhandoff summary",
@@ -1542,14 +1585,17 @@ mod tests {
             transcription_prompt_for_request(core::providers::LOCAL_PREVIEW_PROVIDER_ID, &payload)
                 .expect("local preview prompt");
 
-        assert!(prompt.contains("Vocabulary: WordScript; SEV-1"));
-        assert!(!prompt.contains("customer escalation"));
+        assert!(!prompt.contains("Vocabulary:"), "profile_hints must not reach Whisper");
         assert!(prompt.contains("Preferred spellings: WordScript"));
         assert!(prompt.contains("Likely phrases: status update; handoff summary"));
     }
 
     #[test]
-    fn cloud_transcription_prompt_keeps_only_conservative_profile_terms_and_phrases() {
+    fn cloud_transcription_prompt_excludes_profile_hints_to_prevent_language_bias() {
+        // profile.prompt contains English vocabulary for LLM cleanup context.
+        // Sending those terms as Whisper initial_prompt biases language detection to English
+        // even when the user speaks another language (e.g. German). Only dictionary_terms
+        // and stt_hints are legitimate STT signals.
         let payload = json!({
             "prompt": "customer names\nWordScript\nticket IDs\nrefund policy\nSEV-1",
             "stt_hints": "status update\ntriage summary",
@@ -1567,9 +1613,7 @@ mod tests {
 
         let prompt = transcription_prompt_for_request("groq", &payload).expect("cloud prompt");
 
-        assert!(prompt.contains("Vocabulary: WordScript; ticket IDs; SEV-1"));
-        assert!(!prompt.contains("customer names"));
-        assert!(!prompt.contains("refund policy"));
+        assert!(!prompt.contains("Vocabulary:"), "profile_hints must not reach Whisper");
         assert!(prompt.contains("Preferred spellings: WordScript; SEV-1"));
         assert!(prompt.contains("Likely phrases: status update; triage summary"));
     }

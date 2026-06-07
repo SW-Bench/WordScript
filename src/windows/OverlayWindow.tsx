@@ -1,10 +1,9 @@
-import { type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ChangeEvent, type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { useRuntime } from "../hooks/useRuntime";
-import type { TranscriptionHistoryEntry } from "../types/history";
 import type { NativeInsertResult } from "../types/nativeInsertion";
 import "../styles/overlay.css";
 
@@ -17,10 +16,23 @@ const MIN_BAR_HEIGHT = 4;
 const MAX_BAR_HEIGHT = 30;
 const DRAG_DISTANCE_THRESHOLD = 6;
 const DRAG_CLICK_SUPPRESS_MS = 1000;
-const RESULT_ACTIONS_AUTO_CLOSE_MS = 9000;
+
+const EDIT_LINE_CHAR_ESTIMATE = 48;
+const EDIT_OVERHEAD_PX = 90;
+const EDIT_LINE_HEIGHT_PX = 19;
+const EDIT_HEIGHT_MIN = 140;
+const EDIT_HEIGHT_MAX = 280;
+const EDIT_RESIZE_WIDTH_MIN = 380;
+
+function computeEditWindowHeight(text: string): number {
+  const lineCount = text.split("\n").reduce((total, paragraph) => {
+    return total + Math.max(1, Math.ceil(paragraph.length / EDIT_LINE_CHAR_ESTIMATE));
+  }, 0);
+  return Math.min(EDIT_HEIGHT_MAX, Math.max(EDIT_HEIGHT_MIN, lineCount * EDIT_LINE_HEIGHT_PX + EDIT_OVERHEAD_PX));
+}
 
 type OverlayMotion = "idle" | "entering" | "open" | "leaving";
-type OverlaySurface = "compact" | "processing_preview" | "result_actions";
+type OverlaySurface = "compact" | "processing_preview" | "result_actions" | "edit_mode";
 
 interface AudioLevelEvent {
   event: string;
@@ -62,22 +74,28 @@ export default function OverlayWindow() {
   const suppressMovedPersistenceUntilRef = useRef(0);
   const suppressNextResultActionsRef = useRef(false);
   const lastVisibleSurfaceRef = useRef<OverlaySurface>("compact");
+  const resizeIntentRef = useRef<{ pointerId: number; startX: number; startY: number; startWidth: number; startHeight: number } | null>(null);
+  const hasManualResizeRef = useRef(false);
   const [showError, setShowError] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [overlayMotion, setOverlayMotion] = useState<OverlayMotion>("idle");
-  const [actionPending, setActionPending] = useState<"commit" | "abort" | "copy" | "retry" | "restore" | null>(null);
+  const [actionPending, setActionPending] = useState<"commit" | "abort" | "copy" | "edit" | "insert" | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionFailed, setActionFailed] = useState(false);
+  const [editText, setEditText] = useState("");
+  const [showEditMode, setShowEditMode] = useState(false);
   const pendingPreviewResult = state.pendingResult;
   const previewResult = state.lastResult;
   const showProcessingPreview = Boolean(isProcessing && pendingPreviewResult && !showError);
   const showResultPreview = Boolean(showPreview && previewResult && status === "idle" && !showError);
   const showAnyPreview = showProcessingPreview || showResultPreview;
-  const overlaySurface: OverlaySurface = showResultPreview
-    ? "result_actions"
-    : showProcessingPreview
-      ? "processing_preview"
-      : "compact";
+  const overlaySurface: OverlaySurface = showEditMode
+    ? "edit_mode"
+    : showResultPreview
+      ? "result_actions"
+      : showProcessingPreview
+        ? "processing_preview"
+        : "compact";
   const holdPreviewDuringClose = !showAnyPreview
     && !showError
     && status === "idle"
@@ -89,18 +107,20 @@ export default function OverlayWindow() {
       && Boolean(pendingPreviewResult));
   const renderResultPreview = showResultPreview
     || (holdPreviewDuringClose
-      && lastVisibleSurfaceRef.current === "result_actions"
+      && (lastVisibleSurfaceRef.current === "result_actions" || lastVisibleSurfaceRef.current === "edit_mode")
       && Boolean(previewResult));
-  const renderOverlaySurface: OverlaySurface = renderResultPreview
-    ? "result_actions"
-    : renderProcessingPreview
-      ? "processing_preview"
-      : overlaySurface;
+  const renderOverlaySurface: OverlaySurface = showEditMode
+    ? "edit_mode"
+    : renderResultPreview
+      ? "result_actions"
+      : renderProcessingPreview
+        ? "processing_preview"
+        : overlaySurface;
   const activePreviewResult = renderProcessingPreview ? pendingPreviewResult : renderResultPreview ? previewResult : null;
   const finalPreviewText = activePreviewResult?.final_text?.trim() ?? "";
   const canCopy = Boolean(renderResultPreview && finalPreviewText);
-  const canRetry = Boolean(renderResultPreview && previewResult?.history?.entry_id);
-  const canRestore = Boolean(renderResultPreview && previewResult?.insertion);
+  const canEdit = Boolean(renderResultPreview && finalPreviewText);
+  const canInsert = Boolean(renderResultPreview && finalPreviewText && previewResult?.work_mode?.insert_behavior === "clipboard_only");
   const canCommitPreview = Boolean(renderProcessingPreview && finalPreviewText);
   const previewCommitLabel = activePreviewResult?.work_mode?.insert_behavior === "clipboard_only"
     ? "Copy"
@@ -112,8 +132,8 @@ export default function OverlayWindow() {
       ]
     : [
         ...(canCopy ? [{ id: "copy" as const, label: "Copy", pendingLabel: "Copying", onClick: () => void handleCopyResult() }] : []),
-        ...(canRetry ? [{ id: "retry" as const, label: "Retry", pendingLabel: "Retrying", onClick: () => void handleRetry() }] : []),
-        ...(canRestore ? [{ id: "restore" as const, label: "Restore", pendingLabel: "Restoring", onClick: () => void handleRestore() }] : []),
+        ...(canEdit ? [{ id: "edit" as const, label: "Edit", pendingLabel: "Edit", onClick: () => handleEditOpen() }] : []),
+        ...(canInsert ? [{ id: "insert" as const, label: "Insert", pendingLabel: "Inserting", onClick: () => void handleInsertResult() }] : []),
       ];
 
   overlaySurfaceRef.current = overlaySurface;
@@ -199,6 +219,11 @@ export default function OverlayWindow() {
         return;
       }
 
+      if (resizeIntentRef.current) {
+        dragIntentRef.current = null;
+        return;
+      }
+
       if ((event.buttons & 1) !== 1) {
         dragIntentRef.current = null;
         return;
@@ -255,6 +280,44 @@ export default function OverlayWindow() {
   }, []);
 
   useEffect(() => {
+    let lastResizeCall = 0;
+
+    const handleResizePointerMove = (event: globalThis.PointerEvent) => {
+      const intent = resizeIntentRef.current;
+      if (!intent || intent.pointerId !== event.pointerId) return;
+      if ((event.buttons & 1) !== 1) {
+        resizeIntentRef.current = null;
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastResizeCall < 16) return;
+      lastResizeCall = now;
+
+      const deltaX = event.clientX - intent.startX;
+      const deltaY = event.clientY - intent.startY;
+      const newWidth = intent.startWidth + deltaX;
+      const newHeight = intent.startHeight + deltaY;
+      hasManualResizeRef.current = true;
+      void invoke("resize_edit_overlay", { width: newWidth, height: newHeight }).catch(() => {});
+    };
+
+    const clearResizeIntent = () => {
+      resizeIntentRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handleResizePointerMove);
+    window.addEventListener("pointerup", clearResizeIntent);
+    window.addEventListener("pointercancel", clearResizeIntent);
+
+    return () => {
+      window.removeEventListener("pointermove", handleResizePointerMove);
+      window.removeEventListener("pointerup", clearResizeIntent);
+      window.removeEventListener("pointercancel", clearResizeIntent);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!error) return;
 
     setShowPreview(false);
@@ -284,13 +347,15 @@ export default function OverlayWindow() {
     }
 
     setShowPreview(true);
+    setShowEditMode(false);
+    setEditText("");
     setActionPending(null);
     setActionMessage(null);
     setActionFailed(false);
   }, [state.lastResult?.occurred_at_ms]);
 
   useEffect(() => {
-    if (!showResultPreview || actionPending) {
+    if (!showResultPreview || actionPending || showEditMode) {
       if (autoCloseResultTimerRef.current) {
         window.clearTimeout(autoCloseResultTimerRef.current);
         autoCloseResultTimerRef.current = null;
@@ -298,12 +363,13 @@ export default function OverlayWindow() {
       return;
     }
 
+    const autoCloseMs = state.config?.result_actions_timeout_ms ?? 9000;
     autoCloseResultTimerRef.current = window.setTimeout(() => {
       autoCloseResultTimerRef.current = null;
       setShowPreview(false);
       setActionMessage(null);
       setActionFailed(false);
-    }, RESULT_ACTIONS_AUTO_CLOSE_MS);
+    }, autoCloseMs);
 
     return () => {
       if (autoCloseResultTimerRef.current) {
@@ -311,13 +377,24 @@ export default function OverlayWindow() {
         autoCloseResultTimerRef.current = null;
       }
     };
-  }, [showResultPreview, actionPending]);
+  }, [showResultPreview, actionPending, showEditMode, state.config?.result_actions_timeout_ms]);
 
   useEffect(() => {
     if (status === "recording" || (status === "processing" && !pendingPreviewResult)) {
       setShowPreview(false);
+      setShowEditMode(false);
+      setEditText("");
     }
   }, [pendingPreviewResult, status]);
+
+  useEffect(() => {
+    if (!showEditMode) return;
+    if (hasManualResizeRef.current) return;
+    const timer = window.setTimeout(() => {
+      void invoke("resize_overlay_to_height", { height: computeEditWindowHeight(editText) }).catch(() => {});
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [showEditMode, editText]);
 
   const isActive = status === "recording" || status === "processing" || showError || showAnyPreview;
 
@@ -330,7 +407,8 @@ export default function OverlayWindow() {
   useEffect(() => {
     if (isActive) {
       suppressMovedPersistenceUntilRef.current = Date.now() + 420;
-      void invoke("sync_overlay_window_visibility", { visible: true, surface: overlaySurface }).catch(() => {});
+      const editHeight = overlaySurface === "edit_mode" ? computeEditWindowHeight(editText) : undefined;
+      void invoke("sync_overlay_window_visibility", { visible: true, surface: overlaySurface, height: editHeight }).catch(() => {});
       void getCurrentWindow().setBackgroundColor([0, 0, 0, 0]).catch(() => {});
       void getCurrentWebview().setBackgroundColor([0, 0, 0, 0]).catch(() => {});
       setOverlayDocumentState(false);
@@ -443,6 +521,10 @@ export default function OverlayWindow() {
       return;
     }
 
+    const target = event.target as HTMLElement;
+    if (target.tagName === "TEXTAREA") return;
+    if (target.closest("[data-resize-handle]")) return;
+
     dragIntentRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -488,7 +570,7 @@ export default function OverlayWindow() {
     void openSettings();
   };
 
-  const beginOverlayAction = (action: "commit" | "abort" | "copy" | "retry" | "restore") => {
+  const beginOverlayAction = (action: "commit" | "abort" | "copy" | "edit" | "insert") => {
     setShowPreview(true);
     setActionPending(action);
     setActionMessage(null);
@@ -508,6 +590,8 @@ export default function OverlayWindow() {
     if (actionPending) return;
 
     setShowPreview(false);
+    setShowEditMode(false);
+    setEditText("");
     setActionMessage(null);
     setActionFailed(false);
   };
@@ -560,38 +644,92 @@ export default function OverlayWindow() {
     }
   };
 
-  const handleRetry = async () => {
-    const historyId = previewResult?.history?.entry_id;
-    if (!historyId || actionPending) return;
+  const handleEditOpen = () => {
+    setEditText(finalPreviewText);
+    setShowEditMode(true);
+    setActionFailed(false);
+    setActionMessage(null);
+    hasManualResizeRef.current = false;
+  };
 
-    beginOverlayAction("retry");
+  const handleEditTextChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setEditText(e.target.value);
+  };
+
+  const handleEditCancel = () => {
+    setShowEditMode(false);
+    setEditText("");
+    setActionFailed(false);
+    setActionMessage(null);
+  };
+
+  const handleEditConfirm = async () => {
+    if (!editText.trim() || actionPending) return;
+
+    beginOverlayAction("edit");
+    suppressNextResultActionsRef.current = true;
+    const isAutoPaste = previewResult?.work_mode?.insert_behavior !== "clipboard_only";
     try {
-      const entry = await invoke<TranscriptionHistoryEntry>("retry_transcription_history_entry", {
-        request: { id: historyId },
+      const result = await invoke<NativeInsertResult>("insert_text_native", {
+        request: {
+          text: editText,
+          source: "overlay_edit_confirm",
+          corrected: false,
+          auto_paste: isAutoPaste,
+        },
       });
-      finishOverlayAction(
-        entry.status === "completed"
-          ? "Retry completed."
-          : entry.status === "empty"
-            ? "Retry produced no usable transcript."
-            : entry.error ?? "Retry failed.",
-        entry.status === "failed",
-      );
+      if (result.ok) {
+        setActionPending(null);
+        setActionFailed(false);
+        setActionMessage(result.recovery_message ?? "Text inserted.");
+        window.setTimeout(() => {
+          setShowEditMode(false);
+          setEditText("");
+          setShowPreview(false);
+          setActionMessage(null);
+        }, 900);
+      } else {
+        suppressNextResultActionsRef.current = false;
+        finishOverlayAction(result.error ?? "Edit insert failed.", true);
+      }
+    } catch (error) {
+      suppressNextResultActionsRef.current = false;
+      finishOverlayAction(String(error), true);
+    }
+  };
+
+  const handleInsertResult = async () => {
+    if (!finalPreviewText || actionPending) return;
+
+    beginOverlayAction("insert");
+    try {
+      const result = await invoke<NativeInsertResult>("insert_text_native", {
+        request: {
+          text: finalPreviewText,
+          source: "overlay_preview_insert",
+          corrected: previewResult?.corrected ?? false,
+          auto_paste: true,
+        },
+      });
+      finishOverlayAction(result.ok ? result.recovery_message : result.error ?? "Insert failed.", !result.ok);
     } catch (error) {
       finishOverlayAction(String(error), true);
     }
   };
 
-  const handleRestore = async () => {
-    if (!previewResult?.insertion || actionPending) return;
-
-    beginOverlayAction("restore");
-    try {
-      const result = await invoke<NativeInsertResult>("restore_last_transcript");
-      finishOverlayAction(result.ok ? result.recovery_message : result.error ?? "Restore failed.", !result.ok);
-    } catch (error) {
-      finishOverlayAction(String(error), true);
-    }
+  const handleResizePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    dragIntentRef.current = null;
+    const pill = event.currentTarget.closest(".pill") as HTMLElement | null;
+    resizeIntentRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: pill?.offsetWidth ?? EDIT_RESIZE_WIDTH_MIN,
+      startHeight: pill?.offsetHeight ?? EDIT_HEIGHT_MIN,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const pillClass = [
@@ -599,6 +737,7 @@ export default function OverlayWindow() {
     renderOverlaySurface === "compact" ? "pill--compact" : "",
     renderOverlaySurface === "processing_preview" ? "pill--preview-actions" : "",
     renderOverlaySurface === "result_actions" ? "pill--result-actions" : "",
+    renderOverlaySurface === "edit_mode" ? "pill--edit-mode" : "",
     overlayMotion === "entering" ? "pill--entering" : "",
     overlayMotion === "open" ? "pill--open" : "",
     overlayMotion === "leaving" ? "pill--leaving" : "",
@@ -608,6 +747,55 @@ export default function OverlayWindow() {
     isProcessing ? "pill--processing" : "",
     showError ? "pill--error" : "",
   ].filter(Boolean).join(" ");
+
+  if (showEditMode && previewResult) {
+    return (
+      <div className="overlay-shell" onPointerDownCapture={handleOverlayPointerDownCapture}>
+        <div className={pillClass}>
+          <div
+            className="pill__resize-handle"
+            data-resize-handle=""
+            onPointerDown={handleResizePointerDown}
+            aria-hidden="true"
+          />
+          <div className="pill__edit-body">
+            <textarea
+              className="pill__edit-textarea"
+              value={editText}
+              onChange={handleEditTextChange}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              disabled={actionPending !== null || (!actionFailed && actionMessage !== null)}
+              aria-label="Edit transcription text"
+            />
+            {actionMessage && (
+              <span className={actionFailed ? "pill__edit-error" : "pill__edit-success"}>{actionMessage}</span>
+            )}
+            <div className="pill__edit-footer">
+              <button
+                type="button"
+                className="pill__action-button pill__action-button--primary"
+                onClickCapture={handleInteractiveClickCapture}
+                onClick={() => void handleEditConfirm()}
+                disabled={actionPending !== null || !editText.trim() || (!actionFailed && actionMessage !== null)}
+              >
+                {actionPending === "edit" ? "Inserting…" : (!actionFailed && actionMessage) ? "Done" : "Confirm"}
+              </button>
+              <button
+                type="button"
+                className="pill__action-button"
+                onClickCapture={handleInteractiveClickCapture}
+                onClick={handleEditCancel}
+                disabled={actionPending !== null}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if ((renderProcessingPreview || renderResultPreview) && activePreviewResult) {
     return (

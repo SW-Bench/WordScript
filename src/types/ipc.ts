@@ -134,9 +134,10 @@ export interface AppConfig {
   channels:                number;
   dtype:                   string;
   audio_device:            string;
-  max_recording_seconds:   number;
-  silence_timeout_seconds: number;
-  auto_paste:              boolean;
+  max_recording_seconds:        number;
+  silence_timeout_seconds:      number;
+  result_actions_timeout_ms:    number;
+  auto_paste:                   boolean;
   play_sounds:             boolean;
   log_level:               string;
   temp_audio_dir:          string;
