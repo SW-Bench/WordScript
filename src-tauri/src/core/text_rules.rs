@@ -746,4 +746,35 @@ mod tests {
             TextRulesIssueCode::NoUsableSttHints
         )));
     }
+
+    #[test]
+    fn regression_customer_success_profile_warns_no_concrete_hints_and_ignores_all_lines() {
+        // Regression: Customer Success Replies-style profiles with only generic lowercase
+        // category phrases silently contributed zero usable STT bias while appearing populated.
+        // This test ensures the warning path fires and all lines land in ignored_profile_lines.
+        let analysis = analyze_document(
+            &TextRulesDocument {
+                schema_version: TEXT_RULES_SCHEMA_VERSION,
+                prompt: "customer success\nfollow up with client\nescalation handling\nsatisfaction score".to_string(),
+                stt_hints: String::new(),
+                dictionary_entries: Vec::new(),
+                snippet_entries: Vec::new(),
+            },
+            None,
+        );
+
+        assert!(
+            analysis.transcription_bias.profile_hints.is_empty(),
+            "expected no profile hints from generic CS phrases"
+        );
+        assert_eq!(
+            analysis.transcription_bias.ignored_profile_lines.len(),
+            4,
+            "expected all 4 CS category lines in ignored_profile_lines"
+        );
+        assert!(analysis.issues.iter().any(|issue| matches!(
+            issue.code,
+            TextRulesIssueCode::NoConcreteProfileHints
+        )));
+    }
 }

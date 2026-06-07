@@ -195,4 +195,96 @@ mod tests {
         assert_eq!(result.accepted, vec!["WordScript", "ticket IDs", "SEV-1"]);
         assert_eq!(result.ignored, vec!["customer names", "refund policy"]);
     }
+
+    // --- Regression corpus: Customer Success Replies profile failure mode ---
+
+    #[test]
+    fn regression_cs_profile_all_generic_phrases_produce_no_accepted_hints() {
+        // Known failure mode: profiles built from generic lowercase category phrases
+        // contribute zero usable STT bias. Every line here would previously pass through
+        // to the STT prompt and cause vocabulary drift / topic contamination.
+        let result = filter_profile_hint_lines(
+            "customer success\nfollow up with client\nescalation handling\nsatisfaction score\nsupport ticket resolution\nrefund request processing",
+        );
+
+        assert!(
+            result.accepted.is_empty(),
+            "expected no accepted hints from generic CS phrases, got: {:?}",
+            result.accepted
+        );
+        assert_eq!(result.ignored.len(), 6);
+    }
+
+    #[test]
+    fn cs_profile_with_concrete_acronyms_accepted_alongside_generic_lines() {
+        // If a CS profile contains real product names or acronyms, those should still pass.
+        let result = filter_profile_hint_lines(
+            "customer success\nCRM\nSalesforce\nfollow up with client\nCSAT score\nNPS",
+        );
+
+        assert_eq!(result.accepted, vec!["CRM", "Salesforce", "CSAT score", "NPS"]);
+        assert_eq!(result.ignored, vec!["customer success", "follow up with client"]);
+    }
+
+    // --- build_transcription_prompt ---
+
+    #[test]
+    fn build_transcription_prompt_returns_none_when_all_sections_empty() {
+        assert!(build_transcription_prompt(&[], &[], &[], 512).is_none());
+    }
+
+    #[test]
+    fn build_transcription_prompt_formats_all_three_sections() {
+        let prompt = build_transcription_prompt(
+            &["WordScript".to_string(), "SEV-1".to_string()],
+            &["WordScript".to_string()],
+            &["status update".to_string()],
+            512,
+        )
+        .unwrap();
+
+        assert!(prompt.contains("Vocabulary: WordScript; SEV-1"));
+        assert!(prompt.contains("Preferred spellings: WordScript"));
+        assert!(prompt.contains("Likely phrases: status update"));
+    }
+
+    #[test]
+    fn build_transcription_prompt_omits_empty_sections() {
+        let prompt = build_transcription_prompt(
+            &["WordScript".to_string()],
+            &[],
+            &[],
+            512,
+        )
+        .unwrap();
+
+        assert!(prompt.contains("Vocabulary: WordScript"));
+        assert!(!prompt.contains("Preferred spellings"));
+        assert!(!prompt.contains("Likely phrases"));
+    }
+
+    #[test]
+    fn build_transcription_prompt_truncates_at_max_chars() {
+        let long_hints: Vec<String> = (0..20).map(|i| format!("Term{i}")).collect();
+        let result = build_transcription_prompt(&long_hints, &[], &[], 30);
+
+        let prompt = result.unwrap();
+        assert!(prompt.chars().count() <= 30);
+    }
+
+    // --- analyze_transcription_bias composite ---
+
+    #[test]
+    fn analyze_transcription_bias_cs_style_profile_yields_empty_profile_hints() {
+        let bias = analyze_transcription_bias(
+            "customer success\nfollow up with client\nescalation handling",
+            "",
+            &[],
+        );
+
+        assert!(bias.profile_hints.is_empty());
+        assert_eq!(bias.ignored_profile_lines.len(), 3);
+        assert!(bias.dictionary_terms.is_empty());
+        assert!(bias.stt_hints.is_empty());
+    }
 }
