@@ -69,6 +69,10 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     temp_audio_dir: "",
     history_limit: 200,
     history_retention_days: 90,
+    agent_mode_enabled: false,
+    agent_name: "WordScript",
+    agent_model: "llama-3.3-70b-versatile",
+    local_agent_model: "llama3.2:latest",
     ...overrides,
   };
 }

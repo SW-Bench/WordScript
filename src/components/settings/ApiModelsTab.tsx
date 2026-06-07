@@ -43,6 +43,17 @@ const LOCAL_RUNTIME_CORRECTION_MODELS = [
   "qwen2.5:7b-instruct",
   "gemma3:4b",
 ];
+const AGENT_MODEL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile — Empfohlen (beste Qualität)" },
+  { value: "llama-3.1-8b-instant",    label: "llama-3.1-8b-instant — Schnell, einfache Anweisungen" },
+  { value: "mixtral-8x7b-32768",      label: "mixtral-8x7b-32768 — Ausgewogen" },
+  { value: "gemma2-9b-it",            label: "gemma2-9b-it — Kompakt" },
+];
+const LOCAL_AGENT_MODEL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "llama3.2:latest",         label: "llama3.2:latest — Empfohlen (beste lokale Qualität)" },
+  { value: "qwen2.5:7b-instruct",     label: "qwen2.5:7b-instruct — Ausgewogen" },
+  { value: "gemma3:4b",               label: "gemma3:4b — Kompakt" },
+];
 const LANGUAGES = ["Auto", "en", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "ja", "ko", "zh"];
 const GROQ_CAPABILITIES: ProviderCapabilities = {
   transcription: true,
@@ -240,6 +251,18 @@ function localCleanupModelOptions(config: AppConfig, availableModels: string[] |
     ...(availableModels ?? []),
     ...LOCAL_RUNTIME_CORRECTION_MODELS,
   ]));
+}
+
+function localAgentModelOptions(config: AppConfig, availableModels: string[] | undefined): Array<{ value: string; label: string }> {
+  const knownValues = new Set(LOCAL_AGENT_MODEL_OPTIONS.map((o) => o.value));
+  const extra = Array.from(new Set([
+    config.local_agent_model.trim() || "llama3.2:latest",
+    ...(availableModels ?? []),
+  ])).filter((v) => !knownValues.has(v));
+  return [
+    ...LOCAL_AGENT_MODEL_OPTIONS,
+    ...extra.map((v) => ({ value: v, label: v })),
+  ];
 }
 
 function issueMatches(issueCode: LocalProviderIssueCode | null | undefined, codes: LocalProviderIssueCode[]) {
@@ -897,6 +920,58 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
             {previewLaneSelected
               ? "Uses a local Ollama chat model for cleanup. Keep the chosen model installed locally so the native lane stays fully offline and sustainable."
               : "Runs after speech-to-text and can fall back to the original transcript if the rewrite looks unsafe."}
+          </p>
+        </>
+      )}
+
+      <div className="form-section">AI agent mode</div>
+      <label className="form-check" style={{ marginBottom: 10 }}>
+        <input
+          type="checkbox"
+          checked={config.agent_mode_enabled}
+          onChange={(e) => onChange({ agent_mode_enabled: e.target.checked })}
+        />
+        <span>Agent mode</span>
+      </label>
+      <p className="form-dim" style={{ margin: "0 0 10px 26px" }}>
+        {config.agent_mode_enabled
+          ? "When an instruction is detected (e.g. \"Hey WordScript, write an email to Felix...\"), WordScript executes it via AI instead of just transcribing."
+          : "Off. All recordings are transcribed as-is and passed through the normal cleanup pipeline."}
+      </p>
+      {config.agent_mode_enabled && (
+        <>
+          <div className="form-row">
+            <label htmlFor="agent-name-input">Agent name</label>
+            <input
+              id="agent-name-input"
+              type="text"
+              value={config.agent_name}
+              placeholder="WordScript"
+              onChange={(e) => onChange({ agent_name: e.target.value })}
+            />
+          </div>
+          <p className="form-dim">
+            The name you use when addressing the agent in speech. The app listens for this name as a strong intent signal.
+          </p>
+          <div className="form-row">
+            <label htmlFor="agent-model-select">Model</label>
+            <select
+              id="agent-model-select"
+              value={previewLaneSelected ? config.local_agent_model : config.agent_model}
+              onChange={(e) => onChange(previewLaneSelected
+                ? { local_agent_model: e.target.value }
+                : { agent_model: e.target.value })}
+            >
+              {(previewLaneSelected
+                ? localAgentModelOptions(config, localSetup?.available_chat_models)
+                : AGENT_MODEL_OPTIONS
+              ).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </div>
+          <p className="form-dim">
+            {previewLaneSelected
+              ? "Local Ollama model used for both intent classification and instruction execution. Requires the same local chat endpoint as AI cleanup."
+              : "Groq model used for intent classification and instruction execution. A larger model gives better instruction-following quality."}
           </p>
         </>
       )}

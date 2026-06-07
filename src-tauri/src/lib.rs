@@ -758,8 +758,63 @@ fn handle_audio_ready<R: Runtime + 'static>(
                     response.text.len(),
                     response.duration,
                 ));
-                let transformed =
-                    core::transform::apply_native_transform(&response.text, transform_config).await;
+                let transformed = {
+                    let app_config = pipeline_app_config.clone();
+                    if app_config.agent_mode_enabled {
+                        let agent_model = if transform_config.provider
+                            == core::providers::LOCAL_PREVIEW_PROVIDER_ID
+                        {
+                            app_config.local_agent_model.clone()
+                        } else {
+                            app_config.agent_model.clone()
+                        };
+                        let active_profile = app_config
+                            .text_profiles
+                            .iter()
+                            .find(|p| p.id == app_config.active_text_profile_id);
+                        let agent_config = core::agent::AgentConfig {
+                            provider: transform_config.provider.clone(),
+                            agent_name: app_config.agent_name.clone(),
+                            agent_model,
+                            profile_label: active_profile
+                                .map(|p| p.label.clone())
+                                .unwrap_or_default(),
+                            profile_prompt: transform_config.profile_prompt.clone(),
+                            stt_hints: active_profile
+                                .map(|p| p.stt_hints.clone())
+                                .unwrap_or_default(),
+                            dictionary_entries: transform_config.dictionary_entries.clone(),
+                            snippet_entries: transform_config.snippet_entries.clone(),
+                        };
+                        let is_instruction = core::agent::detect_agent_intent(
+                            &response.text,
+                            &agent_config,
+                        )
+                        .await;
+                        if is_instruction {
+                            let result = core::agent::apply_agent_transform(
+                                &response.text,
+                                &agent_config,
+                            )
+                            .await;
+                            core::transform::NativeTransformResult {
+                                text: result.text,
+                                corrected: result.was_agent,
+                                applied_rules: vec!["agent_mode".to_string()],
+                                warning: result.warning,
+                            }
+                        } else {
+                            core::transform::apply_native_transform(
+                                &response.text,
+                                transform_config,
+                            )
+                            .await
+                        }
+                    } else {
+                        core::transform::apply_native_transform(&response.text, transform_config)
+                            .await
+                    }
+                };
                 let app_config = pipeline_app_config.clone();
                 if let Some(warning) = &transformed.warning {
                     core::runtime_log::record(format!(

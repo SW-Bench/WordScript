@@ -10,6 +10,9 @@ use super::runtime_log;
 
 pub const DEFAULT_CORRECTION_MODEL: &str = "llama-3.3-70b-versatile";
 pub const DEFAULT_LOCAL_CORRECTION_MODEL: &str = "llama3.2:latest";
+pub const DEFAULT_AGENT_MODEL: &str = "llama-3.3-70b-versatile";
+pub const DEFAULT_LOCAL_AGENT_MODEL: &str = "llama3.2:latest";
+pub const DEFAULT_AGENT_NAME: &str = "WordScript";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DictionaryEntry {
@@ -215,6 +218,10 @@ pub struct AppConfig {
     pub temp_audio_dir: String,
     pub history_limit: usize,
     pub history_retention_days: u32,
+    pub agent_mode_enabled: bool,
+    pub agent_name: String,
+    pub agent_model: String,
+    pub local_agent_model: String,
 }
 
 impl Default for AppConfig {
@@ -275,6 +282,10 @@ impl Default for AppConfig {
             temp_audio_dir: String::new(),
             history_limit: 200,
             history_retention_days: 90,
+            agent_mode_enabled: false,
+            agent_name: DEFAULT_AGENT_NAME.to_string(),
+            agent_model: DEFAULT_AGENT_MODEL.to_string(),
+            local_agent_model: DEFAULT_LOCAL_AGENT_MODEL.to_string(),
         }
     }
 }

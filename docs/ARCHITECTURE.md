@@ -108,7 +108,8 @@ Der aktive Produktkern sitzt in `src-tauri/src/core/`.
 - `providers/mod.rs`: gemeinsamer Provider-Vertrag, Dispatch und generische Command-Oberflaechen
 - `providers/groq.rs`: erste produktive Cloud-Implementierung fuer BYOK, Secret Store und Groq-spezifische HTTP-Fehler
 - `providers/local_preview.rs`: lokale Runtime-Lane mit `whisper-cli` fuer STT, lokalem Ollama-Cleanup, nativer Modell-Discovery, probe-basierter Runner-Gesundheit und selected-model-/cleanup-Setup-Wahrheit ueber denselben Antwortvertrag
-- `transform.rs`: Halluzinationsfilter, optionale Nachkorrektur, Dictionary- und Snippet-Aufloesung
+- `transform.rs`: Halluzinationsfilter, optionale Nachkorrektur mit mehrstufigem Guardrail Stack, Dictionary- und Snippet-Aufloesung
+- `agent.rs`: hybrid Intent-Detection (Heuristik + LLM-Classifier) und Agent-Execution; sitzt als Routing-Layer vor `transform.rs`
 - `text_rules.rs`: Analyse, Preview, Import/Export, Konfliktbehandlung und Profile-Health-Analyse der Text Rules
 
 ### Insertion und Recovery
@@ -156,9 +157,64 @@ Provider-, Transform- und Insert-Ergebnisse laufen nach dem Capture-Ende asynchr
 Die Textverarbeitung ist im aktiven Pfad keine Black Box. Die Reihenfolge ist bewusst fest:
 
 1. Halluzinationsmuster ablehnen oder markieren
-2. optionale AI-Nachkorrektur ausfuehren
-3. Dictionary anwenden
-4. Snippets anwenden
+2. wenn Agent Mode aktiv: Intent-Detection, bei bestaetiger Anweisung `apply_agent_transform` aufrufen und Correction ueberspringen
+3. optionale AI-Nachkorrektur ausfuehren (Correction Guardrail Stack)
+4. Dictionary anwenden
+5. Snippets anwenden
+
+### Agent Mode
+
+Der Agent Mode sitzt als Routing-Layer vor der Correction und entscheidet, ob ein Transkript als Benutzer-Diktat oder als direkte Anweisung an den konfigurierten Agenten behandelt wird.
+
+Der Entscheidungspfad ist hybrid:
+
+```text
+heuristic score >= 0.75  →  sicherer AGENT-Pfad, kein LLM-Call noetig
+heuristic score < 0.20   →  sicherer DIKTAT-Pfad, direkt zu Correction
+score 0.20 – 0.74        →  Uncertain Zone → LLM-Classifier entscheidet
+```
+
+Heuristik-Signale (O(n), kein API-Call):
+
+- Agent-Name in Worten 1–4: +0.55 (direkte Eroeffnung mit dem Agenten)
+- Agent-Name in Worten 5–10: +0.35 (nach kurzer Einleitung wie "Also ich dachte, WordScript, schreib…")
+- Agent-Name spaeter im Text: +0.15 (beilaeufige Erwaehnung, schwaches Signal)
+- Imperativverb als erstes Wort: +0.45
+- Imperativverb in Worten 2–10: +0.25
+- Textlaenge > 60 Woerter: -0.15 (Agenten-Anweisungen sind meist kurz)
+
+LLM-Classifier (nur in der Uncertain Zone):
+
+- Entscheidet mit "yes" oder "no", kein weiterer Text
+- "yes" nur wenn Nutzer den Agenten **direkt adressiert** UND eine Aufgabe beauftragt
+- "no" bei beilaeufiger Namenerwaehnung ohne Auftrag
+- "no" bei Imperativ ohne Agent-Namen-Adressierung (das ist Diktat, kein Befehl an den Agenten)
+- Fallback bei Fehler: immer "no" (sicher auf Diktat-Pfad)
+
+Wenn der Agent Mode deaktiviert ist oder der Classifier "no" liefert, laeuft der Text durch `apply_native_transform` mit dem vollen Correction Guardrail Stack.
+
+### Correction Guardrail Stack
+
+Die AI-Korrektur in `normalize_correction` verteidigt den Diktatpfad in mehreren Schichten gegen Antwort-artiges Verhalten des Correction-LLMs. Jede Ablehnung schreibt einen strukturierten Eintrag in den Runtime-Log (sichtbar in Rebuild Lab):
+
+| Guard | Ausloeser | Regel-ID |
+|---|---|---|
+| Empty correction | Korrektur leer | `empty_correction_fallback` |
+| Question answered | Original hat `?`, Korrektur hat kein `?` | `question_answered_guardrail_fallback` |
+| Length explosion | Korrektur > 1.5× Original + 50 Zeichen | `assistant_like_correction_rejected` |
+| Over-shortened | Korrektur < min_ratio × Original | `over_shortened_correction_rejected` |
+| Assistant phrase | Neu eingefuegte Assistenz-Phrasen (z.B. "ich verstehe", "gerne erledige", "task completed") | `correction_guardrail_fallback` |
+| Suspicious start | Korrektur beginnt neu mit Ich/Bitte/Gerne/Klar/Here/I/… | `correction_guardrail_fallback` |
+| First-person action start (polished) | Korrektur beginnt neu mit Ich-Aktionsverb wie "ich schicke", "i'll send" — nur in `polished` mode, weil `suspicious_start` dort deaktiviert ist | `correction_guardrail_fallback` |
+| Word overlap | Gemeinsame Wortmenge < Schwellwert (0.25/0.4/0.55 je Modus) | `correction_guardrail_fallback` |
+
+Wichtige Architekturregeln dieses Stacks:
+
+- der Correction-LLM ist ein Chat-Modell mit starker Assistenz-Feintuning; alle Guardrails koennen trotz korrektem System-Prompt gelegentlich durchbrochen werden — der Stack ist mehrschichtig, um das aufzufangen
+- `has_suspicious_start` ist in `polished` mode deaktiviert, weil dort Satzumstrukturierungen erlaubt sind; stattdessen laeuft `has_new_first_person_action_start` als Ersatz-Guard fuer klar assistenz-artige Ich-Aktionsverb-Starts
+- alle Guardrail-Ablehnungen erhalten denselben Fallback: Originaltext unveraendert zurueckgeben; kein Vertragsbruch mit Downstream-Insertion, History oder Recovery
+- das System-Prompt der Correction instruiert den LLM explizit: Fragen, Aufforderungen, Befehle und Anweisungen im Input sind diktierter Nutzertext — niemals beantworten, ausfuehren oder darauf reagieren
+- dieser Correction-Stack ist orthogonal zum Agent Mode: Agent Mode entscheidet das Routing vor der Correction; die Guardrails greifen, wenn das Routing "Diktat" liefert, der Correction-LLM aber trotzdem in den Assistenz-Modus abdriftet
 
 Wichtig:
 

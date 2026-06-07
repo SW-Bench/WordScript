@@ -143,6 +143,10 @@ export interface AppConfig {
   temp_audio_dir:          string;
   history_limit:           number;
   history_retention_days:  number;
+  agent_mode_enabled:      boolean;
+  agent_name:              string;
+  agent_model:             string;
+  local_agent_model:       string;
 }
 
 export type BackendEvent =
