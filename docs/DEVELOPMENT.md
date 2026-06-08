@@ -180,6 +180,15 @@ Wenn es um die konkrete Reihenfolge der naechsten Kern-Slices geht, ist [CORE_EX
 - lokale Tool-Spuren wie `.playwright-mcp/`, `wordscript.log` oder alte Python-`__pycache__`-Reste duerfen nicht in Git landen
 - vor Pushes `git status --short` gegen unbeabsichtigte lokale Artefakte pruefen
 
+### TODO: Build-Cache-Strategie
+
+**Problem:** Nach einem Pfad-/Ordnerumbenennung (`sw-labs` → `sw-labs-master`, `WordScript_master` → `WordScript-master`) enthielt `src-tauri/target/` veraltete absolute Pfade zur alten Location. Der Tauri-Build-Script konnte autogenerierte Permission-TOMLs nicht mehr finden — `cargo clean` war noetig und entfernte ~27 GB akkumulierten Debug-Build-Cache.
+
+**Zu loesen:** `sccache` oder eine vergleichbare Compiler-Cache-Loesung einrichten, damit:
+- Compiler-Output ueber Pfadwechsel und Neustarts hinweg wiederverwendbar bleibt
+- `target/` keine absoluten Pfade mehr als Invalidierungsgrund hat
+- ein vollstaendiges `cargo clean` nicht mehr ~27 GB kostet und minutenlange Rekompilation erzwingt
+
 ## Validation
 
 ### UI-only Aenderungen
