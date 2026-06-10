@@ -323,7 +323,7 @@ fn events_processor(thread_rx: Receiver<ThreadMessage>) -> Result<(), String> {
             }
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 

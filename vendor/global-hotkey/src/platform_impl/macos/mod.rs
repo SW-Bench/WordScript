@@ -2,7 +2,7 @@ use keyboard_types::{Code, Modifiers};
 use objc2::{msg_send, rc::Retained, ClassType};
 use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventSubtype, NSEventType};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     ffi::c_void,
     ptr,
     sync::{Arc, Mutex},
@@ -35,6 +35,9 @@ pub struct GlobalHotKeyManager {
     event_tap: Mutex<Option<CFMachPortRef>>,
     event_tap_source: Mutex<Option<CFRunLoopSourceRef>>,
     media_hotkeys: Arc<Mutex<HashSet<HotKey>>>,
+    key_tap: Mutex<Option<CFMachPortRef>>,
+    key_tap_source: Mutex<Option<CFRunLoopSourceRef>>,
+    tap_hotkeys: Arc<Mutex<HashMap<u32, (HotKey, u32)>>>,
 }
 
 unsafe impl Send for GlobalHotKeyManager {}
@@ -77,6 +80,9 @@ impl GlobalHotKeyManager {
             event_tap: Mutex::new(None),
             event_tap_source: Mutex::new(None),
             media_hotkeys: Arc::new(Mutex::new(HashSet::new())),
+            key_tap: Mutex::new(None),
+            key_tap_source: Mutex::new(None),
+            tap_hotkeys: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -100,10 +106,6 @@ impl GlobalHotKeyManager {
                 id: hotkey.id(),
                 signature: {
                     let mut res: u32 = 0;
-                    // can't find a resource for "htrs" so we construct it manually
-                    // the construction method below is taken from https://github.com/soffes/HotKey/blob/c13662730cb5bc28de4a799854bbb018a90649bf/Sources/HotKey/HotKeysController.swift#L27
-                    // and confirmed by applying the same method to `kEventParamDragRef` which is equal to `drag` in C
-                    // and converted to `1685217639` by rust-bindgen.
                     for c in "htrs".chars() {
                         res = (res << 8) + c as u32;
                     }
@@ -111,7 +113,7 @@ impl GlobalHotKeyManager {
                 },
             };
 
-            let ptr = unsafe {
+            let result = unsafe {
                 let mut hotkey_ref: EventHotKeyRef = std::mem::zeroed();
                 let result = RegisterEventHotKey(
                     scan_code,
@@ -122,21 +124,31 @@ impl GlobalHotKeyManager {
                     &mut hotkey_ref,
                 );
 
-                if result != noErr as _ {
-                    return Err(crate::Error::FailedToRegister(format!(
-                        "RegisterEventHotKey failed for {}",
-                        hotkey.key
-                    )));
+                if result == noErr as _ {
+                    self.hotkeys
+                        .lock()
+                        .unwrap()
+                        .insert(hotkey.id(), HotKeyWrapper {
+                            ptr: hotkey_ref,
+                            hotkey,
+                        });
+                    return Ok(());
                 }
-
-                hotkey_ref
             };
 
-            self.hotkeys
-                .lock()
-                .unwrap()
-                .insert(hotkey.id(), HotKeyWrapper { ptr, hotkey });
-            Ok(())
+            if let Some(sc) = key_to_scancode(hotkey.key) {
+                self.tap_hotkeys
+                    .lock()
+                    .unwrap()
+                    .insert(hotkey.id(), (hotkey, sc));
+                self.ensure_key_tap()?;
+                return Ok(());
+            }
+
+            Err(crate::Error::FailedToRegister(format!(
+                "RegisterEventHotKey failed for {}",
+                hotkey.key
+            )))
         } else if is_media_key(hotkey.key) {
             {
                 let mut media_hotkeys = self.media_hotkeys.lock().unwrap();
@@ -162,6 +174,14 @@ impl GlobalHotKeyManager {
             }
         } else if let Some(hotkeywrapper) = self.hotkeys.lock().unwrap().remove(&hotkey.id()) {
             unsafe { self.unregister_hotkey_ptr(hotkeywrapper.ptr, hotkey) }?;
+        }
+
+        if self.tap_hotkeys.lock().unwrap().remove(&hotkey.id()).is_some() {
+            if self.tap_hotkeys.lock().unwrap().is_empty()
+                && self.media_hotkeys.lock().unwrap().is_empty()
+            {
+                self.stop_key_tap();
+            }
         }
 
         Ok(())
@@ -193,6 +213,66 @@ impl GlobalHotKeyManager {
         Ok(())
     }
 
+    fn ensure_key_tap(&self) -> crate::Result<()> {
+        let mut key_tap = self.key_tap.lock().unwrap();
+        let mut key_tap_source = self.key_tap_source.lock().unwrap();
+
+        if key_tap.is_some() || key_tap_source.is_some() {
+            return Ok(());
+        }
+
+        unsafe {
+            let event_mask: CGEventMask = CGEventMaskBit!(CGEventType::KeyDown)
+                | CGEventMaskBit!(CGEventType::KeyUp)
+                | CGEventMaskBit!(CGEventType::FlagsChanged);
+            let tap = CGEventTapCreate(
+                CGEventTapLocation::Session,
+                CGEventTapPlacement::HeadInsertEventTap,
+                CGEventTapOptions::ListenOnly,
+                event_mask,
+                key_event_callback,
+                Arc::into_raw(self.tap_hotkeys.clone()) as *const c_void,
+            );
+            if tap.is_null() {
+                return Err(crate::Error::OsError(std::io::Error::last_os_error()));
+            }
+            *key_tap = Some(tap);
+
+            let loop_source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0);
+            if loop_source.is_null() {
+                CFMachPortInvalidate(tap);
+                CFRelease(tap as *const c_void);
+                *key_tap = None;
+
+                return Err(crate::Error::OsError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "failed to create run loop source for key tap",
+                )));
+            }
+            *key_tap_source = Some(loop_source);
+
+            let run_loop = CFRunLoopGetMain();
+            CFRunLoopAddSource(run_loop, loop_source, kCFRunLoopCommonModes);
+            CGEventTapEnable(tap, true);
+
+            Ok(())
+        }
+    }
+
+    fn stop_key_tap(&self) {
+        unsafe {
+            if let Some(event_tap_source) = self.key_tap_source.lock().unwrap().take() {
+                let run_loop = CFRunLoopGetMain();
+                CFRunLoopRemoveSource(run_loop, event_tap_source, kCFRunLoopCommonModes);
+                CFRelease(event_tap_source as *const c_void);
+            }
+            if let Some(event_tap) = self.key_tap.lock().unwrap().take() {
+                CFMachPortInvalidate(event_tap);
+                CFRelease(event_tap as *const c_void);
+            }
+        }
+    }
+
     fn start_watching_media_keys(&self) -> crate::Result<()> {
         let mut event_tap = self.event_tap.lock().unwrap();
         let mut event_tap_source = self.event_tap_source.lock().unwrap();
@@ -218,7 +298,6 @@ impl GlobalHotKeyManager {
 
             let loop_source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0);
             if loop_source.is_null() {
-                // cleanup event_tap
                 CFMachPortInvalidate(tap);
                 CFRelease(tap as *const c_void);
                 *event_tap = None;
@@ -253,7 +332,7 @@ impl GlobalHotKeyManager {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[allow(non_camel_case_types)]
 enum NX_KEYTYPE {
-    Play = 16, // Actually it's Play/Pause
+    Play = 16,
     Next = 17,
     Previous = 18,
     Fast = 19,
@@ -296,7 +375,8 @@ impl Drop for GlobalHotKeyManager {
         unsafe {
             RemoveEventHandler(self.event_handler_ptr);
         }
-        self.stop_watching_media_keys()
+        self.stop_watching_media_keys();
+        self.stop_key_tap();
     }
 }
 
@@ -352,7 +432,6 @@ unsafe extern "C" fn media_key_event_callback(
     let event_subtype = ns_event.subtype();
 
     if event_type == NSEventType::SystemDefined && event_subtype == NSEventSubtype::ScreenChanged {
-        // Key
         let data_1 = ns_event.data1();
         let nx_keytype = NX_KEYTYPE::try_from((data_1 & 0xFFFF0000) >> 16);
         if nx_keytype.is_err() {
@@ -360,7 +439,6 @@ unsafe extern "C" fn media_key_event_callback(
         }
         let nx_keytype = nx_keytype.unwrap();
 
-        // Modifiers
         let flags = ns_event.modifierFlags();
         let mut mods = Modifiers::empty();
         if flags.contains(NSEventModifierFlags::Shift) {
@@ -376,10 +454,8 @@ unsafe extern "C" fn media_key_event_callback(
             mods |= Modifiers::META;
         }
 
-        // Generate hotkey for matching
         let hotkey = HotKey::new(Some(mods), nx_keytype.into());
 
-        // Prevent Arc been releaded after callback returned
         let media_hotkeys = &*(user_info as *const Mutex<HashSet<HotKey>>);
 
         if let Some(media_hotkey) = media_hotkeys.lock().unwrap().get(&hotkey) {
@@ -393,11 +469,59 @@ unsafe extern "C" fn media_key_event_callback(
                 },
             });
 
-            // Hotkey was found, return null to stop propagate event
             return ptr::null();
         }
     }
 
+    event
+}
+
+unsafe extern "C" fn key_event_callback(
+    _proxy: CGEventTapProxy,
+    ev_type: CGEventType,
+    event: CGEventRef,
+    user_info: *const c_void,
+) -> CGEventRef {
+    if ev_type == CGEventType::KeyDown || ev_type == CGEventType::KeyUp {
+        let ns_event: Retained<NSEvent> = msg_send![NSEvent::class(), eventWithCGEvent: event];
+        let key_code: u16 = msg_send![&*ns_event, keyCode];
+        let flags: NSEventModifierFlags = ns_event.modifierFlags();
+
+        let mut mods = Modifiers::empty();
+        if flags.contains(NSEventModifierFlags::Shift) {
+            mods |= Modifiers::SHIFT;
+        }
+        if flags.contains(NSEventModifierFlags::Control) {
+            mods |= Modifiers::CONTROL;
+        }
+        if flags.contains(NSEventModifierFlags::Option) {
+            mods |= Modifiers::ALT;
+        }
+        if flags.contains(NSEventModifierFlags::Command) {
+            mods |= Modifiers::META;
+        }
+        if mods.contains(Modifiers::META) {
+            mods.remove(Modifiers::META);
+            mods.insert(Modifiers::SUPER);
+        }
+
+        let tap_hotkeys = &*(user_info as *const Mutex<HashMap<u32, (HotKey, u32)>>);
+        if let Ok(hk_map) = tap_hotkeys.try_lock() {
+            for (id, (hotkey, scancode)) in hk_map.iter() {
+                if *scancode == key_code as u32 && hotkey.mods == mods {
+                    let state = if ev_type == CGEventType::KeyDown {
+                        crate::HotKeyState::Pressed
+                    } else {
+                        crate::HotKeyState::Released
+                    };
+                    GlobalHotKeyEvent::send(GlobalHotKeyEvent {
+                        id: *id,
+                        state,
+                    });
+                }
+            }
+        }
+    }
     event
 }
 
@@ -407,7 +531,6 @@ struct HotKeyWrapper {
     hotkey: HotKey,
 }
 
-// can be found in https://github.com/phracker/MacOSX-SDKs/blob/master/MacOSX10.6.sdk/System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks/HIToolbox.framework/Versions/A/Headers/Events.h
 pub fn key_to_scancode(code: Code) -> Option<u32> {
     match code {
         Code::KeyA => Some(0x00),

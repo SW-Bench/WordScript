@@ -25,6 +25,7 @@ const CLIPBOARD_RESTORE_DELAY_MS: u64 = 180;
 pub enum NativeInsertDriver {
     WlCopy,
     Arboard,
+    XdotoolType,
     Xdotool,
     Wtype,
     Ydotool,
@@ -37,6 +38,7 @@ impl NativeInsertDriver {
         match self {
             Self::WlCopy => "wl-copy",
             Self::Arboard => "arboard clipboard",
+            Self::XdotoolType => "xdotool type",
             Self::Xdotool => "xdotool",
             Self::Wtype => "wtype",
             Self::Ydotool => "ydotool",
@@ -48,7 +50,7 @@ impl NativeInsertDriver {
     fn role(self) -> &'static str {
         match self {
             Self::WlCopy | Self::Arboard => "clipboard",
-            Self::Xdotool | Self::Wtype | Self::Ydotool | Self::Enigo => "paste",
+            Self::XdotoolType | Self::Xdotool | Self::Wtype | Self::Ydotool | Self::Enigo => "paste",
             Self::Scratchpad => "recovery",
         }
     }
@@ -73,12 +75,14 @@ pub(crate) struct NativeInsertPlatformContext {
     pub has_xdotool: bool,
     pub has_wtype: bool,
     pub has_ydotool: bool,
+    pub try_xdotool_type_first: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeInsertionConfig {
     pub auto_paste: bool,
     pub paste_delay_ms: u64,
+    pub xdotool_type_max_chars: usize,
 }
 
 impl Default for NativeInsertionConfig {
@@ -86,6 +90,7 @@ impl Default for NativeInsertionConfig {
         Self {
             auto_paste: true,
             paste_delay_ms: 220,
+            xdotool_type_max_chars: 800,
         }
     }
 }
@@ -241,6 +246,7 @@ pub(crate) trait InsertIo {
     ) -> Result<(), String>;
     fn read_clipboard_text(&mut self) -> Option<String>;
     fn paste_with_driver(&mut self, driver: NativeInsertDriver) -> Result<(), String>;
+    fn type_with_driver(&mut self, driver: NativeInsertDriver, text: &str) -> Result<(), String>;
     fn schedule_clipboard_restore(&mut self, text: Option<String>, delay_ms: u64);
     fn wait_before_paste(&mut self, delay_ms: u64);
 }
@@ -277,6 +283,13 @@ impl InsertIo for SystemInsertIo {
             }
             NativeInsertDriver::Enigo => paste_with_enigo(),
             _ => Err(format!("{} is not a paste driver.", driver.label())),
+        }
+    }
+
+    fn type_with_driver(&mut self, driver: NativeInsertDriver, text: &str) -> Result<(), String> {
+        match driver {
+            NativeInsertDriver::XdotoolType => type_with_xdotool(text),
+            _ => Err(format!("{} does not support keyboard typing.", driver.label())),
         }
     }
 
@@ -377,6 +390,7 @@ pub fn configure_native_insertion(
     Ok(state.configure(NativeInsertionConfig {
         auto_paste: request.auto_paste,
         paste_delay_ms: NativeInsertionConfig::default().paste_delay_ms,
+        xdotool_type_max_chars: NativeInsertionConfig::default().xdotool_type_max_chars,
     }))
 }
 
@@ -505,18 +519,45 @@ pub(crate) fn execute_insert_request_with_io(
     let mut active_driver = NativeInsertDriver::Scratchpad;
     let mut clipboard_restore = NativeClipboardRestoreStatus::NotAttempted;
 
-    match run_clipboard_driver_chain(&platform, &insert_text, io) {
-        Ok(driver) => {
-            clipboard_written = true;
-            active_driver = driver;
-        }
-        Err(cause) => {
-            error = Some(cause.clone());
-            fallback_reason = Some(cause);
+    if auto_paste
+        && platform.try_xdotool_type_first
+        && insert_text.len() <= config.xdotool_type_max_chars
+    {
+        paste_attempted = true;
+        match io.type_with_driver(NativeInsertDriver::XdotoolType, &insert_text) {
+            Ok(()) => {
+                pasted = true;
+                active_driver = NativeInsertDriver::XdotoolType;
+                clipboard_restore = NativeClipboardRestoreStatus::SkippedNoPreviousClipboard;
+                runtime_log::record(format!(
+                    "[WordScript] Native insert xdotool type used text_len={}",
+                    insert_text.len(),
+                ));
+            }
+            Err(cause) => {
+                runtime_log::record(format!(
+                    "[WordScript] Native insert xdotool type failed, falling through: {cause}",
+                ));
+            }
         }
     }
 
-    let insert_mode = if !clipboard_written {
+    if !pasted {
+        match run_clipboard_driver_chain(&platform, &insert_text, io) {
+            Ok(driver) => {
+                clipboard_written = true;
+                active_driver = driver;
+            }
+            Err(cause) => {
+                error = Some(cause.clone());
+                fallback_reason = Some(cause);
+            }
+        }
+    }
+
+    let insert_mode = if pasted && !clipboard_written {
+        NativeInsertMode::DirectPaste
+    } else if !clipboard_written {
         active_driver = NativeInsertDriver::Scratchpad;
         NativeInsertMode::ScratchpadFallback
     } else if !auto_paste {
@@ -574,7 +615,7 @@ pub(crate) fn execute_insert_request_with_io(
     };
 
     NativeInsertResult {
-        ok: clipboard_written
+        ok: (clipboard_written || pasted)
             && (!auto_paste || pasted || matches!(insert_mode, NativeInsertMode::ClipboardOnly)),
         text: insert_text,
         insert_mode,
@@ -662,14 +703,18 @@ fn write_clipboard_with_arboard(text: &str) -> Result<(), String> {
 }
 
 fn detect_insert_platform_context(auto_paste: bool) -> NativeInsertPlatformContext {
+    let is_wl = is_wayland_session();
+    let is_x11 = cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_some();
+    let has_xd = cfg!(target_os = "linux") && command_in_path("xdotool");
     NativeInsertPlatformContext {
         auto_paste,
-        is_wayland: is_wayland_session(),
-        has_x11_display: cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_some(),
+        is_wayland: is_wl,
+        has_x11_display: is_x11,
         has_wl_copy: cfg!(target_os = "linux") && command_in_path("wl-copy"),
-        has_xdotool: cfg!(target_os = "linux") && command_in_path("xdotool"),
+        has_xdotool: has_xd,
         has_wtype: cfg!(target_os = "linux") && command_in_path("wtype"),
         has_ydotool: cfg!(target_os = "linux") && command_in_path("ydotool"),
+        try_xdotool_type_first: cfg!(target_os = "linux") && !is_wl && is_x11 && has_xd,
     }
 }
 
@@ -850,6 +895,25 @@ fn paste_with_command(program: &str, args: &[&str], restore_wayland: bool) -> Re
         ))
     } else {
         Err(format!("{program} paste failed: {stderr}"))
+    }
+}
+
+fn type_with_xdotool(text: &str) -> Result<(), String> {
+    let output = Command::new("xdotool")
+        .args(["type", "--clearmodifiers", "--delay", "0", "--", text])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("xdotool unavailable: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        Err(format!("xdotool type failed with status {}", output.status))
+    } else {
+        Err(format!("xdotool type failed: {stderr}"))
     }
 }
 
@@ -1372,11 +1436,13 @@ mod tests {
         clipboard_results: HashMap<NativeInsertDriver, Result<(), String>>,
         clipboard_read: Option<String>,
         paste_results: HashMap<NativeInsertDriver, Result<(), String>>,
+        xdotool_type_results: HashMap<NativeInsertDriver, Result<(), String>>,
         scheduled_restores: Vec<(Option<String>, u64)>,
         waits: Vec<u64>,
         clipboard_texts: Vec<String>,
         clipboard_drivers: Vec<NativeInsertDriver>,
         paste_drivers: Vec<NativeInsertDriver>,
+        type_drivers: Vec<NativeInsertDriver>,
     }
 
     impl FakeInsertIo {
@@ -1390,11 +1456,13 @@ mod tests {
                 clipboard_results,
                 clipboard_read: Some("Previous clipboard".to_string()),
                 paste_results,
+                xdotool_type_results: HashMap::new(),
                 scheduled_restores: Vec::new(),
                 waits: Vec::new(),
                 clipboard_texts: Vec::new(),
                 clipboard_drivers: Vec::new(),
                 paste_drivers: Vec::new(),
+                type_drivers: Vec::new(),
             }
         }
     }
@@ -1425,6 +1493,18 @@ mod tests {
                 .unwrap_or_else(|| Err(format!("{} missing fake paste result", driver.label())))
         }
 
+        fn type_with_driver(
+            &mut self,
+            driver: NativeInsertDriver,
+            _text: &str,
+        ) -> Result<(), String> {
+            self.type_drivers.push(driver);
+            self.xdotool_type_results
+                .get(&driver)
+                .cloned()
+                .unwrap_or_else(|| Err(format!("{} not in fake type results", driver.label())))
+        }
+
         fn schedule_clipboard_restore(&mut self, text: Option<String>, delay_ms: u64) {
             self.scheduled_restores.push((text, delay_ms));
         }
@@ -1453,6 +1533,7 @@ mod tests {
             &NativeInsertionConfig {
                 auto_paste: true,
                 paste_delay_ms: 5,
+                xdotool_type_max_chars: 800,
             },
             1,
             NativeInsertPlatformContext {
@@ -1463,6 +1544,7 @@ mod tests {
                 has_xdotool: false,
                 has_wtype: false,
                 has_ydotool: false,
+            try_xdotool_type_first: false,
             },
             &mut io,
         );
@@ -1515,6 +1597,8 @@ mod tests {
             clipboard_texts: Vec::new(),
             clipboard_drivers: Vec::new(),
             paste_drivers: Vec::new(),
+            type_drivers: Vec::new(),
+            xdotool_type_results: HashMap::new(),
         };
         let result = execute_insert_request_with_io(
             NativeInsertRequest {
@@ -1526,6 +1610,7 @@ mod tests {
             &NativeInsertionConfig {
                 auto_paste: true,
                 paste_delay_ms: 0,
+                xdotool_type_max_chars: 800,
             },
             1,
             NativeInsertPlatformContext {
@@ -1536,6 +1621,7 @@ mod tests {
                 has_xdotool: false,
                 has_wtype: true,
                 has_ydotool: true,
+            try_xdotool_type_first: false,
             },
             &mut io,
         );
@@ -1581,6 +1667,8 @@ mod tests {
             clipboard_texts: Vec::new(),
             clipboard_drivers: Vec::new(),
             paste_drivers: Vec::new(),
+            type_drivers: Vec::new(),
+            xdotool_type_results: HashMap::new(),
         };
 
         let result = execute_insert_request_with_io(
@@ -1593,6 +1681,7 @@ mod tests {
             &NativeInsertionConfig {
                 auto_paste: true,
                 paste_delay_ms: 0,
+                xdotool_type_max_chars: 800,
             },
             1,
             NativeInsertPlatformContext {
@@ -1603,6 +1692,7 @@ mod tests {
                 has_xdotool: false,
                 has_wtype: false,
                 has_ydotool: false,
+            try_xdotool_type_first: false,
             },
             &mut io,
         );
@@ -1633,6 +1723,7 @@ mod tests {
             has_xdotool: false,
             has_wtype: false,
             has_ydotool: false,
+            try_xdotool_type_first: false,
         });
 
         assert_eq!(status.platform_label, "Linux Wayland");
@@ -1661,6 +1752,7 @@ mod tests {
             has_xdotool: false,
             has_wtype: false,
             has_ydotool: false,
+            try_xdotool_type_first: false,
         });
 
         assert_eq!(status.platform_label, "Linux X11");
@@ -1690,5 +1782,219 @@ mod tests {
             .caveats
             .iter()
             .any(|item| item.contains("Terminal") || item.contains("VS Code")));
+    }
+
+    #[test]
+    fn x11_prefers_xdotool_type_for_short_text_without_touching_clipboard() {
+        let mut xd_results = HashMap::new();
+        xd_results.insert(NativeInsertDriver::XdotoolType, Ok(()));
+        let mut io = FakeInsertIo {
+            clipboard_results: HashMap::new(),
+            clipboard_read: None,
+            paste_results: HashMap::new(),
+            xdotool_type_results: xd_results,
+            scheduled_restores: Vec::new(),
+            waits: Vec::new(),
+            clipboard_texts: Vec::new(),
+            clipboard_drivers: Vec::new(),
+            paste_drivers: Vec::new(),
+            type_drivers: Vec::new(),
+        };
+        let result = execute_insert_request_with_io(
+            NativeInsertRequest {
+                text: "Kurzer Text".to_string(),
+                source: Some("test".to_string()),
+                corrected: Some(false),
+                auto_paste: Some(true),
+            },
+            &NativeInsertionConfig {
+                auto_paste: true,
+                paste_delay_ms: 0,
+                xdotool_type_max_chars: 800,
+            },
+            1,
+            NativeInsertPlatformContext {
+                auto_paste: true,
+                is_wayland: false,
+                has_x11_display: true,
+                has_wl_copy: false,
+                has_xdotool: true,
+                has_wtype: false,
+                has_ydotool: false,
+                try_xdotool_type_first: true,
+            },
+            &mut io,
+        );
+
+        assert!(result.ok);
+        assert_eq!(result.insert_mode, NativeInsertMode::DirectPaste);
+        assert_eq!(result.active_driver, NativeInsertDriver::XdotoolType);
+        assert_eq!(result.clipboard_written, false);
+        assert_eq!(io.type_drivers, vec![NativeInsertDriver::XdotoolType]);
+        assert_eq!(io.clipboard_drivers.len(), 0);
+    }
+
+    #[test]
+    fn x11_falls_back_when_text_exceeds_xdotool_threshold() {
+        let long_text = "a".repeat(900);
+        let mut io = FakeInsertIo {
+            clipboard_results: {
+                let mut m = HashMap::new();
+                m.insert(NativeInsertDriver::Arboard, Ok(()));
+                m
+            },
+            clipboard_read: None,
+            paste_results: {
+                let mut m = HashMap::new();
+                m.insert(NativeInsertDriver::Xdotool, Ok(()));
+                m
+            },
+            xdotool_type_results: HashMap::new(),
+            scheduled_restores: Vec::new(),
+            waits: Vec::new(),
+            clipboard_texts: Vec::new(),
+            clipboard_drivers: Vec::new(),
+            paste_drivers: Vec::new(),
+            type_drivers: Vec::new(),
+        };
+        let result = execute_insert_request_with_io(
+            NativeInsertRequest {
+                text: long_text,
+                source: Some("test".to_string()),
+                corrected: Some(false),
+                auto_paste: Some(true),
+            },
+            &NativeInsertionConfig {
+                auto_paste: true,
+                paste_delay_ms: 0,
+                xdotool_type_max_chars: 800,
+            },
+            1,
+            NativeInsertPlatformContext {
+                auto_paste: true,
+                is_wayland: false,
+                has_x11_display: true,
+                has_wl_copy: false,
+                has_xdotool: true,
+                has_wtype: false,
+                has_ydotool: false,
+                try_xdotool_type_first: true,
+            },
+            &mut io,
+        );
+
+        assert!(result.ok);
+        assert_eq!(result.active_driver, NativeInsertDriver::Xdotool);
+        assert_eq!(result.clipboard_written, true);
+        assert_eq!(io.type_drivers.len(), 0);
+    }
+
+    #[test]
+    fn x11_falls_back_to_clipboard_when_xdotool_type_fails() {
+        let mut xd_results = HashMap::new();
+        xd_results.insert(
+            NativeInsertDriver::XdotoolType,
+            Err("xdotool type failed".to_string()),
+        );
+        let mut io = FakeInsertIo {
+            clipboard_results: {
+                let mut m = HashMap::new();
+                m.insert(NativeInsertDriver::Arboard, Ok(()));
+                m
+            },
+            clipboard_read: None,
+            paste_results: {
+                let mut m = HashMap::new();
+                m.insert(NativeInsertDriver::Xdotool, Ok(()));
+                m
+            },
+            xdotool_type_results: xd_results,
+            scheduled_restores: Vec::new(),
+            waits: Vec::new(),
+            clipboard_texts: Vec::new(),
+            clipboard_drivers: Vec::new(),
+            paste_drivers: Vec::new(),
+            type_drivers: Vec::new(),
+        };
+        let result = execute_insert_request_with_io(
+            NativeInsertRequest {
+                text: "Kurzer Text".to_string(),
+                source: Some("test".to_string()),
+                corrected: Some(false),
+                auto_paste: Some(true),
+            },
+            &NativeInsertionConfig {
+                auto_paste: true,
+                paste_delay_ms: 0,
+                xdotool_type_max_chars: 800,
+            },
+            1,
+            NativeInsertPlatformContext {
+                auto_paste: true,
+                is_wayland: false,
+                has_x11_display: true,
+                has_wl_copy: false,
+                has_xdotool: true,
+                has_wtype: false,
+                has_ydotool: false,
+                try_xdotool_type_first: true,
+            },
+            &mut io,
+        );
+
+        assert!(result.ok);
+        assert_eq!(result.active_driver, NativeInsertDriver::Xdotool);
+        assert_eq!(io.type_drivers, vec![NativeInsertDriver::XdotoolType]);
+        assert!(!io.clipboard_texts.is_empty());
+    }
+
+    #[test]
+    fn x11_clipboard_only_mode_skips_xdotool_type() {
+        let mut io = FakeInsertIo {
+            clipboard_results: {
+                let mut m = HashMap::new();
+                m.insert(NativeInsertDriver::Arboard, Ok(()));
+                m
+            },
+            clipboard_read: None,
+            paste_results: HashMap::new(),
+            xdotool_type_results: HashMap::new(),
+            scheduled_restores: Vec::new(),
+            waits: Vec::new(),
+            clipboard_texts: Vec::new(),
+            clipboard_drivers: Vec::new(),
+            paste_drivers: Vec::new(),
+            type_drivers: Vec::new(),
+        };
+        let result = execute_insert_request_with_io(
+            NativeInsertRequest {
+                text: "Kurzer Text".to_string(),
+                source: Some("test".to_string()),
+                corrected: Some(false),
+                auto_paste: Some(false),
+            },
+            &NativeInsertionConfig {
+                auto_paste: false,
+                paste_delay_ms: 0,
+                xdotool_type_max_chars: 800,
+            },
+            1,
+            NativeInsertPlatformContext {
+                auto_paste: false,
+                is_wayland: false,
+                has_x11_display: true,
+                has_wl_copy: false,
+                has_xdotool: true,
+                has_wtype: false,
+                has_ydotool: false,
+                try_xdotool_type_first: true,
+            },
+            &mut io,
+        );
+
+        assert!(result.ok);
+        assert_eq!(result.insert_mode, NativeInsertMode::ClipboardOnly);
+        assert_eq!(result.clipboard_written, true);
+        assert_eq!(io.type_drivers.len(), 0);
     }
 }
