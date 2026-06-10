@@ -114,6 +114,17 @@ Zusatzregeln des aktiven Pfads:
 
 Explizit nicht naechste Baustelle dieser Produktphase sind `openwhispr`-Themen wie Notes, Search, Sync, MCP oder Assistant-Scope. Diese bleiben nachgelagert, bis WordScript als taegliches Diktierprodukt persoenlicher und vertrauenswuerdiger geworden ist.
 
+## Phasen-Status (V1-Konsolidierung)
+
+Die ausfuehrliche Roadmap mit Reihenfolge, Bedingungen und Phasen-Scope liegt in [docs/ROADMAP.md](./ROADMAP.md). Hier nur der aktuelle Stand der einzelnen V1-Phasen:
+
+- [x] **Phase 1 — Transkriptions-Bias, Profil-Health, Korpus** (Commit `a6005ca`, gemerged 2026-06-10). Korpus-Skelett unter `src-tauri/tests/fixtures/regression_transcripts.json`, profilgebundene Bias-Policy (`BiasMode` Conservative / Manual / Off + `ManualBias`), Profile-Health um `BiasPolicyWeak`-Flag erweitert, persistente `profile_health_acknowledged_flags`, Bias-Preview (`cloud_prompt_preview` / `local_prompt_preview`) in `TextRulesAnalysis`, Bias-Policy-Stage im Text-Rules-Tab. 246 Rust-Tests + 70 Frontend-Tests gruen, 0 Warnings.
+- [ ] **Phase 2 — Settings-Shell Polish.** Voraussetzung: Phase 1 (Bias-Policy-Stage muss existieren, bevor die Shell poliert wird). Siehe `VISION.md:154`.
+- [ ] **Phase 3 — Live-Preview und kontrollierter Commit im Overlay.** Voraussetzung: Phase 1 (Preview braucht Bias-Klarheit). Siehe `VISION.md:165`.
+- [ ] **Phase 4 — Provider-Stack-Ausbau** mit ehrlich getrennter `local` vs. `self_hosted` Semantik. Voraussetzung: stabiler `ProviderCommandError` / `ProviderStatus`-Vertrag. Siehe `VISION.md:166` und `REFERENCE.md` Modus-Semantik.
+- [ ] **Phase 5 — Lokale Runtime als first-class Produktoption.** Voraussetzung: Phase 4 (gleicher Provider-Vertrag). Siehe `VISION.md:167`.
+- [ ] **Phase 6 — Gefuehrter Setup- und Packaging-Pfad.** Kommt bewusst zuletzt, weil Setup-Gefuehrte nur dann ehrlich ist, wenn die zugrunde liegenden Pfade selbst ehrlich sind. Siehe `VISION.md:168`.
+
 ## Release build-up status
 
 - der aktive Repo-Pfad bleibt source-first mit `tauri dev`, hat aber wieder einen Build-Matrix-Workflow und Bundle-Ziele fuer Linux, macOS und Windows

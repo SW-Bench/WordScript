@@ -343,6 +343,7 @@ Jede verbliebene Datei im Doku-Set hat einen klaren Zweck:
 
 - `README.md`: Projektueberblick fuer neue Nutzer und Entwickler
 - `docs/VISION.md`: Produktziel, V1, V2 und aktueller Fokus
+- `docs/ROADMAP.md`: V1-Phasen-Roadmap mit Reihenfolge, Bedingungen und Phase-Scope; Phasen-Status wird in `STATUS.md` gepflegt
 - `docs/ARCHITECTURE.md`: Systemgrenzen und aktiver Runtime-Fluss
 - `docs/DEVELOPMENT.md`: Arbeitsmodus und Validation
 - `docs/DESIGN_SYSTEM.md`: UI-Regeln fuer Overlay und Settings
