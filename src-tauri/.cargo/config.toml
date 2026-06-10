@@ -1,0 +1,9 @@
+# sccache is optional. When installed and RUSTC_WRAPPER=sccache is set,
+# compiler output is shared across branches, worktrees and path renames.
+# Without sccache, Cargo falls back to direct rustc — no build errors.
+#
+# Install (once per machine):
+#   cargo install sccache --locked
+#   export RUSTC_WRAPPER=sccache >> ~/.bashrc
+[build]
+incremental = true

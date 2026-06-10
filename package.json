@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "clean:dev": "rm -rf src-tauri/target/debug && rm -rf node_modules/.vite"
   },
   "dependencies": {
     "@tauri-apps/api": "2.10.1",
@@ -18,7 +19,7 @@
     "lucide-react": "^1.16.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2"
+    "react-router-dom": "^6.30.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.10.1",
@@ -28,10 +29,10 @@
     "@types/node": "^25.6.2",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^6.0.2",
     "jsdom": "^29.1.1",
     "typescript": "^5.5.3",
-    "vite": "^5.4.1",
+    "vite": "^8.0.16",
     "vitest": "^4.1.6"
   },
   "overrides": {

@@ -42,6 +42,13 @@ semver      = "1"
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
 
+[profile.dev]
+# Dev builds: smaller target/ with debug=1 instead of debug=2.
+# Incremental remains on so re-compiles after `cargo clean` stay fast.
+debug         = 1
+incremental   = true
+codegen-units = 256
+
 [profile.release]
 # Smaller binary; LTO also helps
 opt-level   = "s"

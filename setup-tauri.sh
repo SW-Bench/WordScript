@@ -54,32 +54,41 @@ else
   echo -e "${GREEN}[2/5] Linux dependencies ready.${NC}"
 fi
 
-# ── 3. Node.js check ──────────────────────────────────────────────────────────
+# ── 3. Rust compiler cache (optional) ───────────────────────────────────────
+if command -v sccache &>/dev/null; then
+  echo -e "${GREEN}[3/6] sccache present: $(sccache --version)${NC}"
+else
+  echo -e "${YELLOW}[3/6] sccache not installed (optional, recommended for dev).${NC}"
+  echo -e "${GRAY}      Install via: cargo install sccache --locked${NC}"
+  echo -e "${GRAY}      Then add to ~/.bashrc: export RUSTC_WRAPPER=sccache${NC}"
+fi
+
+# ── 4. Node.js check ──────────────────────────────────────────────────────────
 if command -v node &>/dev/null; then
   NODE_VER=$(node -e "process.stdout.write(process.versions.node)")
   NODE_MAJOR="${NODE_VER%%.*}"
   if [[ "$NODE_MAJOR" -lt 18 ]]; then
-    echo -e "${RED}[3/5] Node.js $NODE_VER found but 18+ is required. Please upgrade.${NC}"
+    echo -e "${RED}[4/6] Node.js $NODE_VER found but 18+ is required. Please upgrade.${NC}"
     exit 1
   fi
-  echo -e "${GREEN}[3/5] Node.js $NODE_VER already installed.${NC}"
+  echo -e "${GREEN}[4/6] Node.js $NODE_VER already installed.${NC}"
 else
-  echo -e "${RED}[3/5] Node.js not found. Install v18+ from https://nodejs.org then re-run.${NC}"
+  echo -e "${RED}[4/6] Node.js not found. Install v18+ from https://nodejs.org then re-run.${NC}"
   exit 1
 fi
 
-# ── 4. npm install ────────────────────────────────────────────────────────────
-echo -e "${YELLOW}[4/5] Installing npm dependencies...${NC}"
+# ── 5. npm install ────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[5/6] Installing npm dependencies...${NC}"
 npm install
-echo -e "${GREEN}[4/5] npm dependencies installed.${NC}"
+echo -e "${GREEN}[5/6] npm dependencies installed.${NC}"
 
-# ── 5. Generate Tauri icons from assets/logo.png ──────────────────────────────
-echo -e "${YELLOW}[5/5] Generating app icons...${NC}"
+# ── 6. Generate Tauri icons from assets/logo.png ──────────────────────────────
+echo -e "${YELLOW}[6/6] Generating app icons...${NC}"
 if [[ -f "assets/logo.png" ]]; then
   npx tauri icon assets/logo.png
-  echo -e "${GREEN}[5/5] Icons generated in src-tauri/icons/.${NC}"
+  echo -e "${GREEN}[6/6] Icons generated in src-tauri/icons/.${NC}"
 else
-  echo -e "${YELLOW}[5/5] WARNING: assets/logo.png not found — icons not generated.${NC}"
+  echo -e "${YELLOW}[6/6] WARNING: assets/logo.png not found — icons not generated.${NC}"
   echo -e "${GRAY}      Create a 1024×1024 PNG at assets/logo.png then run: npx tauri icon assets/logo.png${NC}"
   mkdir -p src-tauri/icons
 fi
