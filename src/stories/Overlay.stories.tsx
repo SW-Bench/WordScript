@@ -4,7 +4,7 @@ const meta: Meta = {
   title: 'Design System/Overlay',
   parameters: {
     layout: 'fullscreen',
-    backgrounds: { default: 'gradient-dark' },
+    backgrounds: { default: 'wordscript-dark' },
   },
 };
 
@@ -12,62 +12,63 @@ export default meta;
 
 type Story = StoryObj;
 
-/* ── Shared Overlay Styles (from screenshots) ─────────────────────────────── */
+/* ─── Constants copied from Master ─────────────────────────────────────────── */
 
-const pillBase = {
-  display: 'flex' as const,
-  alignItems: 'center' as const,
-  gap: '10px',
-  padding: '8px 14px',
-  borderRadius: '999px',
-  background: 'rgba(13, 16, 23, 0.88)',
-  backdropFilter: 'blur(24px) saturate(1.3)',
-  WebkitBackdropFilter: 'blur(24px) saturate(1.3)',
-  border: '1px solid rgba(255, 255, 255, 0.06)',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 32px rgba(0,0,0,0.4)',
-};
+const BAR_COUNT = 11;
+const IDLE_WAVEFORM = [4, 5, 6, 8, 10, 12, 10, 8, 6, 5, 4];
 
-const pillButton = {
-  padding: '5px 12px',
-  borderRadius: '999px',
-  fontSize: '10px',
-  fontWeight: 600,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase' as const,
-  border: 'none',
-  cursor: 'pointer',
-};
+/* ─── MicIcon: copied 1:1 from Master ────────────────────────────────────── */
 
-const waveBar = (height: number) => ({
-  width: '3px',
-  height: `${height}px`,
-  borderRadius: '2px',
-  background: 'rgba(255,255,255,0.75)',
-});
+function MicIcon({ muted }: { muted: boolean }) {
+  const color = muted ? 'var(--red)' : 'var(--fg)';
+  return (
+    <svg width="34" height="40" viewBox="0 0 38 46" fill="none" aria-hidden="true">
+      <rect x="12" y="3" width="14" height="24" rx="7" fill={color} />
+      <path d="M6 21c0 17 26 17 26 0" stroke={color} strokeWidth="4" fill="none" strokeLinecap="round" />
+      <line x1="19" y1="35" x2="19" y2="41" stroke={color} strokeWidth="4" strokeLinecap="round" />
+      <line x1="11" y1="42" x2="27" y2="42" stroke={color} strokeWidth="4" strokeLinecap="round" />
+      {muted && (
+        <line x1="7" y1="6" x2="31" y2="40" stroke="var(--red)" strokeWidth="4" strokeLinecap="round" />
+      )}
+    </svg>
+  );
+}
 
-/* ── Stories ──────────────────────────────────────────────────────────────── */
+/* ─── Helper: render bars ────────────────────────────────────────────────── */
 
-export const DoneState: Story = {
+function Bars({ heights, muted = false }: { heights: number[]; muted?: boolean }) {
+  return (
+    <div className="pill__bars" aria-label="Audio level">
+      {Array.from({ length: BAR_COUNT }, (_, i) => (
+        <div
+          key={i}
+          className={`bar${muted ? ' bar--muted' : ''}`}
+          style={{ height: heights[i] ?? 4 }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ─── Stories ──────────────────────────────────────────────────────────────── */
+
+export const ReadyState: Story = {
   render: () => (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #0f1418 0%, #1a2332 100%)',
-    }}>
-      <div style={pillBase}>
-        <button style={{ ...pillButton, background: 'rgba(255,255,255,0.08)', color: '#fff' }}>
-          Copy
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--compact">
+        <button type="button" className="pill__mic" title="Mute">
+          <MicIcon muted={false} />
         </button>
-        <button style={{ ...pillButton, background: 'rgba(255,255,255,0.08)', color: '#fff' }}>
-          Edit
-        </button>
-        <div style={{ width: '1px', height: '18px', background: 'rgba(255,255,255,0.1)' }} />
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '1px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>Done</span>
-          <span style={{ fontSize: '9px', fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)' }}>Deserters</span>
+        <div className="pill__center">
+          <Bars heights={IDLE_WAVEFORM} />
         </div>
+        <div className="pill__divider" />
+        <button type="button" className="pill__side" title="Open Settings">
+          <span className="pill__side-copy">
+            <span className="pill__timer">00:00</span>
+            <span className="pill__side-label">Settings</span>
+          </span>
+        </button>
       </div>
     </div>
   ),
@@ -75,38 +76,65 @@ export const DoneState: Story = {
 
 export const RecordingState: Story = {
   render: () => (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #0f1418 0%, #1a2332 100%)',
-    }}>
-      <div style={{
-        ...pillBase,
-        padding: '10px 16px',
-        gap: '14px',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 0 24px rgba(230, 137, 0, 0.25), 0 8px 32px rgba(0,0,0,0.4)',
-      }}>
-        {/* Mic Icon */}
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-          <line x1="12" y1="19" x2="12" y2="22" />
-        </svg>
-
-        {/* Waveform */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', height: '28px' }}>
-          {[12, 18, 10, 22, 16, 8, 20, 14, 24, 10, 16, 20, 12, 18, 8, 14, 22, 16].map((h, i) => (
-            <div key={i} style={waveBar(h)} />
-          ))}
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--compact pill--recording">
+        <button type="button" className="pill__mic" title="Mute">
+          <MicIcon muted={false} />
+        </button>
+        <div className="pill__center">
+          <Bars heights={[8, 14, 22, 18, 26, 30, 24, 16, 12, 8, 6]} />
         </div>
+        <div className="pill__divider" />
+        <button type="button" className="pill__side" title="Agent mode · pause recording">
+          <span className="pill__side-copy">
+            <span className="pill__timer">00:06</span>
+            <span className="pill__side-label">Agent</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  ),
+};
 
-        {/* Timer + Agent */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>00:06</span>
-          <span style={{ fontSize: '8px', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)' }}>Agent</span>
+export const MutedState: Story = {
+  render: () => (
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--compact pill--recording pill--muted">
+        <button type="button" className="pill__mic" title="Unmute">
+          <MicIcon muted={true} />
+        </button>
+        <div className="pill__center">
+          <Bars heights={[6, 8, 10, 12, 14, 16, 14, 12, 10, 8, 6]} muted />
         </div>
+        <div className="pill__divider" />
+        <button type="button" className="pill__side" title="Agent mode · pause recording">
+          <span className="pill__side-copy">
+            <span className="pill__timer">00:06</span>
+            <span className="pill__side-label">Muted</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  ),
+};
+
+export const PausedState: Story = {
+  render: () => (
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--compact pill--recording pill--paused">
+        <button type="button" className="pill__mic" title="Mute">
+          <MicIcon muted={false} />
+        </button>
+        <div className="pill__center">
+          <Bars heights={[4, 5, 6, 8, 10, 12, 10, 8, 6, 5, 4]} />
+        </div>
+        <div className="pill__divider" />
+        <button type="button" className="pill__side" title="Resume recording">
+          <span className="pill__side-copy">
+            <span className="pill__timer">00:06</span>
+            <span className="pill__side-label">Paused</span>
+          </span>
+        </button>
       </div>
     </div>
   ),
@@ -114,38 +142,47 @@ export const RecordingState: Story = {
 
 export const ProcessingState: Story = {
   render: () => (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #0f1418 0%, #1a2332 100%)',
-    }}>
-      <div style={pillBase}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e68900" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }}>
-          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-        </svg>
-        <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--accent)' }}>Processing...</span>
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--compact pill--processing">
+        <button type="button" className="pill__mic" title="Mute">
+          <MicIcon muted={false} />
+        </button>
+        <div className="pill__center">
+          <div className="pill__bars" aria-label="Audio level">
+            {Array.from({ length: BAR_COUNT }, (_, i) => (
+              <div key={i} className="bar" style={{ height: IDLE_WAVEFORM[i] }} />
+            ))}
+          </div>
+        </div>
+        <div className="pill__divider" />
+        <button type="button" className="pill__side" title="Cleanup mode · processing">
+          <span className="pill__side-copy">
+            <span className="pill__timer">00:06</span>
+            <span className="pill__side-label">Cleanup</span>
+          </span>
+        </button>
       </div>
     </div>
   ),
 };
 
-export const ReadyState: Story = {
+export const DoneState: Story = {
   render: () => (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #0f1418 0%, #1a2332 100%)',
-    }}>
-      <div style={pillBase}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-        </svg>
-        <span style={{ fontSize: '12px', fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>Ready</span>
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--result-actions">
+        <div className="pill__center pill__center--actions">
+          <div className="pill__action-strip" aria-label="Result actions">
+            <button type="button" className="pill__action-button">Copy</button>
+            <button type="button" className="pill__action-button">Edit</button>
+          </div>
+        </div>
+        <div className="pill__divider" />
+        <button type="button" className="pill__side pill__side--action" title="Dismiss">
+          <span className="pill__side-copy">
+            <span className="pill__timer">Done</span>
+            <span className="pill__side-label">Dismiss</span>
+          </span>
+        </button>
       </div>
     </div>
   ),
@@ -153,68 +190,24 @@ export const ReadyState: Story = {
 
 export const EditModal: Story = {
   render: () => (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #0f1418 0%, #1a2332 100%)',
-      padding: '24px',
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: '440px',
-        padding: '16px',
-        borderRadius: '16px',
-        background: 'rgba(13, 16, 23, 0.92)',
-        backdropFilter: 'blur(24px) saturate(1.3)',
-        WebkitBackdropFilter: 'blur(24px) saturate(1.3)',
-        border: '1px solid rgba(255, 255, 255, 0.06)',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 20px 60px rgba(0,0,0,0.5)',
-      }}>
-        <textarea
-          defaultValue="edit test"
-          style={{
-            width: '100%',
-            minHeight: '80px',
-            padding: '12px',
-            borderRadius: '10px',
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: '#fff',
-            fontSize: '13px',
-            fontFamily: 'var(--font)',
-            lineHeight: 1.5,
-            resize: 'none',
-            outline: 'none',
-          }}
-        />
-        <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-          <button style={{ ...pillButton, background: 'var(--accent)', color: '#0f1418' }}>
-            Confirm
-          </button>
-          <button style={{ ...pillButton, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
-            Cancel
-          </button>
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--edit-mode">
+        <div className="pill__edit-body">
+          <textarea
+            className="pill__edit-textarea"
+            defaultValue="edit test"
+            aria-label="Edit transcription text"
+          />
+          <div className="pill__edit-footer">
+            <button type="button" className="pill__action-button pill__action-button--primary">
+              Confirm
+            </button>
+            <button type="button" className="pill__action-button">
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  ),
-};
-
-export const AllStates: Story = {
-  render: () => (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '24px',
-      background: 'linear-gradient(135deg, #0f1418 0%, #1a2332 100%)',
-      padding: '48px',
-    }}>
-      {/* Individual stories shown above */}
     </div>
   ),
 };
