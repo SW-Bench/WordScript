@@ -17,19 +17,25 @@ Das Design System beschreibt die aktive Produktsprache von WordScript. Es ist ke
 ## Aktuelles UI-Zielbild
 
 - Das aktuelle Problem ist nicht mehr fehlende Flaeche, sondern fehlende Ruhe, Hierarchie und Produktklarheit.
-- Die aktuelle UI-Hauptbaustelle sind vor allem die Settings-Tabs und ihre Fuehrung. Das Overlay ist derzeit nicht die primaere Design-Baustelle und soll ohne neue Runtime-Anforderung nicht noch einmal breit umgestaltet werden.
-- Das Zielbild fuer Settings und Overlay ist eine kleine, fokussierte Utility-App mit klarer Sidebar/Main-Struktur, wenigen visuellen Ebenen und knapper, weicher Motion.
-- macOS bleibt eine Referenz fuer Produktpolish, ist aber keine Einladung fuer generische OS-Mockups, fake Traffic-Lights oder andere plattformfremde Desktop-Parodien in WordScript.
-- Die bestehende Settings-Shell ist die Hauptbasis fuer den aktuellen Utility-Pass und muss vor weiterem Scope-Ausbau in Informationsarchitektur, Spacing, Zustandsklarheit und wahrgenommener Smoothness bewusst ruhig gehalten werden.
-- Der aktive UI-Pass fuehrt diese Richtung jetzt ueber eine gruppierte Utility-Sidebar, native Fensterkontrollen im Host, einen kompakten Tab-Header und genau eine dominante Content-Surface pro Tab fort.
+- Die Settings-Tabs werden zur **WordScript Shell** — einer Sidebar-navigierten Hauptflaeche mit Card-basiertem Layout.
+- Das Overlay bleibt fokussiert, bekommt aber echte Glassmorphism ueber Tauri-transparente Fenster.
+- Das Zielbild ist eine native, polished Voice-Workstation mit SW-labs-Orange-Identitaet, nicht ein generisches Web-UI im Dark Mode.
+- macOS-HIG ist die primaere Referenz: Elevation durch Background, nicht Shadow; minimale Borders; knappe Motion.
+- **Keine fake Traffic-Lights, keine generischen OS-Mockups.** Native Fensterkontrollen ueber Tauri `titleBarStyle: "Overlay"` (macOS) oder Host-Dekoration (Windows/Linux).
+- Der aktive UI-Pass fuehrt diese Richtung ueber eine Utility-Sidebar (200px), Card-Layout, Segment-Controls, Toggle-Switches und Preview-Tabs fuer zukuenftigen Scope.
+- Siehe `docs/UI_UX_OVERHAUL_PLAN.md` fuer den vollstaendigen Plan.
 
 ## UI-Donoren und Stilreferenzen
 
 - Primaere Produktdonoren fuer diesen UI-Pass bleiben `VoiceInk`, `FluidVoice` und `OpenSuperWhisper`.
+- **Neu hinzugekommen: `OpenWhispr`** (nicht OpenWhisper) als primaere Informationsarchitektur-Referenz fuer die neue WordScript Shell. OpenWhispr liefert die Sidebar-Navigation, Settings-Karten-Struktur, Onboarding-Steps und die Aufteilung in Dictate/Notes/Upload/Dictionary/Chat/Settings.
 - Diese Repos liefern nicht nur Look, sondern produktrelevante Patterns fuer Overlay-Ruhe, Live-Preview, Mode-Denken, Dictionary-Naehe und macOS-native Utility-Fuehrung.
 - Sekundaere Stil- und UX-Referenzen werden jetzt in drei Lanes gelesen: `menu bar utilities` mit `Ice`, `MonitorControl` und `Clipy`; `keyboard-first command surfaces` mit `raycast/extensions`, `massCode`, `Zed` und `AeroSpace`; sowie `desktop productivity shells` mit `Spacedrive`, `Mullvad VPN`, `Beekeeper Studio`, `Standard Notes` und `UTM`.
 - Zusaetzliche React-/TypeScript-Stilreferenzen fuer Shell und Komponenten bleiben [surajmandalcell/darwin-ui](https://github.com/surajmandalcell/darwin-ui), [andrejilderda/desktop-ui](https://github.com/andrejilderda/desktop-ui) und [kitlib/tauri-app-template](https://github.com/kitlib/tauri-app-template).
+- **UI-UX-Pro-Max Skill** liefert die strukturelle Design-Datenbank: "Operation orange on dark" Calculator-Palette (Background `#1C1917`, Card `#262321`, Muted `#2C1E16`, Border `rgba(255,255,255,0.08)`), Typography-Scale, Motion-Tokens und Accessibility-Checklisten.
+- **Context7 (Tauri v2 + React 19)** liefert die technische Umsetzung: `titleBarStyle: "Overlay"`, `transparent: true`, `macOSPrivateApi`, React 19 ViewTransitions fuer Tab-Wechsel.
 - Diese Stilreferenzen duerfen Window-Chrome, Sidebar-Rhythmus, Control-Sprache, Secondary-Surfaces, Action-Naming und Tauri-App-Shell-Ideen liefern, aber nicht den aktiven Produktpfad in ein generisches Web-OS, eine IDE, einen File Manager oder eine VPN-App verwandeln.
+- **Siehe auch `docs/UI_UX_OVERHAUL_PLAN.md`** fuer den vollstaendigen v2-Umsetzungsplan.
 
 ## Aktive Oberflaechen
 
@@ -100,43 +106,86 @@ Diagnostische History- und Hint-Listen sollen als isolierte, stabile Teilbaeume 
 
 ## Layout-Regeln
 
-- Overlay-Fenster: kompakte `256x52` Host-Buehne fuer Live-Aufnahme mit `248x44` Pill; Preview- und Result-States duerfen innerhalb desselben Host-Pfads auf breitere Frames wachsen, damit `Copy`, `Retry`, `Restore`, `Abort` und `Done` voll lesbar bleiben. Idle wird nativ ausserhalb des sichtbaren Bereichs geparkt
-- Settings-Fenster: `1080x820`, Mindestgroesse `980x760`
+- Overlay-Fenster: Tauri `transparent: true`, `alwaysOnTop: true`, `decorations: false`. Pill mit `backdrop-filter: blur(20px)`. Idle wird nativ unsichtbar geparkt.
+- Main Window (Shell): `980x720`, Mindestgroesse `760x540`. Tauri `titleBarStyle: "Overlay"` (macOS) oder Host-Dekoration (Win/Linux). `decorations: false` fuer Custom Chrome.
 - Diagnostics-Pop-out: `1040x780`, Mindestgroesse `900x680`
-- Sidebar + Main-Panel statt frei schwebender Card-Landschaft
-- kompakter Header mit Status und ein einziges Hauptpanel statt Hero-/Rail-Verschachtelung
+- Sidebar: `200px` breit, nicht scrollbar. Preview-Tabs unten mit `opacity: 0.35`.
+- Content: Card-basiertes Layout, `border-radius: 12px`, `padding: 20px`, `gap: 16px`.
+- Elevation durch Background (`--surface`, `--surface-elevated`), nicht durch Shadow.
 
 ## Typografie
 
-Die aktiven Font-Tokens in `src/styles/globals.css` sind:
+Font-Tokens in `src/styles/globals.css`:
 
 - `--font-display`: Aptos Display, SF Pro Display, Segoe UI Variable Display, Noto Sans
 - `--font`: Aptos, SF Pro Text, Segoe UI Variable, Noto Sans
 - `--font-mono`: IBM Plex Mono, Cascadia Code, SF Mono, Consolas
+
+Type Scale:
+
+| Token | Groesse | Weight | Verwendung |
+|-------|---------|--------|------------|
+| `--text-display-lg` | 28px | 600 | Bereichs-Titel |
+| `--text-display` | 24px | 600 | Modale Titel |
+| `--text-title` | 18px | 600 | Card-Ueberschriften (gross) |
+| `--text-body-lg` | 15px | 400 | Wichtiger Body-Text |
+| `--text-body` | 13px | 400 | Standard-Body |
+| `--text-body-sm` | 12px | 400 | Sekundaere Info |
+| `--text-label` | 11px | 500 | uppercase, tracking 0.05em | Card-Sektions-Titel, Sidebar-Labels |
+| `--text-caption` | 10px | 500 | uppercase, tracking 0.08em | Status-Badges |
 
 Regeln:
 
 - Display-Schrift nur fuer starke Oberflaechenmomente wie Titel und markante Statuslabels
 - Body-Schrift fuer Formulare, Copy und Hilfetexte
 - Monospace nur fuer Logs, Pfade und technisches Debugging
+- Body-Text niemals unter 12px
+- Sidebar-Labels: 11px, weight 500, uppercase, tracking 0.01em
 
 ## Farb- und Statussprache
 
-- dunkle Shell als Grundflaeche
-- warmer Akzent fuer aktive Call-to-Actions und Hervorhebungen
-- Gruen nur fuer echten positiven Status, nicht als generische Primaerfarbe
-- Rot fuer Fehler und blockierende Probleme
-- kuehlere Toene fuer laufende Verarbeitung und technische Zustandsfelder
+Aktive Farb-Tokens in `src/styles/globals.css` (v2):
 
-Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmuster eingefuehrt werden, nicht ueber isolierte Ad-hoc-Hexwerte.
+| Token | Wert | Verwendung |
+|-------|------|------------|
+| `--bg` | `#0f1418` | Haupt-Hintergrund |
+| `--surface` | `rgba(22, 29, 35, 0.92)` | Cards, Modals |
+| `--surface-elevated` | `#1b242c` | Erhoehte Cards |
+| `--surface-strong` | `#202a33` | Inputs, Buttons |
+| `--fg` | `#f3efe4` | Primaerer Text |
+| `--fg-dim` | `#92a0ad` | Sekundaerer Text |
+| `--fg-muted` | `#667380` | Deaktiviert, Placeholder |
+| `--accent` | `#e68900` | **SW-labs Orange** — Primary Actions, Active States |
+| `--accent-hover` | `#ff9800` | Hover auf Accent |
+| `--accent-strong` | `#f5a623` | Glows, Highlights |
+| `--accent-soft` | `rgba(230, 137, 0, 0.15)` | Subtile Hintergruende, Focus-Rings |
+| `--accent-muted` | `#2c1e16` | Orange-tinted muted |
+| `--border` | `rgba(255, 255, 255, 0.08)` | Trennlinien |
+| `--border-strong` | `rgba(255, 255, 255, 0.14)` | Hover-Borders |
+| `--green` | `#81d6ae` | Erfolg, positive Runtime |
+| `--red` | `#ff7a6b` | Fehler, blockierende Probleme |
+
+Regeln:
+
+- **SW-labs Orange** (`--accent`, `#e68900`) ist das zentrale Markenzeichen fuer alle interaktiven Primary-States.
+- Elevation durch Background-Variation (`--bg` > `--surface` > `--surface-elevated` > `--surface-strong`), nicht durch Box-Shadow.
+- Borders extrem subtil (`rgba(255,255,255,0.08)`).
+- Text in drei Stufen: `fg` > `fg-dim` > `fg-muted`.
+- Gruen nur fuer echten positiven Status, nicht als generische Primaerfarbe.
+- Rot fuer Fehler und blockierende Probleme.
+- Neue Farben sollen ueber bestehende CSS-Variablen eingefuehrt werden, nicht ueber isolierte Ad-hoc-Hexwerte.
 
 ## Overlay-Regeln
 
+- Tauri-Fenster: `transparent: true`, `alwaysOnTop: true`, `decorations: false`, `skipTaskbar: true`.
+- Pill: `backdrop-filter: blur(20px) saturate(1.2)`, `background: rgba(13, 18, 23, 0.72)`, `border: 1px solid rgba(255,255,255,0.08)`, `border-radius: 20px`.
+- Linux-Fallback (kein `backdrop-filter`): solid `var(--bg)` ohne Blur.
+- Orangener Glow im Recording-Zustand: `box-shadow: 0 0 20px rgba(230, 137, 0, 0.4)`.
 - linke Mic-Aktion fuer Mute nur im Aufnahme-/Processing-Zustand ohne Action-Strip
 - zentrale Waveform ohne erklaerenden Hilfetext im Normalfall
 - rechte Timerzone fuer Zeit und Kontextaktion
 - Fehlerhinweise so knapp wie moeglich, aber handlungsorientiert
-- keine Sweep-, Glow- oder Blur-Layer ausserhalb der sichtbaren Pill
+- keine Sweep- oder Blur-Layer ausserhalb der sichtbaren Pill
 - nach dem Lauf darf das Overlay seinen Inhalt innerhalb derselben festen Pill auf Action-Buttons umschalten, aber keine zweite vergroesserte Preview-Surface mit eigenem Hintergrund aufmachen
 - Nachlauf-Quick-Actions bleiben knapp und produktiv: nur Aktionen mit echter nativer Bindung (`copy`, `retry`, `restore`, `done`) duerfen als Buttons erscheinen
 - Processing-Preview-Aktionen bleiben ebenso knapp: fuer den ersten Pass duerfen nur echte Session-Aktionen wie Commit entlang des nativen Insert-Pfads oder expliziter Abort sichtbar sein
@@ -148,12 +197,12 @@ Neue Farben sollen ueber bestehende CSS-Variablen und bestehende Oberflaechenmus
 - derselbe Overlay-Pfad muss in jedem Zustand dragbar bleiben, ohne Single-Click-Aktionen auf Buttons zu verlieren; die Drag-Geste beginnt deshalb erst nach echter Pointer-Bewegung
 - die Waveform soll Sprache sichtbar aussteuern; near-idle Raumrauschen soll wieder in eine ruhige Idle-Silhouette zurueckfallen, waehrend echte Sprache klar hoeher und lebendiger aussteuern darf als im Idle-Zustand
 
-## Settings-Regeln
+## Settings-Regeln (Shell)
 
-- native Fensterdekorationen im Settings-Fenster; keine plattformfremden Fake-Controls im Content
+- Main Window (Shell): `titleBarStyle: "Overlay"` (macOS) mit nativen Traffic Lights; auf Win/Linux Host-Dekoration oder custom Titlebar. Keine Fake-Controls im Content.
 - dieselbe native Dekorationsregel gilt fuer das Diagnostics-Pop-out
-- Sidebar fuer Orientierung, Main-Panel fuer Inhalt
-- gruppierte Sidebar-Navigation darf `Configure` und `Inspect` sichtbar trennen, solange die Reihenfolge stabil bleibt
+- Sidebar (200px) fuer Orientierung, Main-Panel fuer Inhalt
+- gruppierte Sidebar-Navigation: aktive Bereiche oben, Preview-Tabs unten
 - der kompakte Tab-Header darf genau einen Snapshot aus Runtime-Status und Save-Zustand zeigen; er ist Orientierung, nicht Marketing
 - der aktuelle Polish-Pass priorisiert Provider & Models, Text Rules, About und Diagnostics als Utility-Flaechen. Overlay-only Restyling ist nachgeordnet, solange Transkriptionsvertrauen und Setup-Fuehrung noch die groesseren Produktluecken sind
 - Fenster-Minima muessen gross genug bleiben, damit Sidebar, Footer und Hauptinhalte beim nativen Resize nicht visuell verschwinden oder in mobileartige Notlayouts kippen
@@ -198,12 +247,26 @@ Die Text-Rules-Flaeche muss die reale Laufzeitsemantik exakt spiegeln:
 
 ## Motion und Plattformgrenzen
 
-Unter Linux/WebKitGTK gelten strengere Regeln als in generischen Web-UIs:
+Motion-Tokens (aus UI-UX-Pro-Max Skill und macOS HIG):
 
-- keine Blur- oder Backdrop-Abhaengigkeit fuer den Produktkern
-- keine Animation, die auf unsicheren transparenten Aussenflaechen beruht
-- Overlay-Animationen muessen innerhalb der Pill bleiben
-- schwarze Fensterflaechen ausserhalb der Shell gelten als Defekt
+| Animation | Dauer | Easing |
+|-----------|-------|--------|
+| Tab-Wechsel | 150ms | `cubic-bezier(0.25, 0.1, 0.25, 1.0)` |
+| Sidebar-Hover | 100ms | `ease-out` |
+| Toggle-Switch | 150ms | `ease-out` |
+| Button-Press | 50ms | `ease-out` (`scale(0.97)`) |
+| Overlay-Glow-Puls | 2000ms | `ease-in-out` (infinite) |
+
+Regeln:
+- Nur `transform` und `opacity` animieren; kein `width`, `height`, `top`, `left`.
+- `prefers-reduced-motion: reduce` = alle Animationen instant.
+- Keine dekorativen Animationen — jede Bewegung muss einen Zweck haben.
+
+Plattformgrenzen:
+- **macOS**: `macOSPrivateApi: true` fuer transparente Overlay-Fenster. Verhindert App Store, aber WordScript ist ein Dev-Tool.
+- **Linux/WebKitGTK**: Kein `backdrop-filter`. Overlay-Pill faellt auf solid `var(--bg)` zurueck.
+- **Windows**: Transparente Fenster verfuegbar; Blur je nach WebView2-Version.
+- Schwarze Fensterflaechen ausserhalb der Shell gelten als Defekt.
 
 ## Was das Design System bewusst nicht ist
 

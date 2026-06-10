@@ -69,6 +69,8 @@ Die aktuelle Planungsrichtung dafuer ist:
 - optionaler WordScript-Account statt Zwangslogin
 - WordScript-eigener Sync-Service statt externer Produkt-Hub als Pflicht-Backend
 - kein Peer-to-Peer-Primarmodell fuer die langfristige Plattform
+- **UI/UX-Overhaul zur nativen macOS-Shell** als Voraussetzung fuer den V2-Ausbau; siehe `docs/UI_UX_OVERHAUL_PLAN.md`
+- **Ausgegraute Preview-Tabs** (Chat, Upload, Notes, Workspace, Account) als ehrlicher Vorgeschmack auf zukuenftigen Scope
 
 ## Langfristige Plattform-Richtung
 

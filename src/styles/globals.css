@@ -1,34 +1,86 @@
-/* ── Design tokens ──────────────────────────────────────────────────────────── */
+/* ── Design tokens v2 ───────────────────────────────────────────────────────── */
+/* Quellen: UI-UX-Pro-Max "Operation orange on dark", macOS HIG, Tauri v2 APIs  */
+
 :root {
+  /* ── Backgrounds ── */
   --bg: #0f1418;
   --bg-elevated: #161d23;
-  --surface: rgba(22, 29, 35, 0.92);
-  --surface-strong: #1b242c;
-  --surface-soft: rgba(245, 206, 123, 0.08);
   --sidebar: rgba(13, 18, 23, 0.88);
+
+  /* ── Surfaces (Elevation durch Background, nicht Shadow) ── */
+  --surface: rgba(22, 29, 35, 0.92);
+  --surface-elevated: #1b242c;
+  --surface-strong: #202a33;
+  --surface-soft: rgba(245, 206, 123, 0.08);
+
+  /* ── Foregrounds ── */
   --fg: #f3efe4;
   --fg-dim: #92a0ad;
   --fg-muted: #667380;
-  --accent: #f3ce7b;
-  --accent-strong: #ffd56c;
-  --accent-soft: rgba(243, 206, 123, 0.16);
-  --voice: #87e6d7;
-  --voice-soft: rgba(244, 177, 57, 0.18);
-  --btn-bg: #202a33;
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.18);
+
+  /* ── SW-labs Orange Accent ── */
+  --accent: #e68900;
+  --accent-hover: #ff9800;
+  --accent-strong: #f5a623;
+  --accent-soft: rgba(230, 137, 0, 0.15);
+  --accent-muted: #2c1e16;
+
+  /* ── Semantic ── */
   --green: #81d6ae;
   --red: #ff7a6b;
-  --orange: #efb36a;
+  --orange: #e68900;
+  --voice: #87e6d7;
+  --voice-soft: rgba(230, 137, 0, 0.18);
+
+  /* ── Buttons ── */
+  --btn-bg: #202a33;
+  --btn-primary-bg: var(--accent);
+  --btn-primary-fg: #0f1418;
+
+  /* ── Borders ── */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* ── Shadows (minimal, nur wo noetig) ── */
+  --shadow-pill: 0 8px 32px rgba(0, 0, 0, 0.25);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.4);
+  --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.2);
+
+  /* ── Radius ── */
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-toggle: 8px;
+  --radius-badge: 4px;
+  --radius-pill: 20px;
   --radius-lg: 24px;
   --radius-md: 16px;
   --radius-sm: 10px;
 
+  /* ── Spacing (4pt Grid) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ── Typography ── */
   --font-display: "Aptos Display", "SF Pro Display", "Segoe UI Variable Display", "Noto Sans", sans-serif;
   --font: "Aptos", "SF Pro Text", "Segoe UI Variable", "Noto Sans", sans-serif;
   --font-mono: "IBM Plex Mono", "Cascadia Code", "SF Mono", "Consolas", monospace;
+
+  --text-display-lg: 28px;
+  --text-display: 24px;
+  --text-title: 18px;
+  --text-body-lg: 15px;
+  --text-body: 13px;
+  --text-body-sm: 12px;
+  --text-label: 11px;
+  --text-caption: 10px;
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────────── */
@@ -46,6 +98,8 @@ body {
   height: 100%;
   background: transparent;
   font-family: var(--font);
+  font-size: var(--text-body);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--fg);
@@ -57,11 +111,17 @@ body {
   height: 100%;
 }
 
+/* ── Main Window Background ── */
 body:not(.overlay-window) {
   background-image:
-    radial-gradient(circle at top left, rgba(243, 206, 123, 0.14), transparent 28%),
-    radial-gradient(circle at 80% 20%, rgba(244, 177, 57, 0.12), transparent 24%),
+    radial-gradient(circle at top left, rgba(230, 137, 0, 0.14), transparent 28%),
+    radial-gradient(circle at 80% 20%, rgba(255, 152, 0, 0.10), transparent 24%),
     linear-gradient(180deg, #0f1418 0%, #0b1014 100%);
+}
+
+/* ── Overlay Window (transparent fuer Glassmorphism) ── */
+body.overlay-window {
+  background: transparent !important;
 }
 
 /* ── Scrollbar ──────────────────────────────────────────────────────────────── */
@@ -69,3 +129,142 @@ body:not(.overlay-window) {
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+/* ── Reduced Motion ─────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Selection ──────────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+/* ── Focus States ───────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Utility Classes (Basis) ────────────────────────────────────────────────── */
+.ws-card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+  transition: border-color 150ms ease-out;
+}
+
+.ws-card:hover {
+  border-color: var(--border-strong);
+}
+
+.ws-card-title {
+  font-size: var(--text-label);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  margin-bottom: var(--space-4);
+}
+
+.ws-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  font-size: var(--text-label);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: background 100ms ease-out, color 100ms ease-out;
+  position: relative;
+}
+
+.ws-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--fg);
+}
+
+.ws-sidebar-item.active {
+  color: var(--fg);
+}
+
+.ws-sidebar-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.ws-sidebar-item.preview {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.ws-pill {
+  background: rgba(13, 18, 23, 0.72);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-pill);
+  box-shadow:
+    var(--shadow-pill),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.ws-btn-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  border: none;
+  border-radius: var(--radius-button);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms ease-out, transform 50ms ease-out;
+}
+
+.ws-btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.ws-btn-primary:active {
+  transform: scale(0.97);
+}
+
+.ws-btn-secondary {
+  background: var(--btn-bg);
+  color: var(--fg);
+  border: none;
+  border-radius: var(--radius-button);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms ease-out, transform 50ms ease-out;
+}
+
+.ws-btn-secondary:hover {
+  background: var(--surface-strong);
+}
+
+.ws-btn-secondary:active {
+  transform: scale(0.97);
+}
