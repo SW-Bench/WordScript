@@ -277,7 +277,7 @@ WordScript modelliert Plattformgrenzen explizit:
 
 - macOS und Windows sind die Tier-1-Zielpfade
 - Linux X11 ist Preview
-- Linux Wayland bleibt experimentell: hybride Sessions (X11+Wayland) nutzen `xdotool type` (Fake-Input ueber XWayland, nicht XTEST) als ersten Paste-Pfad und `enigo` als Hybrid-Fallback, reine Wayland-Sessions (kein `DISPLAY`) verwenden ausschliesslich Clipboard + manuelles Paste, weil `wtype`/`ydotool`/`enigo` sonst den Wayland-Portal-Prompt "Control input devices" ausloesen wuerden
+- Linux Wayland ist compositorspezifisch: KDE Plasma 6 und GNOME Mutter erreichen direkten Auto-Paste ueber einen einmaligen `xdg-desktop-portal`-RemoteDesktop-Grant (Status `Preview-lite`); hybride X11+Wayland-Sessions bleiben auf `xdotool type` ueber XWayland, klassifizieren aber den KDE-Plasma-Portal-Prompt und fallen bei Erkennung auf Clipboard-only zurueck; reine Wayland-Sessions (kein `DISPLAY`) bleiben Clipboard-only, weil `wtype`/`ydotool`/`enigo` weiterhin den "Control input devices"-Dialog ausloesen wuerden; Hyprland, Sway und KDE Plasma 5 haben keinen stabilen Portal-Grant und bleiben daher experimental
 
 Das ist keine Marketing-Sprache, sondern Teil des Insert- und Support-Modells.
 

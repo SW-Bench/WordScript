@@ -5,6 +5,7 @@ pub mod history;
 pub mod insertion;
 pub mod mode_router;
 pub mod paths;
+pub mod portal;
 pub mod prompt_enhance;
 pub mod providers;
 pub mod runtime_log;
