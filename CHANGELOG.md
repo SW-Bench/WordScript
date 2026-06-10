@@ -104,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - active config and settings terminology now use `provider` consistently, while the old JSON `groq_api_key` survives only as an explicit legacy migration field
 - legacy Groq-secret migration now happens in the native config/provider path before save, so the frontend no longer owns or receives the legacy secret field
 - Linux insertion now uses an explicit native driver chain with visible helper diagnostics for `wl-copy`, `xdotool`, `wtype`, `ydotool`, `enigo` and scratchpad recovery instead of implicit paste fallbacks
+- pure Linux Wayland sessions no longer attempt `wtype`, `ydotool` or `enigo` auto-paste to avoid the compositor "Remote Control / Control input devices" privilege prompt; clipboard-only with manual paste is now the safe default on pure Wayland, while hybrid X11/Wayland sessions with xdotool remain unchanged
 - Rebuild Lab now separates durable transcription history from transient runtime logs while reading both from the same native runtime truth
 - Rebuild Lab runtime snapshots now expose a machine-readable capture/provider/transform/insert timeline with per-step state, duration and stable error codes instead of a single coarse stage plus free-text failure only
 - Text Rules now scopes transcription context, dictionary and snippets to the selected local text profile while keeping preview, import/export and diagnostics tied to that active profile
