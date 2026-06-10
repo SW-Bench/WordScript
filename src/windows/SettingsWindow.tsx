@@ -6,6 +6,7 @@ import {
   Info,
   Keyboard,
   Settings2,
+  SlidersHorizontal,
   SquarePen,
 } from "lucide-react";
 import { useProvider } from "../hooks/useProvider";
@@ -15,6 +16,7 @@ import { APP_VERSION } from "../lib/appMeta";
 import type { AppConfig } from "../types/ipc";
 import type { ProviderId } from "../types/providers";
 import type { ProfileHealthLevel, TextRulesAnalysis } from "../types/textRules";
+import { ModesTab }       from "../components/settings/ModesTab";
 import { ApiModelsTab }   from "../components/settings/ApiModelsTab";
 import { InputTab }       from "../components/settings/InputTab";
 import { ProfileDock } from "../components/settings/ProfileDock";
@@ -29,6 +31,7 @@ import "../styles/settings.css";
 const NAV_ICONS = {
   gear: Settings2,
   key: Keyboard,
+  sliders: SlidersHorizontal,
   panel: SquarePen,
   info: Info,
   diagnostics: ActivitySquare,
@@ -42,6 +45,14 @@ const TABS = [
     icon: "gear",
     eyebrow: "Provider & Models",
     blurb: "Cloud BYOK, local runtime lane, language, model choice and post-correction.",
+  },
+  {
+    section: "Configure",
+    label: "Modes",
+    id: "Modes",
+    icon: "sliders",
+    eyebrow: "Processing Mode",
+    blurb: "Choose how WordScript processes your dictation: verbatim, cleanup, rewrite, agent or prompt enhancement.",
   },
   {
     section: "Configure",
@@ -359,6 +370,9 @@ export default function SettingsWindow() {
               <div className="settings__content">
                 <div className={`tab${active === "Provider & Models" ? " tab--active" : ""}`}>
                   <ApiModelsTab config={form} onChange={patch} onOpenDiagnostics={() => setActive("Rebuild Lab")} />
+                </div>
+                <div className={`tab${active === "Modes" ? " tab--active" : ""}`}>
+                  <ModesTab config={form} onChange={patch} />
                 </div>
                 <div className={`tab${active === "Input" ? " tab--active" : ""}`}>
                   <InputTab config={form} onChange={patch} />

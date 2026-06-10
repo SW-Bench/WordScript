@@ -73,6 +73,18 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     agent_name: "WordScript",
     agent_model: "llama-3.3-70b-versatile",
     local_agent_model: "llama3.2:latest",
+    processing_mode: "cleanup",
+    enhance_sub_mode: "enhance",
+    enhance_target: "general",
+    auto_detect_mode: false,
+    workspace_app_map: {},
+    mode_picker_hotkey: "",
+    mode_cycle_hotkey: "",
+    mode_verbatim_hotkey: "",
+    mode_cleanup_hotkey: "",
+    mode_rewrite_hotkey: "",
+    mode_agent_hotkey: "",
+    mode_prompt_enhance_hotkey: "",
     ...overrides,
   };
 }

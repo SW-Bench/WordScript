@@ -26,10 +26,33 @@ export type TextProfileRewriteStyle = "verbatim" | "clean" | "polished";
 export type TextProfileInsertBehavior = "auto_paste" | "clipboard_only";
 export type TextProfileRecoveryBehavior = "standard";
 
+export type ProcessingMode = "cleanup" | "rewrite" | "agent" | "prompt_enhance" | "verbatim";
+export type EnhanceSubMode = "enhance" | "expand";
+export type PromptTarget = "general" | "claude_code" | "cursor" | "chatgpt" | "copilot";
+
 export interface TextProfileWorkMode {
   rewrite_style:           TextProfileRewriteStyle;
   insert_behavior:         TextProfileInsertBehavior;
   recovery_behavior:       TextProfileRecoveryBehavior;
+  processing_mode?:         ProcessingMode;
+  enhance_sub_mode?:        EnhanceSubMode | null;
+  target?:                  PromptTarget | null;
+}
+
+export interface WorkspaceContext {
+  app_name:            string;
+  bundle_id:           string;
+  category:            string;
+  window_title:        string;
+  detected_language?:  string | null;
+  detected_framework?: string | null;
+  browser_domain?:     string | null;
+}
+
+export interface ProcessingModeEvent {
+  mode:           ProcessingMode;
+  is_override:    boolean;
+  auto_detected:  boolean;
 }
 
 export interface RuntimeTransformEvent {
@@ -147,6 +170,18 @@ export interface AppConfig {
   agent_name:              string;
   agent_model:             string;
   local_agent_model:       string;
+  processing_mode?:         ProcessingMode;
+  enhance_sub_mode?:        EnhanceSubMode | null;
+  enhance_target?:          PromptTarget;
+  auto_detect_mode?:        boolean;
+  workspace_app_map?:       Record<string, ProcessingMode>;
+  mode_picker_hotkey?:      string;
+  mode_cycle_hotkey?:       string;
+  mode_verbatim_hotkey?:    string;
+  mode_cleanup_hotkey?:     string;
+  mode_rewrite_hotkey?:     string;
+  mode_agent_hotkey?:       string;
+  mode_prompt_enhance_hotkey?: string;
 }
 
 export type BackendEvent =
