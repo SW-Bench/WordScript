@@ -2427,6 +2427,40 @@
   overflow-wrap: anywhere;
 }
 
+/* Per-app mode mapping rows (Modes tab) */
+.settings__rule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings__rule-arrow {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings__rule-remove {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+}
+
+.settings__rule-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.settings__rule-add select {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
 .settings__rule-issues {
   flex-direction: column;
   gap: 10px;

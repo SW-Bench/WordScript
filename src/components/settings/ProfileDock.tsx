@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig } from "../../types/ipc";
+import type { AppConfig, ProcessingMode } from "../../types/ipc";
 import {
   buildTextProfilesPatch,
   cloneTextProfile,
@@ -10,6 +10,17 @@ import {
   resolveActiveTextProfile,
   textProfileInitials,
 } from "../../lib/textProfiles";
+
+function processingModeLabel(mode?: ProcessingMode): string {
+  switch (mode) {
+    case "cleanup": return "Cleanup";
+    case "rewrite": return "Rewrite";
+    case "agent": return "Agent";
+    case "prompt_enhance": return "Prompt Enhance";
+    case "verbatim": return "Verbatim";
+    default: return "";
+  }
+}
 
 function countLabel(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -34,6 +45,8 @@ export function ProfileDock({ config, onChange, onOpenTextRules, healthStatus }:
   const snippetLabel = countLabel(activeProfile.snippet_entries.length, "snippet");
   const activeProfileCurated = isCuratedTextProfile(activeProfile);
   const workModeSummary = describeTextProfileWorkMode(activeProfile);
+  const profileProcessingMode = activeProfile.work_mode?.processing_mode ?? config.processing_mode;
+  const profileModeLabel = processingModeLabel(profileProcessingMode);
 
   const handleProfileSwitch = (profileId: string) => {
     onChange(buildTextProfilesPatch(config, profiles, profileId));
@@ -75,6 +88,13 @@ export function ProfileDock({ config, onChange, onOpenTextRules, healthStatus }:
         <span className="settings__profile-kicker">Profile defaults</span>
         <strong>{workModeSummary}</strong>
       </p>
+
+      {profileModeLabel && (
+        <p className="settings__profile-note">
+          <span className="settings__profile-kicker">Processing mode</span>
+          <strong>{profileModeLabel}</strong>
+        </p>
+      )}
 
       <label className="settings__profile-field" htmlFor="settings-profile-select">
         <span>Switch profile</span>

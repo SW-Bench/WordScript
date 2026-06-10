@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Runtime};
 
@@ -13,6 +15,78 @@ pub const DEFAULT_LOCAL_CORRECTION_MODEL: &str = "llama3.2:latest";
 pub const DEFAULT_AGENT_MODEL: &str = "llama-3.3-70b-versatile";
 pub const DEFAULT_LOCAL_AGENT_MODEL: &str = "llama3.2:latest";
 pub const DEFAULT_AGENT_NAME: &str = "WordScript";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessingMode {
+    #[default]
+    Cleanup,
+    Rewrite,
+    Agent,
+    PromptEnhance,
+    Verbatim,
+}
+
+impl ProcessingMode {
+    // String form mirrors the serde snake_case representation; kept in sync with the
+    // TypeScript `ProcessingMode` union and used where a stable token is needed.
+    #[allow(dead_code)]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProcessingMode::Cleanup => "cleanup",
+            ProcessingMode::Rewrite => "rewrite",
+            ProcessingMode::Agent => "agent",
+            ProcessingMode::PromptEnhance => "prompt_enhance",
+            ProcessingMode::Verbatim => "verbatim",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "verbatim" => ProcessingMode::Verbatim,
+            "rewrite" | "polished" | "professional" => ProcessingMode::Rewrite,
+            "agent" => ProcessingMode::Agent,
+            "prompt_enhance" => ProcessingMode::PromptEnhance,
+            _ => ProcessingMode::Cleanup,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EnhanceSubMode {
+    #[default]
+    Enhance,
+    Expand,
+}
+
+#[allow(dead_code)]
+impl EnhanceSubMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EnhanceSubMode::Enhance => "enhance",
+            EnhanceSubMode::Expand => "expand",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "expand" => EnhanceSubMode::Expand,
+            _ => EnhanceSubMode::Enhance,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptTarget {
+    #[default]
+    General,
+    ClaudeCode,
+    Cursor,
+    ChatGPT,
+    Copilot,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DictionaryEntry {
@@ -40,9 +114,16 @@ pub struct TextProfileCuration {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct TextProfileWorkMode {
+    #[serde(default)]
     pub rewrite_style: String,
     pub insert_behavior: String,
     pub recovery_behavior: String,
+    #[serde(default)]
+    pub processing_mode: ProcessingMode,
+    #[serde(default)]
+    pub enhance_sub_mode: Option<EnhanceSubMode>,
+    #[serde(default)]
+    pub target: Option<PromptTarget>,
 }
 
 impl Default for TextProfileWorkMode {
@@ -51,6 +132,9 @@ impl Default for TextProfileWorkMode {
             rewrite_style: default_text_profile_rewrite_style().to_string(),
             insert_behavior: default_text_profile_insert_behavior().to_string(),
             recovery_behavior: default_text_profile_recovery_behavior().to_string(),
+            processing_mode: ProcessingMode::default(),
+            enhance_sub_mode: None,
+            target: None,
         }
     }
 }
@@ -74,21 +158,28 @@ impl TextProfileWorkMode {
         }
     }
 
+    pub(crate) fn effective_processing_mode(&self) -> ProcessingMode {
+        self.normalized().processing_mode.clone()
+    }
+
     pub(crate) fn effective_filter_fillers(&self, fallback: bool) -> bool {
-        match self.normalized().rewrite_style.as_str() {
-            "verbatim" => false,
-            "polished" => true,
-            "clean" => true,
-            _ => fallback,
+        let _ = fallback;
+        match self.normalized().processing_mode {
+            ProcessingMode::Cleanup | ProcessingMode::Rewrite => true,
+            ProcessingMode::Verbatim | ProcessingMode::Agent | ProcessingMode::PromptEnhance => {
+                false
+            }
         }
     }
 
     pub(crate) fn effective_professionalize(&self, fallback: bool) -> bool {
-        match self.normalized().rewrite_style.as_str() {
-            "verbatim" => false,
-            "polished" => true,
-            "clean" => false,
-            _ => fallback,
+        let _ = fallback;
+        match self.normalized().processing_mode {
+            ProcessingMode::Rewrite => true,
+            ProcessingMode::Cleanup
+            | ProcessingMode::Verbatim
+            | ProcessingMode::Agent
+            | ProcessingMode::PromptEnhance => false,
         }
     }
 
@@ -222,6 +313,32 @@ pub struct AppConfig {
     pub agent_name: String,
     pub agent_model: String,
     pub local_agent_model: String,
+    #[serde(default)]
+    pub processing_mode: ProcessingMode,
+    #[serde(default)]
+    pub enhance_sub_mode: Option<EnhanceSubMode>,
+    #[serde(default)]
+    pub enhance_target: PromptTarget,
+    #[serde(default)]
+    pub auto_detect_mode: bool,
+    #[serde(default)]
+    pub workspace_app_map: HashMap<String, ProcessingMode>,
+    #[serde(default)]
+    pub processing_modes_migrated: bool,
+    #[serde(default = "default_mode_picker_hotkey")]
+    pub mode_picker_hotkey: String,
+    #[serde(default = "default_mode_cycle_hotkey")]
+    pub mode_cycle_hotkey: String,
+    #[serde(default = "default_mode_verbatim_hotkey")]
+    pub mode_verbatim_hotkey: String,
+    #[serde(default = "default_mode_cleanup_hotkey")]
+    pub mode_cleanup_hotkey: String,
+    #[serde(default = "default_mode_rewrite_hotkey")]
+    pub mode_rewrite_hotkey: String,
+    #[serde(default = "default_mode_agent_hotkey")]
+    pub mode_agent_hotkey: String,
+    #[serde(default = "default_mode_prompt_enhance_hotkey")]
+    pub mode_prompt_enhance_hotkey: String,
 }
 
 impl Default for AppConfig {
@@ -286,6 +403,19 @@ impl Default for AppConfig {
             agent_name: DEFAULT_AGENT_NAME.to_string(),
             agent_model: DEFAULT_AGENT_MODEL.to_string(),
             local_agent_model: DEFAULT_LOCAL_AGENT_MODEL.to_string(),
+            processing_mode: ProcessingMode::default(),
+            enhance_sub_mode: None,
+            enhance_target: PromptTarget::default(),
+            auto_detect_mode: false,
+            workspace_app_map: HashMap::new(),
+            processing_modes_migrated: false,
+            mode_picker_hotkey: default_mode_picker_hotkey(),
+            mode_cycle_hotkey: default_mode_cycle_hotkey(),
+            mode_verbatim_hotkey: default_mode_verbatim_hotkey(),
+            mode_cleanup_hotkey: default_mode_cleanup_hotkey(),
+            mode_rewrite_hotkey: default_mode_rewrite_hotkey(),
+            mode_agent_hotkey: default_mode_agent_hotkey(),
+            mode_prompt_enhance_hotkey: default_mode_prompt_enhance_hotkey(),
         }
     }
 }
@@ -313,6 +443,9 @@ impl AppConfig {
                 .effective_rewrite_style(self.filter_fillers, self.professionalize),
             insert_behavior: work_mode.effective_insert_behavior(self.auto_paste),
             recovery_behavior: work_mode.effective_recovery_behavior(),
+            processing_mode: work_mode.effective_processing_mode(),
+            enhance_sub_mode: work_mode.enhance_sub_mode.clone(),
+            target: work_mode.target.clone(),
         }
     }
 
@@ -420,6 +553,7 @@ impl AppConfig {
 
     fn normalize_for_runtime(&mut self) {
         self.normalize_text_profiles();
+        self.migrate_text_profile_processing_modes();
         self.provider = normalize_provider_value(&self.provider);
         self.local_model = normalize_local_model_value(&self.local_model);
         self.local_profile = normalize_local_profile_id(&self.local_profile, &self.local_model);
@@ -462,9 +596,75 @@ impl AppConfig {
             normalize_shortcut_value(&self.pause_hotkey, default_pause_hotkey(), true);
         self.abort_hotkey =
             normalize_shortcut_value(&self.abort_hotkey, default_abort_hotkey(), true);
+        self.mode_picker_hotkey = normalize_shortcut_value(
+            &self.mode_picker_hotkey,
+            &default_mode_picker_hotkey(),
+            true,
+        );
+        self.mode_cycle_hotkey = normalize_shortcut_value(
+            &self.mode_cycle_hotkey,
+            &default_mode_cycle_hotkey(),
+            true,
+        );
+        self.mode_verbatim_hotkey = normalize_shortcut_value(
+            &self.mode_verbatim_hotkey,
+            &default_mode_verbatim_hotkey(),
+            true,
+        );
+        self.mode_cleanup_hotkey = normalize_shortcut_value(
+            &self.mode_cleanup_hotkey,
+            &default_mode_cleanup_hotkey(),
+            true,
+        );
+        self.mode_rewrite_hotkey = normalize_shortcut_value(
+            &self.mode_rewrite_hotkey,
+            &default_mode_rewrite_hotkey(),
+            true,
+        );
+        self.mode_agent_hotkey = normalize_shortcut_value(
+            &self.mode_agent_hotkey,
+            &default_mode_agent_hotkey(),
+            true,
+        );
+        self.mode_prompt_enhance_hotkey = normalize_shortcut_value(
+            &self.mode_prompt_enhance_hotkey,
+            &default_mode_prompt_enhance_hotkey(),
+            true,
+        );
         self.overlay_monitor = normalize_overlay_monitor_value(&self.overlay_monitor);
         self.history_limit = self.history_limit.clamp(25, 1000);
         self.history_retention_days = self.history_retention_days.min(3650);
+    }
+
+    fn migrate_text_profile_processing_modes(&mut self) {
+        if self.processing_modes_migrated {
+            return;
+        }
+
+        let active_profile_id = if self.text_profiles.iter().any(|p| p.id == self.active_text_profile_id) {
+            self.active_text_profile_id.clone()
+        } else {
+            self.text_profiles.first().map(|p| p.id.clone()).unwrap_or_default()
+        };
+
+        for profile in &mut self.text_profiles {
+            if profile.work_mode.processing_mode != ProcessingMode::default() {
+                continue;
+            }
+
+            let legacy_mode = migrate_legacy_processing_mode(
+                &profile.work_mode,
+                false,
+            );
+
+            if self.agent_mode_enabled && profile.id == active_profile_id {
+                profile.work_mode.processing_mode = ProcessingMode::Agent;
+            } else {
+                profile.work_mode.processing_mode = legacy_mode;
+            }
+        }
+
+        self.processing_modes_migrated = true;
     }
 
     fn normalize_text_profiles(&mut self) {
@@ -635,6 +835,90 @@ fn default_pause_hotkey() -> &'static str {
 
 fn default_overlay_monitor() -> &'static str {
     "primary"
+}
+
+fn migrate_legacy_processing_mode(
+    work_mode: &TextProfileWorkMode,
+    agent_mode_enabled: bool,
+) -> ProcessingMode {
+    if agent_mode_enabled {
+        return ProcessingMode::Agent;
+    }
+    match work_mode.rewrite_style.as_str() {
+        "polished" | "professional" => ProcessingMode::Rewrite,
+        "verbatim" => ProcessingMode::Verbatim,
+        _ => ProcessingMode::Cleanup,
+    }
+}
+
+fn default_mode_picker_hotkey() -> String {
+    if cfg!(target_os = "macos") {
+        "cmd+alt_l+m".to_string()
+    } else if cfg!(target_os = "windows") {
+        "ctrl_l+alt_l+m".to_string()
+    } else {
+        "ctrl_l+f11".to_string()
+    }
+}
+
+fn default_mode_cycle_hotkey() -> String {
+    if cfg!(target_os = "macos") {
+        "cmd+alt_l+shift_l+m".to_string()
+    } else if cfg!(target_os = "windows") {
+        "ctrl_l+alt_l+shift_l+m".to_string()
+    } else {
+        "ctrl_l+shift_l+f11".to_string()
+    }
+}
+
+fn default_mode_verbatim_hotkey() -> String {
+    if cfg!(target_os = "macos") {
+        "cmd+alt_l+1".to_string()
+    } else if cfg!(target_os = "windows") {
+        "ctrl_l+alt_l+1".to_string()
+    } else {
+        "ctrl_l+f1".to_string()
+    }
+}
+
+fn default_mode_cleanup_hotkey() -> String {
+    if cfg!(target_os = "macos") {
+        "cmd+alt_l+2".to_string()
+    } else if cfg!(target_os = "windows") {
+        "ctrl_l+alt_l+2".to_string()
+    } else {
+        "ctrl_l+f2".to_string()
+    }
+}
+
+fn default_mode_rewrite_hotkey() -> String {
+    if cfg!(target_os = "macos") {
+        "cmd+alt_l+3".to_string()
+    } else if cfg!(target_os = "windows") {
+        "ctrl_l+alt_l+3".to_string()
+    } else {
+        "ctrl_l+f3".to_string()
+    }
+}
+
+fn default_mode_agent_hotkey() -> String {
+    if cfg!(target_os = "macos") {
+        "cmd+alt_l+4".to_string()
+    } else if cfg!(target_os = "windows") {
+        "ctrl_l+alt_l+4".to_string()
+    } else {
+        "ctrl_l+f4".to_string()
+    }
+}
+
+fn default_mode_prompt_enhance_hotkey() -> String {
+    if cfg!(target_os = "macos") {
+        "cmd+alt_l+5".to_string()
+    } else if cfg!(target_os = "windows") {
+        "ctrl_l+alt_l+5".to_string()
+    } else {
+        "ctrl_l+f5".to_string()
+    }
 }
 
 fn normalize_overlay_monitor_value(value: &str) -> String {
@@ -984,6 +1268,9 @@ fn normalize_text_profile_work_mode(value: &TextProfileWorkMode) -> TextProfileW
         rewrite_style: normalize_text_profile_rewrite_style_value(&value.rewrite_style),
         insert_behavior: normalize_text_profile_insert_behavior_value(&value.insert_behavior),
         recovery_behavior: normalize_text_profile_recovery_behavior_value(&value.recovery_behavior),
+        processing_mode: value.processing_mode.clone(),
+        enhance_sub_mode: value.enhance_sub_mode.clone(),
+        target: value.target.clone(),
     }
 }
 
@@ -1386,6 +1673,7 @@ mod tests {
                         rewrite_style: "professional".to_string(),
                         insert_behavior: "clipboard".to_string(),
                         recovery_behavior: "guided".to_string(),
+                        ..Default::default()
                     },
                     curation: TextProfileCuration::default(),
                     dictionary_entries: vec![DictionaryEntry {
@@ -1655,5 +1943,227 @@ mod tests {
         let config = AppConfig::default();
 
         assert_eq!(config.correction_model, DEFAULT_CORRECTION_MODEL);
+    }
+
+    #[test]
+    fn processing_mode_migration_clean_to_cleanup() {
+        let work_mode = TextProfileWorkMode {
+            rewrite_style: "clean".to_string(),
+            ..TextProfileWorkMode::default()
+        };
+        let mode = migrate_legacy_processing_mode(&work_mode, false);
+        assert_eq!(mode, ProcessingMode::Cleanup);
+    }
+
+    #[test]
+    fn processing_mode_migration_polished_to_rewrite() {
+        let work_mode = TextProfileWorkMode {
+            rewrite_style: "polished".to_string(),
+            ..TextProfileWorkMode::default()
+        };
+        let mode = migrate_legacy_processing_mode(&work_mode, false);
+        assert_eq!(mode, ProcessingMode::Rewrite);
+    }
+
+    #[test]
+    fn processing_mode_migration_verbatim_is_preserved() {
+        let work_mode = TextProfileWorkMode {
+            rewrite_style: "verbatim".to_string(),
+            ..TextProfileWorkMode::default()
+        };
+        let mode = migrate_legacy_processing_mode(&work_mode, false);
+        assert_eq!(mode, ProcessingMode::Verbatim);
+    }
+
+    #[test]
+    fn processing_mode_roundtrip_serde() {
+        let mode = ProcessingMode::PromptEnhance;
+        let serialized = serde_json::to_string(&mode).expect("serialize");
+        let deserialized: ProcessingMode =
+            serde_json::from_str(&serialized).expect("deserialize");
+        assert_eq!(deserialized, ProcessingMode::PromptEnhance);
+    }
+
+    #[test]
+    fn processing_mode_serde_snake_case() {
+        let json = r#""prompt_enhance""#;
+        let mode: ProcessingMode = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(mode, ProcessingMode::PromptEnhance);
+
+        let serialized = serde_json::to_string(&ProcessingMode::PromptEnhance).expect("serialize");
+        assert_eq!(serialized, r#""prompt_enhance""#);
+    }
+
+    #[test]
+    fn enhance_sub_mode_defaults_to_enhance() {
+        assert_eq!(EnhanceSubMode::default(), EnhanceSubMode::Enhance);
+
+        let mode: EnhanceSubMode = serde_json::from_str(r#""unknown""#).unwrap_or_default();
+        assert_eq!(mode, EnhanceSubMode::Enhance);
+    }
+
+    #[test]
+    fn processing_mode_from_str_maps_aliases() {
+        assert_eq!(ProcessingMode::from_str("polished"), ProcessingMode::Rewrite);
+        assert_eq!(ProcessingMode::from_str("professional"), ProcessingMode::Rewrite);
+        assert_eq!(ProcessingMode::from_str("rewrite"), ProcessingMode::Rewrite);
+        assert_eq!(ProcessingMode::from_str("agent"), ProcessingMode::Agent);
+        assert_eq!(ProcessingMode::from_str("verbatim"), ProcessingMode::Verbatim);
+        assert_eq!(ProcessingMode::from_str("cleanup"), ProcessingMode::Cleanup);
+        assert_eq!(ProcessingMode::from_str("unknown"), ProcessingMode::Cleanup);
+    }
+
+    #[test]
+    fn prompt_target_defaults_to_general() {
+        assert_eq!(PromptTarget::default(), PromptTarget::General);
+    }
+
+    #[test]
+    fn text_profile_work_mode_has_default_processing_mode() {
+        let work_mode = TextProfileWorkMode::default();
+        assert_eq!(work_mode.processing_mode, ProcessingMode::Cleanup);
+        assert_eq!(work_mode.enhance_sub_mode, None);
+        assert_eq!(work_mode.target, None);
+    }
+
+    #[test]
+    fn text_profile_work_mode_effective_processing_mode() {
+        let mut work_mode = TextProfileWorkMode::default();
+        assert_eq!(work_mode.effective_processing_mode(), ProcessingMode::Cleanup);
+
+        work_mode.processing_mode = ProcessingMode::Rewrite;
+        assert_eq!(work_mode.effective_processing_mode(), ProcessingMode::Rewrite);
+    }
+
+    #[test]
+    fn text_profile_work_mode_effective_filter_fillers_by_mode() {
+        let mut work_mode = TextProfileWorkMode::default();
+
+        work_mode.processing_mode = ProcessingMode::Cleanup;
+        assert!(work_mode.effective_filter_fillers(false));
+
+        work_mode.processing_mode = ProcessingMode::Rewrite;
+        assert!(work_mode.effective_filter_fillers(false));
+
+        work_mode.processing_mode = ProcessingMode::Verbatim;
+        assert!(!work_mode.effective_filter_fillers(false));
+
+        work_mode.processing_mode = ProcessingMode::Agent;
+        assert!(!work_mode.effective_filter_fillers(false));
+
+        work_mode.processing_mode = ProcessingMode::PromptEnhance;
+        assert!(!work_mode.effective_filter_fillers(false));
+    }
+
+    #[test]
+    fn text_profile_work_mode_effective_professionalize_by_mode() {
+        let mut work_mode = TextProfileWorkMode::default();
+
+        work_mode.processing_mode = ProcessingMode::Rewrite;
+        assert!(work_mode.effective_professionalize(false));
+
+        work_mode.processing_mode = ProcessingMode::Cleanup;
+        assert!(!work_mode.effective_professionalize(false));
+
+        work_mode.processing_mode = ProcessingMode::Verbatim;
+        assert!(!work_mode.effective_professionalize(false));
+
+        work_mode.processing_mode = ProcessingMode::Agent;
+        assert!(!work_mode.effective_professionalize(false));
+
+        work_mode.processing_mode = ProcessingMode::PromptEnhance;
+        assert!(!work_mode.effective_professionalize(false));
+    }
+
+    #[test]
+    fn app_config_default_has_processing_mode_cleanup() {
+        let config = AppConfig::default();
+        assert_eq!(config.processing_mode, ProcessingMode::Cleanup);
+        assert_eq!(config.enhance_sub_mode, None);
+        assert_eq!(config.enhance_target, PromptTarget::General);
+        assert!(!config.auto_detect_mode);
+        assert!(config.workspace_app_map.is_empty());
+    }
+
+    #[test]
+    fn normalize_for_runtime_migrates_processing_mode() {
+        let mut config = AppConfig {
+            text_profiles: vec![TextProfile {
+                id: "general".to_string(),
+                label: "General".to_string(),
+                prompt: String::new(),
+                stt_hints: String::new(),
+                work_mode: TextProfileWorkMode {
+                    rewrite_style: "polished".to_string(),
+                    insert_behavior: "auto_paste".to_string(),
+                    recovery_behavior: "standard".to_string(),
+                    processing_mode: ProcessingMode::default(),
+                    enhance_sub_mode: None,
+                    target: None,
+                },
+                curation: TextProfileCuration::default(),
+                dictionary_entries: Vec::new(),
+                snippet_entries: Vec::new(),
+            }],
+            ..AppConfig::default()
+        };
+
+        config.normalize_for_runtime();
+
+        let profile = &config.text_profiles[0];
+        assert_eq!(profile.work_mode.processing_mode, ProcessingMode::Rewrite);
+        assert_eq!(profile.work_mode.rewrite_style, "polished");
+    }
+
+    #[test]
+    fn normalize_for_runtime_migrates_agent_mode() {
+        let mut config = AppConfig {
+            agent_mode_enabled: true,
+            text_profiles: vec![TextProfile {
+                id: "general".to_string(),
+                label: "General".to_string(),
+                prompt: String::new(),
+                stt_hints: String::new(),
+                work_mode: TextProfileWorkMode {
+                    rewrite_style: "clean".to_string(),
+                    insert_behavior: "auto_paste".to_string(),
+                    recovery_behavior: "standard".to_string(),
+                    processing_mode: ProcessingMode::default(),
+                    enhance_sub_mode: None,
+                    target: None,
+                },
+                curation: TextProfileCuration::default(),
+                dictionary_entries: Vec::new(),
+                snippet_entries: Vec::new(),
+            }],
+            ..AppConfig::default()
+        };
+
+        config.normalize_for_runtime();
+
+        let profile = &config.text_profiles[0];
+        assert_eq!(profile.work_mode.processing_mode, ProcessingMode::Agent);
+    }
+
+    #[test]
+    fn processing_mode_as_str_roundtrip() {
+        for mode in &[
+            ProcessingMode::Cleanup,
+            ProcessingMode::Rewrite,
+            ProcessingMode::Agent,
+            ProcessingMode::PromptEnhance,
+            ProcessingMode::Verbatim,
+        ] {
+            assert_eq!(ProcessingMode::from_str(mode.as_str()), *mode);
+        }
+    }
+
+    #[test]
+    fn enhance_sub_mode_from_str_defaults_to_enhance() {
+        assert_eq!(
+            EnhanceSubMode::from_str("unknown"),
+            EnhanceSubMode::Enhance
+        );
+        assert_eq!(EnhanceSubMode::from_str("expand"), EnhanceSubMode::Expand);
     }
 }

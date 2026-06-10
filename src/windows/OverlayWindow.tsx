@@ -1,9 +1,11 @@
-import { type ChangeEvent, type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ChangeEvent, type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { useRuntime } from "../hooks/useRuntime";
+import { resolveActiveTextProfile, resolveTextProfileWorkMode } from "../lib/textProfiles";
+import type { AppConfig, EnhanceSubMode, ProcessingMode } from "../types/ipc";
 import type { NativeInsertResult } from "../types/nativeInsertion";
 import "../styles/overlay.css";
 
@@ -55,6 +57,39 @@ function formatElapsed(seconds: number) {
   const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
   const secs = (seconds % 60).toString().padStart(2, "0");
   return `${mins}:${secs}`;
+}
+
+// Derives the processing mode the active session actually runs in, straight from
+// runtime config. Mirrors the native migration so the pill stays honest even for
+// configs written before processing modes existed — never a guessed placeholder.
+function resolveOverlayProcessingMode(config: AppConfig): ProcessingMode {
+  const workMode = resolveTextProfileWorkMode(resolveActiveTextProfile(config));
+  const explicit = workMode.processing_mode ?? config.processing_mode;
+  if (explicit) return explicit;
+  if (config.agent_mode_enabled) return "agent";
+  switch (workMode.rewrite_style) {
+    case "verbatim": return "verbatim";
+    case "polished": return "rewrite";
+    default: return "cleanup";
+  }
+}
+
+function resolveOverlayEnhanceSubMode(config: AppConfig): EnhanceSubMode {
+  const workMode = resolveTextProfileWorkMode(resolveActiveTextProfile(config));
+  return workMode.enhance_sub_mode ?? config.enhance_sub_mode ?? "enhance";
+}
+
+// Short, single-word labels keep the fixed pill geometry intact. Prompt Enhance
+// surfaces its sub-mode (Enhance/Expand) because that is the meaningful distinction.
+function processingModeShortLabel(mode: ProcessingMode, subMode: EnhanceSubMode): string {
+  switch (mode) {
+    case "cleanup": return "Cleanup";
+    case "rewrite": return "Rewrite";
+    case "agent": return "Agent";
+    case "verbatim": return "Verbatim";
+    case "prompt_enhance": return subMode === "expand" ? "Expand" : "Enhance";
+    default: return "Cleanup";
+  }
 }
 
 export default function OverlayWindow() {
@@ -548,15 +583,27 @@ export default function OverlayWindow() {
     event.stopPropagation();
   };
 
+  const processingMode = useMemo(
+    () => (state.config ? resolveOverlayProcessingMode(state.config) : null),
+    [state.config],
+  );
+  const enhanceSubMode = useMemo(
+    () => (state.config ? resolveOverlayEnhanceSubMode(state.config) : "enhance"),
+    [state.config],
+  );
+  const modeLabel = processingMode ? processingModeShortLabel(processingMode, enhanceSubMode) : null;
+
   const sideTitle = isRecording
-    ? (paused ? "Resume recording" : "Pause recording")
+    ? (paused ? "Resume recording" : (modeLabel ? `${modeLabel} mode · pause recording` : "Pause recording"))
     : isProcessing
-      ? "Processing"
+      ? (modeLabel ? `${modeLabel} mode · processing` : "Processing")
       : "Open Settings";
+  // The waveform and border already signal recording vs processing, so the side
+  // label surfaces the live processing mode — the actually new piece of information.
   const sideCaption = isRecording
-    ? (paused ? "Paused" : "Live")
+    ? (paused ? "Paused" : (modeLabel ?? "Live"))
     : isProcessing
-      ? "Working"
+      ? (modeLabel ?? "Working")
       : showError
         ? "Review"
         : "Settings";

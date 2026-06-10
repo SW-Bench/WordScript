@@ -133,9 +133,17 @@ body.overlay-window.overlay-idle,
   grid-template-columns: 38px minmax(0, 1fr) 6px 46px;
 }
 
+/* Recording and processing surface the live processing mode in the side label, so
+   their side zones get a touch more width to keep mode words fully readable while
+   the waveform column stays the same size. Stays well within the 256px host. */
+.pill--compact.pill--recording {
+  width: 192px;
+  grid-template-columns: 38px minmax(0, 1fr) 6px 64px;
+}
+
 .pill--compact.pill--processing {
-  width: 184px;
-  grid-template-columns: 38px minmax(0, 1fr) 6px 56px;
+  width: 198px;
+  grid-template-columns: 38px minmax(0, 1fr) 6px 70px;
 }
 
 .pill--preview-actions {

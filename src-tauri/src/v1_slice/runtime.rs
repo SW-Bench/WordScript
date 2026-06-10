@@ -747,6 +747,7 @@ mod tests {
             rewrite_style: "clean".to_string(),
             insert_behavior: "clipboard_only".to_string(),
             recovery_behavior: "standard".to_string(),
+            ..Default::default()
         };
 
         let insertion = build_insertion_plan("editor_preview", &work_mode);

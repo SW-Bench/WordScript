@@ -61,6 +61,9 @@ function cloneTextProfileWorkMode(workMode?: Partial<TextProfileWorkMode> | null
     rewrite_style: normalizeTextProfileRewriteStyle(workMode?.rewrite_style),
     insert_behavior: normalizeTextProfileInsertBehavior(workMode?.insert_behavior),
     recovery_behavior: normalizeTextProfileRecoveryBehavior(workMode?.recovery_behavior),
+    processing_mode: workMode?.processing_mode,
+    enhance_sub_mode: workMode?.enhance_sub_mode ?? null,
+    target: workMode?.target ?? null,
   };
 }
 
