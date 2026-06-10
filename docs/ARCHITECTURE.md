@@ -265,7 +265,7 @@ WordScript modelliert Plattformgrenzen explizit:
 
 - macOS und Windows sind die Tier-1-Zielpfade
 - Linux X11 ist Preview
-- Linux Wayland bleibt experimentell und haengt an XWayland-/Clipboard-Fallbacks
+- Linux Wayland bleibt experimentell: hybride Sessions (X11+Wayland) nutzen xdotool-XTEST ueber XWayland, reine Wayland-Sessions (kein `DISPLAY`) verwenden ausschliesslich Clipboard + manuelles Paste, weil `wtype`/`ydotool` sonst den Wayland-Portal-Prompt "Control input devices" ausloesen wuerden
 
 Das ist keine Marketing-Sprache, sondern Teil des Insert- und Support-Modells.
 

@@ -66,7 +66,7 @@ Wichtiger Plattformhinweis fuer echte Insert-Checks:
 
 - macOS Dev-Mode kann Accessibility und je nach Launcher auch Input Monitoring fuer Terminal, VS Code oder die spaeter paketierte WordScript-App verlangen
 - Windows-Ziele mit hoeheren Rechten koennen simuliertes Paste blockieren, wenn WordScript nicht auf demselben Privileg-Level laeuft
-- Linux Wayland bleibt ein Clipboard-/Helper-lastiger Experimentalpfad
+- Linux Wayland bleibt ein Clipboard-/Helper-lastiger Experimentalpfad: auf reinen Wayland-Sessions (ohne X11-Display) ist Auto-Paste explizit deaktiviert, weil `wtype`/`ydotool` sonst den KDE-Plasma-Portal-Prompt "Control input devices" ausloesen wuerden. Hybrid-Sessions (X11+Wayland) verwenden weiterhin xdotool-XTEST ueber XWayland.
 - Linux-Checks fuer das Settings-Fenster muessen im nativen Host laufen; Browser-Preview reicht nicht, wenn Fensterdekorationen, Scrollverhalten oder Fensterrand-Verhalten beurteilt werden sollen
 - dasselbe gilt fuer das Diagnostics-Pop-out: native Dekoration, Startgroesse und Resize-Grenzen muessen im Host geprueft werden, nicht nur im eingebetteten Settings-Tab
 

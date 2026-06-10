@@ -53,7 +53,8 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 | macOS | Tier 1 Zielpfad | nativer Hotkey-, Capture- und Insert-Pfad; Dev-Mode-Auto-Paste braucht Privacy-Freigaben |
 | Windows | Tier 1 Zielpfad | nativer Hotkey-, Capture- und Insert-Pfad; UAC-Grenzen gelten fuer simuliertes Paste |
 | Linux X11 | Preview | nutzbarer Produktpfad mit kleinerem Stabilitaetsversprechen |
-| Linux Wayland | Experimental | XWayland- und Clipboard-lastiger Fallback-Pfad, kein Vollversprechen |
+| Linux Wayland hybrid (X11+Wayland mit xdotool) | Preview-lite | xdotool-XTEST-Pfad direkt, sonst Clipboard + manuelles Paste |
+| Linux Wayland rein (kein X11-Display) | Experimental | Auto-Paste deaktiviert, Clipboard-only + manuelles Paste; verhindert Wayland-Portal-Prompt "Control input devices" |
 
 ## Plattformdiagnostik fuer Insert und Recovery
 
@@ -239,6 +240,7 @@ Zusatzregeln des aktiven Pfads:
 - kein signierter In-Place-Auto-Updater
 - Release- und Signing-Validation mit echten Secrets ist noch kein regelmaessiger Routinepfad
 - Linux Wayland bleibt experimentell
+- **Linux Wayland – Auto-Paste deaktiviert auf reinen Wayland-Sessions:** Auf reinen Wayland-Sessions (kein `DISPLAY`, nur `WAYLAND_DISPLAY`) loest jeder Versuch, `wtype` oder `ydotool` fuer Input-Simulation zu starten, den KDE-Plasma-Portal-Dialog "Remote Control – Control input devices" aus. Deshalb ist die Paste-Driver-Chette auf reinen Wayland-Sessions leer; der Transkript landet nur im Clipboard und muss manuell eingefuegt werden. Hybrid-Sessions (X11+Wayland mit xdotool) sind davon nicht betroffen und nutzen weiterhin xdotool-XTEST. Diese bewusste Default-Wahl vermeidet den Portal-Dialog, schraenkt aber die Auto-Paste-Bequemlichkeit auf pure Wayland ein.
 - **Linux Wayland – Overlay Click-Through nicht loesbar:** Das Overlay-Fenster blockiert auf Wayland Mausklicks auf den transparenten Bereich ausserhalb der sichtbaren Pill. Alle drei evaluierten Loesungsansaetze scheitern an architektonischen Grenzen: (1) GTK `input_shape_combine_region` schraenkt die Input-Region auf die Pill ein und gibt Click-Through frei, bricht aber `xdg_toplevel.move` auf dem getesteten Compositor – Drag funktioniert dann ueberhaupt nicht mehr. (2) `setIgnoreCursorEvents` ist auf dem getesteten Setup nicht wirksam. (3) JS-seitiges `setPosition`/`set_outer_position` bewegt sichtbare XDG-Toplevel-Fenster auf nativem Wayland nicht (Compositor-Ownership). Die einzig verbleibende Minderungsmassnahme waere eine exakte Fenstergroesse auf Pill-Level, was aber Drag-Zuverlaessigkeit und visuelle Position verschlechtert. Aktueller Stand: Fenster bleibt bei 256/300/388 px, Drag funktioniert, transparente Flaeche blockiert Klicks. Loesung erfordert entweder Tauri-seitige Layer-Shell-Unterstuetzung oder einen Compositor-spezifischen Protokollpfad.
 - ein vollstaendiger gefuehrter Setup-, Permissions- und Packaging-Pfad von Install bis erster brauchbarer Diktation ist noch nicht implementiert; lokale Runtime und Input haben aber bereits Preflight-Flaechen fuer die wichtigsten ersten Schritte
 - die lokale Runtime-Lane braucht noch automatisches Modellmanagement, Pull-/Install-Aktionen und einen nutzerfaehigen Erststartpfad ueber die aktuelle env-basierte Runtime-Verdrahtung hinaus
