@@ -59,3 +59,6 @@ CREDENTIALS.md
 # ── donors (third-party reference repos, not committed) ──────────
 donors/
 assets/doner-screenshots/
+
+# ── Kilo (local agent tooling: config, plans, worktree bookkeeping) ───────
+.kilo/

@@ -67,9 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `has_suspicious_start` now also blocks corrections that introduce `"gerne "`, `"klar,"` and `"klar "` as new sentence starts, covering common LLM acknowledgment patterns that were previously not detected in non-polished modes
 - `contains_new_assistant_phrase` now additionally catches `"gerne erledige"`, `"ich führe das aus"`, `"ich erledige das"`, `"wurde ausgeführt"`, `"aufgabe erledigt"`, `"i'll take care"`, `"i've done that"` and `"task completed"` as newly introduced execution-response phrases
 - the agent mode intent classifier prompt now explicitly distinguishes direct agent addressing with a task from incidental agent-name mention: "yes" only when the user addresses the agent by name AND assigns a task; standalone imperatives without agent-name addressing are classified as dictation even if an imperative verb is detected
-- replaced Windows `RegisterHotKey` with `WH_KEYBOARD_LL` low-level keyboard hook, so system-reserved key combos including `Win+*` and `Ctrl+Win+*` now work reliably; hook runs on a dedicated thread with injected-event filtering, modifier tracking and `VK_F24` dummy injection to prevent the Start menu from opening after Win-key combos
-- reduced Linux X11 hotkey polling interval from 50 ms to 1 ms for noticeably lower latency, while the existing `XGrabKey` architecture already delivers server-level events before application key handling
-- added a macOS CGEventTap fallback path for regular hotkeys that `RegisterEventHotKey` cannot grab (system-reserved combos like `Cmd+Space`); the tap requires macOS Accessibility permission and shares the same global hotkey event system as existing Carbon/CGEventTap media-key registrations
 
 ### Changed
 
