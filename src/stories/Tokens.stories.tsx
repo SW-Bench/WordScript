@@ -28,7 +28,7 @@ function TypeSample({ token, size, weight, lh, ls, uppercase, color = 'var(--fg)
       <span style={{ fontSize: '9px', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)', width: '150px', flexShrink: 0 }}>
         {token}
       </span>
-      <span style={{ fontSize: size, fontWeight, lineHeight: lh || 1.4, letterSpacing: ls || 'normal', textTransform: uppercase ? 'uppercase' : 'none', color }}>
+      <span style={{ fontSize: size, fontWeight: weight, lineHeight: lh || 1.4, letterSpacing: ls || 'normal', textTransform: uppercase ? 'uppercase' : 'none', color }}>
         The quick brown fox jumps over the lazy dog
       </span>
     </div>

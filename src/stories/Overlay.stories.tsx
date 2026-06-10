@@ -214,11 +214,7 @@ export const AllStates: Story = {
       background: 'linear-gradient(135deg, #0f1418 0%, #1a2332 100%)',
       padding: '48px',
     }}>
-      <ReadyState.render />
-      <RecordingState.render />
-      <ProcessingState.render />
-      <DoneState.render />
-      <EditModal.render />
+      {/* Individual stories shown above */}
     </div>
   ),
 };
