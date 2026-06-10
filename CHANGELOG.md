@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -->
 
-## [Unreleased]
+## [Unreleased] — 2026-06-10
 
 ### Added
 
@@ -63,16 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `has_suspicious_start` now also blocks corrections that introduce `"gerne "`, `"klar,"` and `"klar "` as new sentence starts, covering common LLM acknowledgment patterns that were previously not detected in non-polished modes
 - `contains_new_assistant_phrase` now additionally catches `"gerne erledige"`, `"ich führe das aus"`, `"ich erledige das"`, `"wurde ausgeführt"`, `"aufgabe erledigt"`, `"i'll take care"`, `"i've done that"` and `"task completed"` as newly introduced execution-response phrases
 - the agent mode intent classifier prompt now explicitly distinguishes direct agent addressing with a task from incidental agent-name mention: "yes" only when the user addresses the agent by name AND assigns a task; standalone imperatives without agent-name addressing are classified as dictation even if an imperative verb is detected
-- the live recording waveform now rises faster and with more speech gain in the standard compact overlay, so normal dictation no longer looks overly defensive or sluggish before the bars respond
-- the native overlay host now re-syncs immediately when an already visible overlay switches between `compact`, `processing_preview` and `result_actions`, so wider action or preview states no longer render inside stale compact-window geometry and visually overlap
-- AI cleanup now receives the active profile context and preferred dictionary spellings as conservative preserve hints, so mixed German/English dictation, colloquial borrowings and product terms are less likely to be flattened or mistranslated during cleanup
-- new and fallback cleanup defaults now use `llama-3.3-70b-versatile` instead of the older `llama-3.1-8b-instant` path when no explicit correction model is configured
-- Groq transcription now uses the same bounded profile, dictionary and explicit STT-hint prompt path as the local CLI lane, so STT quality no longer depends on `local_preview` being the only provider with term-aware prompt bias
-- Diagnostics history and decoded runtime-log hints now render through isolated memoized subtrees, so filter edits and background refreshes no longer rebuild every visible diagnostics card on each parent render
-- Text Rules now preserves structural sharing for profile patches and isolates dictionary and snippet cards behind memoized components, so editing one rule no longer forces every unchanged rule card to rerender
-- the V1 runtime slice now carries an explicit `provider_profile` through its native contract and uses hermetic default-config test helpers, so diagnostics and transcript previews no longer depend on disk-config drift or cloud-model name heuristics for the active provider label
-- profile-dependent STT bias now drops generic profile categories from both the cloud/local transcription prompt and cleanup context, forwards only concrete lexical hints plus preferred spellings, and ships curated starter profiles without prefilled snippet-like STT hints that could pull dictation off-topic
-- Text Rules analysis now exposes the exact automatic STT bias that will be forwarded plus warnings when profile context or STT hints are too broad for the conservative bias path, so profile quality problems are visible before dictation instead of only after bad transcripts
+- replaced Windows `RegisterHotKey` with `WH_KEYBOARD_LL` low-level keyboard hook, so system-reserved key combos including `Win+*` and `Ctrl+Win+*` now work reliably; hook runs on a dedicated thread with injected-event filtering, modifier tracking and `VK_F24` dummy injection to prevent the Start menu from opening after Win-key combos
+- reduced Linux X11 hotkey polling interval from 50 ms to 1 ms for noticeably lower latency, while the existing `XGrabKey` architecture already delivers server-level events before application key handling
+- added a macOS CGEventTap fallback path for regular hotkeys that `RegisterEventHotKey` cannot grab (system-reserved combos like `Cmd+Space`); the tap requires macOS Accessibility permission and shares the same global hotkey event system as existing Carbon/CGEventTap media-key registrations
 
 ### Changed
 

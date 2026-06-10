@@ -1,7 +1,7 @@
 # Hotkey Cross-Platform Fix — Hand-Off Document
 
-**Branch**: `master`  
-**Status**: In progress — research + design complete, code not yet written  
+**Branch**: `easy-wins-hotkey-hygiene`  
+**Status**: Implemented — 2026-06-10  
 **Goal**: Replace `RegisterHotKey`-based hotkey detection with low-level hooks on all platforms so arbitrary key combos (including Win+\*, Cmd+\*, Super+\*) work reliably.
 
 ---

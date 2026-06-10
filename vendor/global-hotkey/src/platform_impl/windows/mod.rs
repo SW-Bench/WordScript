@@ -2,201 +2,248 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-use std::ptr;
+use std::{cell::Cell, collections::HashMap};
 
 use keyboard_types::{Code, Modifiers};
+use once_cell::sync::{Lazy, OnceCell};
 use windows_sys::Win32::{
-    Foundation::{ERROR_HOTKEY_ALREADY_REGISTERED, HWND, LPARAM, LRESULT, WIN32_ERROR, WPARAM},
+    Foundation::{LPARAM, LRESULT, WPARAM},
     UI::{
         Input::KeyboardAndMouse::*,
         WindowsAndMessaging::{
-            CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, CW_USEDEFAULT,
-            WM_HOTKEY, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-            WS_EX_TRANSPARENT, WS_OVERLAPPED,
+            CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
+            UnhookWindowsHookEx, WH_KEYBOARD_LL, KBDLLHOOKSTRUCT, MSG, WM_KEYDOWN, WM_KEYUP,
+            WM_SYSKEYDOWN, WM_SYSKEYUP,
         },
     },
 };
 
-use crate::{hotkey::HotKey, GlobalHotKeyEvent};
+use crate::{hotkey::HotKey, GlobalHotKeyEvent, HotKeyState};
 
-pub struct GlobalHotKeyManager {
-    hwnd: HWND,
+static HOTKEY_REGISTRY: Lazy<std::sync::Mutex<HashMap<u32, HotKey>>> =
+    Lazy::new(Default::default);
+static HOOK_STARTED: OnceCell<()> = OnceCell::new();
+
+const LLKHF_INJECTED: u32 = 0x10;
+
+thread_local! {
+    static MOD_STATE: Cell<Modifiers> = Cell::new(Modifiers::empty());
+    static ACTIVE_ID: Cell<Option<u32>> = Cell::new(None);
+    static ACTIVE_VK: Cell<u16> = Cell::new(0);
+    static WIN_USED: Cell<bool> = Cell::new(false);
 }
 
-impl Drop for GlobalHotKeyManager {
-    fn drop(&mut self) {
-        unsafe { DestroyWindow(self.hwnd) };
-    }
-}
+pub struct GlobalHotKeyManager;
 
 impl GlobalHotKeyManager {
     pub fn new() -> crate::Result<Self> {
-        let class_name = encode_wide("global_hotkey_app");
-        unsafe {
-            let hinstance = get_instance_handle();
-
-            let wnd_class = WNDCLASSW {
-                lpfnWndProc: Some(global_hotkey_proc),
-                lpszClassName: class_name.as_ptr(),
-                hInstance: hinstance,
-                ..std::mem::zeroed()
-            };
-
-            RegisterClassW(&wnd_class);
-
-            let hwnd = CreateWindowExW(
-                WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED |
-                // WS_EX_TOOLWINDOW prevents this window from ever showing up in the taskbar, which
-                // we want to avoid. If you remove this style, this window won't show up in the
-                // taskbar *initially*, but it can show up at some later point. This can sometimes
-                // happen on its own after several hours have passed, although this has proven
-                // difficult to reproduce. Alternatively, it can be manually triggered by killing
-                // `explorer.exe` and then starting the process back up.
-                // It is unclear why the bug is triggered by waiting for several hours.
-                WS_EX_TOOLWINDOW,
-                class_name.as_ptr(),
-                ptr::null(),
-                WS_OVERLAPPED,
-                CW_USEDEFAULT,
-                0,
-                CW_USEDEFAULT,
-                0,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                hinstance,
-                std::ptr::null_mut(),
-            );
-            if hwnd.is_null() {
-                return Err(crate::Error::OsError(std::io::Error::last_os_error()));
-            }
-
-            Ok(Self { hwnd })
-        }
+        ensure_hook_thread();
+        Ok(Self)
     }
 
     pub fn register(&self, hotkey: HotKey) -> crate::Result<()> {
-        let mut mods = MOD_NOREPEAT;
-        if hotkey.mods.contains(Modifiers::SHIFT) {
-            mods |= MOD_SHIFT;
+        if key_to_vk(&hotkey.key).is_none() {
+            return Err(crate::Error::FailedToRegister(format!(
+                "Unknown VKCode for {}",
+                hotkey.key
+            )));
         }
-        if hotkey.mods.intersects(Modifiers::SUPER | Modifiers::META) {
-            mods |= MOD_WIN;
-        }
-        if hotkey.mods.contains(Modifiers::ALT) {
-            mods |= MOD_ALT;
-        }
-        if hotkey.mods.contains(Modifiers::CONTROL) {
-            mods |= MOD_CONTROL;
-        }
-
-        // get key scan code
-        match key_to_vk(&hotkey.key) {
-            Some(vk_code) => {
-                let result =
-                    unsafe { RegisterHotKey(self.hwnd, hotkey.id() as _, mods, vk_code as _) };
-                if result == 0 {
-                    let error = std::io::Error::last_os_error();
-
-                    return match error.raw_os_error() {
-                        Some(raw_os_error) => {
-                            let win32error = WIN32_ERROR::try_from(raw_os_error);
-                            if let Ok(ERROR_HOTKEY_ALREADY_REGISTERED) = win32error {
-                                Err(crate::Error::AlreadyRegistered(hotkey))
-                            } else {
-                                Err(crate::Error::OsError(error))
-                            }
-                        }
-                        _ => Err(crate::Error::OsError(error)),
-                    };
-                }
-            }
-            _ => {
-                return Err(crate::Error::FailedToRegister(format!(
-                    "Unknown VKCode for {}",
-                    hotkey.key
-                )))
-            }
-        }
-
+        HOTKEY_REGISTRY.lock().unwrap().insert(hotkey.id(), hotkey);
         Ok(())
     }
 
     pub fn unregister(&self, hotkey: HotKey) -> crate::Result<()> {
-        let result = unsafe { UnregisterHotKey(self.hwnd, hotkey.id() as _) };
-        if result == 0 {
-            return Err(crate::Error::FailedToUnRegister(hotkey));
-        }
+        HOTKEY_REGISTRY.lock().unwrap().remove(&hotkey.id());
         Ok(())
     }
 
     pub fn register_all(&self, hotkeys: &[HotKey]) -> crate::Result<()> {
-        for hotkey in hotkeys {
-            self.register(*hotkey)?;
+        for h in hotkeys {
+            self.register(*h)?;
         }
         Ok(())
     }
 
     pub fn unregister_all(&self, hotkeys: &[HotKey]) -> crate::Result<()> {
-        for hotkey in hotkeys {
-            self.unregister(*hotkey)?;
+        for h in hotkeys {
+            self.unregister(*h)?;
         }
         Ok(())
     }
 }
-unsafe extern "system" fn global_hotkey_proc(
-    hwnd: HWND,
-    msg: u32,
+
+fn ensure_hook_thread() {
+    HOOK_STARTED.get_or_init(|| {
+        std::thread::Builder::new()
+            .name("global-hotkey-hook".into())
+            .spawn(hook_thread_main)
+            .expect("failed to spawn hotkey hook thread");
+    });
+}
+
+fn hook_thread_main() {
+    unsafe {
+        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_keyboard_proc), 0, 0);
+        if hook == 0 {
+            eprintln!(
+                "global-hotkey: failed to install WH_KEYBOARD_LL: {}",
+                std::io::Error::last_os_error()
+            );
+            return;
+        }
+        let mut msg: MSG = std::mem::zeroed();
+        while GetMessageW(&mut msg, 0, 0, 0) > 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        UnhookWindowsHookEx(hook);
+    }
+}
+
+unsafe extern "system" fn ll_keyboard_proc(
+    code: i32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    if msg == WM_HOTKEY {
-        GlobalHotKeyEvent::send(GlobalHotKeyEvent {
-            id: wparam as _,
-            state: crate::HotKeyState::Pressed,
-        });
-        std::thread::spawn(move || loop {
-            let state = GetAsyncKeyState(HIWORD(lparam as u32) as i32);
-            if state == 0 {
-                GlobalHotKeyEvent::send(GlobalHotKeyEvent {
-                    id: wparam as _,
-                    state: crate::HotKeyState::Released,
+    if code < 0 {
+        return CallNextHookEx(0, code, wparam, lparam);
+    }
+    let kb = &*(lparam as *const KBDLLHOOKSTRUCT);
+    if kb.flags & LLKHF_INJECTED != 0 {
+        return CallNextHookEx(0, code, wparam, lparam);
+    }
+    let vk = kb.vkCode as u16;
+    let is_down = wparam == WM_KEYDOWN as usize || wparam == WM_SYSKEYDOWN as usize;
+    let is_up = wparam == WM_KEYUP as usize || wparam == WM_SYSKEYUP as usize;
+
+    if let Some(modifier) = vk_to_modifier(vk) {
+        if is_down {
+            MOD_STATE.with(|m| m.set(m.get() | modifier));
+        } else if is_up {
+            MOD_STATE.with(|m| {
+                let mut v = m.get();
+                v.remove(modifier);
+                m.set(v);
+            });
+            if modifier == Modifiers::SUPER {
+                WIN_USED.with(|w| {
+                    if w.get() {
+                        send_dummy_key();
+                        w.set(false);
+                    }
                 });
-                break;
             }
+        }
+        return CallNextHookEx(0, code, wparam, lparam);
+    }
+
+    if is_down {
+        let current_mods = MOD_STATE.with(|m| m.get());
+        let event = HOTKEY_REGISTRY.try_lock().ok().and_then(|reg| {
+            reg.iter().find_map(|(id, hotkey)| {
+                key_to_vk(&hotkey.key)
+                    .filter(|&hvk| hvk == vk && mods_match(hotkey.mods, current_mods))
+                    .map(|_| {
+                        (
+                            *id,
+                            hotkey.mods.intersects(Modifiers::SUPER | Modifiers::META),
+                        )
+                    })
+            })
         });
+        if let Some((id, uses_win)) = event {
+            ACTIVE_ID.with(|a| a.set(Some(id)));
+            ACTIVE_VK.with(|a| a.set(vk));
+            if uses_win {
+                WIN_USED.with(|w| w.set(true));
+            }
+            GlobalHotKeyEvent::send(GlobalHotKeyEvent {
+                id,
+                state: HotKeyState::Pressed,
+            });
+            return 1;
+        }
+        return CallNextHookEx(0, code, wparam, lparam);
     }
 
-    DefWindowProcW(hwnd, msg, wparam, lparam)
-}
-
-#[inline(always)]
-#[allow(non_snake_case)]
-const fn HIWORD(x: u32) -> u16 {
-    ((x >> 16) & 0xFFFF) as u16
-}
-
-pub fn encode_wide<S: AsRef<std::ffi::OsStr>>(string: S) -> Vec<u16> {
-    std::os::windows::prelude::OsStrExt::encode_wide(string.as_ref())
-        .chain(std::iter::once(0))
-        .collect()
-}
-
-pub fn get_instance_handle() -> windows_sys::Win32::Foundation::HMODULE {
-    // Gets the instance handle by taking the address of the
-    // pseudo-variable created by the microsoft linker:
-    // https://devblogs.microsoft.com/oldnewthing/20041025-00/?p=37483
-
-    // This is preferred over GetModuleHandle(NULL) because it also works in DLLs:
-    // https://stackoverflow.com/questions/21718027/getmodulehandlenull-vs-hinstance
-
-    extern "C" {
-        static __ImageBase: windows_sys::Win32::System::SystemServices::IMAGE_DOS_HEADER;
+    if is_up {
+        let maybe = ACTIVE_ID.with(|a| a.get()).zip(Some(ACTIVE_VK.with(|a| a.get())));
+        if let Some((active_id, active_vk)) = maybe {
+            if active_vk == vk {
+                ACTIVE_ID.with(|a| a.set(None));
+                ACTIVE_VK.with(|a| a.set(0));
+                GlobalHotKeyEvent::send(GlobalHotKeyEvent {
+                    id: active_id,
+                    state: HotKeyState::Released,
+                });
+                return 1;
+            }
+        }
     }
 
-    unsafe { &__ImageBase as *const _ as _ }
+    CallNextHookEx(0, code, wparam, lparam)
 }
 
-// used to build accelerators table from Key
+fn send_dummy_key() {
+    unsafe {
+        let inputs = [
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_F24,
+                        wScan: 0,
+                        dwFlags: 0,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_F24,
+                        wScan: 0,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            },
+        ];
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        );
+    }
+}
+
+fn mods_match(registered: Modifiers, current: Modifiers) -> bool {
+    fn norm(m: Modifiers) -> Modifiers {
+        let base =
+            Modifiers::SHIFT | Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER;
+        let mut n = m;
+        if n.contains(Modifiers::META) {
+            n.remove(Modifiers::META);
+            n.insert(Modifiers::SUPER);
+        }
+        n & base
+    }
+    norm(registered) == norm(current)
+}
+
+fn vk_to_modifier(vk: u16) -> Option<Modifiers> {
+    match vk {
+        v if v == VK_LCONTROL || v == VK_RCONTROL || v == VK_CONTROL => Some(Modifiers::CONTROL),
+        v if v == VK_LMENU || v == VK_RMENU || v == VK_MENU => Some(Modifiers::ALT),
+        v if v == VK_LSHIFT || v == VK_RSHIFT || v == VK_SHIFT => Some(Modifiers::SHIFT),
+        v if v == VK_LWIN || v == VK_RWIN => Some(Modifiers::SUPER),
+        _ => None,
+    }
+}
+
 fn key_to_vk(key: &Code) -> Option<VIRTUAL_KEY> {
     Some(match key {
         Code::KeyA => VK_A,

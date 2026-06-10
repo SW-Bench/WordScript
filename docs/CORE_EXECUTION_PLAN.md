@@ -1,6 +1,6 @@
 # WordScript - Core Execution Plan
 
-Stand: 2026-05-13
+Stand: 2026-06-10
 
 ## Zweck
 

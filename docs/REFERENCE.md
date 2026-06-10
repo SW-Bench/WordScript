@@ -1,6 +1,6 @@
 # WordScript — Reference
 
-Stand: 2026-06-07
+Stand: 2026-06-10
 
 ## Zweck
 

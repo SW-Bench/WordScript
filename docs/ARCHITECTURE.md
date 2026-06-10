@@ -1,6 +1,6 @@
 # WordScript — Architecture
 
-Stand: 2026-05-24
+Stand: 2026-06-10
 
 ## Zweck
 
