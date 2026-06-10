@@ -11,9 +11,9 @@ describe("textProfileTemplates", () => {
 
     expect(profile.label).toBe("Customer success replies 2");
     expect(profile.id).toMatch(/^profile-/);
-    expect(profile.work_mode.rewrite_style).toBe(supportTemplate!.work_mode.rewrite_style);
-    expect(profile.work_mode.insert_behavior).toBe(supportTemplate!.work_mode.insert_behavior);
-    expect(profile.work_mode.recovery_behavior).toBe(supportTemplate!.work_mode.recovery_behavior);
+    expect(profile.work_mode!.rewrite_style).toBe(supportTemplate!.work_mode!.rewrite_style);
+    expect(profile.work_mode!.insert_behavior).toBe(supportTemplate!.work_mode!.insert_behavior);
+    expect(profile.work_mode!.recovery_behavior).toBe(supportTemplate!.work_mode!.recovery_behavior);
     expect(profile.curation.curated).toBe(false);
     expect(profile.dictionary_entries).toHaveLength(supportTemplate!.dictionary_entries.length);
     expect(profile.snippet_entries).toHaveLength(supportTemplate!.snippet_entries.length);
@@ -47,9 +47,9 @@ describe("textProfileTemplates", () => {
 
     expect(merged.label).toBe("General writing");
     expect(merged.curation).toEqual(createEmptyTextProfileCuration());
-    expect(merged.work_mode.rewrite_style).toBe(supportTemplate!.work_mode.rewrite_style);
-    expect(merged.work_mode.insert_behavior).toBe(supportTemplate!.work_mode.insert_behavior);
-    expect(merged.work_mode.recovery_behavior).toBe(supportTemplate!.work_mode.recovery_behavior);
+    expect(merged.work_mode!.rewrite_style).toBe(supportTemplate!.work_mode!.rewrite_style);
+    expect(merged.work_mode!.insert_behavior).toBe(supportTemplate!.work_mode!.insert_behavior);
+    expect(merged.work_mode!.recovery_behavior).toBe(supportTemplate!.work_mode!.recovery_behavior);
     expect(merged.prompt).toContain("custom org names");
     expect(merged.prompt).toContain("WordScript");
     expect(merged.stt_hints).toContain("existing guided phrase");

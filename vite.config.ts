@@ -19,7 +19,7 @@ export default defineConfig({
     // Tauri targets ES2021 minimum on all supported platforms
     target: ["es2021", "chrome105", "safari15"],
     // Don't minify for better debuggability (Tauri bundles the whole thing anyway)
-    minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
+    minify: !process.env.TAURI_DEBUG,
     // Produce sourcemaps in dev mode for easier debugging
     sourcemap: !!process.env.TAURI_DEBUG,
     outDir: "dist",

@@ -6,8 +6,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    config::{DictionaryEntry, SnippetEntry},
-    transcription_hints::{analyze_transcription_bias, TranscriptionBiasPreview},
+    config::{BiasMode, DictionaryEntry, ManualBias, SnippetEntry},
+    transcription_hints::{
+        analyze_transcription_bias_with_mode, BiasRequestContext, TranscriptionBiasPreview,
+    },
     transform::NativeTransformConfig,
 };
 
@@ -91,6 +93,24 @@ pub struct AnalyzeTextRulesRequest {
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
     pub sample_text: Option<String>,
+    #[serde(default)]
+    pub bias_mode: Option<String>,
+    #[serde(default)]
+    pub local_prompt_strength: Option<String>,
+    #[serde(default)]
+    pub local_prompt_carry: Option<bool>,
+    #[serde(default)]
+    pub manual_bias: Option<ManualBiasPayload>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ManualBiasPayload {
+    #[serde(default)]
+    pub cloud_include_profile_terms: bool,
+    #[serde(default)]
+    pub local_include_profile_terms: bool,
+    #[serde(default)]
+    pub stt_hints_override: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -150,6 +170,9 @@ pub enum ProfileHealthFlag {
     CleanupInterference {
         hint: String,
     },
+    BiasPolicyWeak {
+        hint: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -172,12 +195,39 @@ pub struct GetProfileHealthRequest {
     pub dictionary_entries: Vec<DictionaryEntry>,
     #[serde(default)]
     pub acknowledged_flags: Vec<String>,
+    #[serde(default)]
+    pub bias_mode: Option<String>,
+    #[serde(default)]
+    pub processing_mode: Option<String>,
+    #[serde(default)]
+    pub agent_mode_enabled: bool,
+    #[serde(default)]
+    pub profile_id: Option<String>,
 }
 
+#[allow(dead_code)]
 pub fn analyze_profile_health(
     prompt: &str,
     dictionary_entries: &[DictionaryEntry],
     acknowledged_flags: &[String],
+) -> ProfileHealthStatus {
+    analyze_profile_health_with_policy(
+        prompt,
+        dictionary_entries,
+        acknowledged_flags,
+        None,
+        None,
+        false,
+    )
+}
+
+pub fn analyze_profile_health_with_policy(
+    prompt: &str,
+    dictionary_entries: &[DictionaryEntry],
+    acknowledged_flags: &[String],
+    bias_mode: Option<&str>,
+    processing_mode: Option<&str>,
+    agent_mode_enabled: bool,
 ) -> ProfileHealthStatus {
     let mut flags = Vec::new();
 
@@ -188,6 +238,9 @@ pub fn analyze_profile_health(
         flags.push(flag);
     }
     if let Some(flag) = detect_cleanup_interference(prompt) {
+        flags.push(flag);
+    }
+    if let Some(flag) = detect_bias_policy_weak(bias_mode, processing_mode, agent_mode_enabled) {
         flags.push(flag);
     }
 
@@ -224,11 +277,44 @@ fn flag_kind(flag: &ProfileHealthFlag) -> &'static str {
         ProfileHealthFlag::LengthBias { .. } => "length_bias",
         ProfileHealthFlag::FormConflict { .. } => "form_conflict",
         ProfileHealthFlag::CleanupInterference { .. } => "cleanup_interference",
+        ProfileHealthFlag::BiasPolicyWeak { .. } => "bias_policy_weak",
     }
 }
 
 fn is_red_flag(flag: &ProfileHealthFlag) -> bool {
-    matches!(flag, ProfileHealthFlag::FormConflict { .. })
+    matches!(
+        flag,
+        ProfileHealthFlag::FormConflict { .. } | ProfileHealthFlag::BiasPolicyWeak { .. }
+    )
+}
+
+fn detect_bias_policy_weak(
+    bias_mode: Option<&str>,
+    processing_mode: Option<&str>,
+    agent_mode_enabled: bool,
+) -> Option<ProfileHealthFlag> {
+    // BiasPolicyWeak fires only when bias_mode == Off AND the active processing mode
+    // amplifies the lack of STT bias (agent, prompt_enhance) or agent_mode is on globally.
+    // Cleanup / Rewrite / Verbatim do not need STT bias, so Off is fine for them.
+    let is_off = bias_mode
+        .map(|mode| mode.eq_ignore_ascii_case("off"))
+        .unwrap_or(false);
+    if !is_off {
+        return None;
+    }
+
+    let mode_amplifies_bias = matches!(
+        processing_mode.map(|m| m.to_ascii_lowercase()).as_deref(),
+        Some("agent") | Some("prompt_enhance")
+    );
+
+    if mode_amplifies_bias || agent_mode_enabled {
+        return Some(ProfileHealthFlag::BiasPolicyWeak {
+            hint: "Bias Mode is Off but the active Processing Mode (agent / prompt_enhance) or agent mode depends on STT vocabulary. Re-enable Conservative or Manual bias to keep STT quality stable.".to_string(),
+        });
+    }
+
+    None
 }
 
 fn detect_length_bias(entries: &[DictionaryEntry]) -> Option<ProfileHealthFlag> {
@@ -353,10 +439,24 @@ fn detect_cleanup_interference(prompt: &str) -> Option<ProfileHealthFlag> {
 
 #[tauri::command]
 pub fn get_profile_health(request: GetProfileHealthRequest) -> Result<ProfileHealthStatus, String> {
-    Ok(analyze_profile_health(
+    let mut combined = request.acknowledged_flags.clone();
+    if let Some(profile_id) = request.profile_id.as_deref() {
+        let persisted = super::config::AppConfig::load_from_disk();
+        if let Some(persisted_flags) = persisted.profile_health_acknowledged_flags.get(profile_id) {
+            for flag in persisted_flags {
+                if !combined.iter().any(|existing| existing == flag) {
+                    combined.push(flag.clone());
+                }
+            }
+        }
+    }
+    Ok(analyze_profile_health_with_policy(
         &request.prompt,
         &request.dictionary_entries,
-        &request.acknowledged_flags,
+        &combined,
+        request.bias_mode.as_deref(),
+        request.processing_mode.as_deref(),
+        request.agent_mode_enabled,
     ))
 }
 
@@ -364,16 +464,50 @@ pub fn get_profile_health(request: GetProfileHealthRequest) -> Result<ProfileHea
 
 #[tauri::command]
 pub fn analyze_text_rules(request: AnalyzeTextRulesRequest) -> Result<TextRulesAnalysis, String> {
-    Ok(analyze_document(
-        &TextRulesDocument {
-            schema_version: TEXT_RULES_SCHEMA_VERSION,
-            prompt: request.prompt,
-            stt_hints: request.stt_hints,
-            dictionary_entries: request.dictionary_entries,
-            snippet_entries: request.snippet_entries,
-        },
+    let bias_context = bias_context_from_request(&request);
+    let document = TextRulesDocument {
+        schema_version: TEXT_RULES_SCHEMA_VERSION,
+        prompt: request.prompt,
+        stt_hints: request.stt_hints,
+        dictionary_entries: request.dictionary_entries,
+        snippet_entries: request.snippet_entries,
+    };
+    Ok(analyze_document_with_context(
+        &document,
         request.sample_text.as_deref(),
+        &bias_context,
     ))
+}
+
+fn bias_context_from_request(
+    request: &AnalyzeTextRulesRequest,
+) -> super::transcription_hints::BiasRequestContext {
+    let bias_mode = match request.bias_mode.as_deref() {
+        Some("off") => BiasMode::Off,
+        Some("manual") => BiasMode::Manual,
+        _ => BiasMode::Conservative,
+    };
+    let manual_bias = request
+        .manual_bias
+        .clone()
+        .map(|m| super::config::ManualBias {
+            cloud_include_profile_terms: m.cloud_include_profile_terms,
+            local_include_profile_terms: m.local_include_profile_terms,
+            stt_hints_override: m.stt_hints_override,
+        })
+        .unwrap_or_default();
+    let local_prompt_strength = request
+        .local_prompt_strength
+        .clone()
+        .unwrap_or_else(|| "profile".to_string());
+    let local_prompt_carry = request.local_prompt_carry.unwrap_or(false);
+
+    super::transcription_hints::BiasRequestContext {
+        bias_mode,
+        manual_bias,
+        local_prompt_strength,
+        local_prompt_carry,
+    }
 }
 
 #[tauri::command]
@@ -430,6 +564,15 @@ pub fn import_text_rules(
 pub fn analyze_document(
     document: &TextRulesDocument,
     sample_text: Option<&str>,
+) -> TextRulesAnalysis {
+    let context = bias_context_for_document(document);
+    analyze_document_with_context(document, sample_text, &context)
+}
+
+pub fn analyze_document_with_context(
+    document: &TextRulesDocument,
+    sample_text: Option<&str>,
+    bias_context: &super::transcription_hints::BiasRequestContext,
 ) -> TextRulesAnalysis {
     let mut issues = Vec::new();
     let mut seen_ids = BTreeMap::<String, Vec<String>>::new();
@@ -530,10 +673,11 @@ pub fn analyze_document(
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_PREVIEW_TEXT);
     let (output, applied_rules) = preview_transform(document, sample_text);
-    let transcription_bias = analyze_transcription_bias(
+    let transcription_bias = analyze_transcription_bias_with_mode(
         &document.prompt,
         &document.stt_hints,
         &document.dictionary_entries,
+        bias_context,
     );
     issues.extend(bias_warning_issues(document, &transcription_bias));
 
@@ -551,6 +695,44 @@ pub fn analyze_document(
         dictionary_count: document.dictionary_entries.len(),
         snippet_count: document.snippet_entries.len(),
     }
+}
+
+fn _unused_transcription_bias_for_document(
+    document: &TextRulesDocument,
+) -> TranscriptionBiasPreview {
+    let context = bias_context_for_document(document);
+    analyze_transcription_bias_with_mode(
+        &document.prompt,
+        &document.stt_hints,
+        &document.dictionary_entries,
+        &context,
+    )
+}
+
+fn bias_context_for_document(_document: &TextRulesDocument) -> BiasRequestContext {
+    // The TextRulesDocument is the in-memory profile-less document shape; the
+    // runtime request path passes a richer context. For the analysis view we
+    // fall back to Conservative with global defaults so the preview matches
+    // what the production cloud path actually sends to Whisper.
+    BiasRequestContext {
+        bias_mode: BiasMode::Conservative,
+        manual_bias: ManualBias::default(),
+        local_prompt_strength: "profile".to_string(),
+        local_prompt_carry: false,
+    }
+}
+
+#[allow(dead_code)]
+fn transcription_bias_for_document(
+    document: &TextRulesDocument,
+) -> TranscriptionBiasPreview {
+    let context = bias_context_for_document(document);
+    analyze_transcription_bias_with_mode(
+        &document.prompt,
+        &document.stt_hints,
+        &document.dictionary_entries,
+        &context,
+    )
 }
 
 fn bias_warning_issues(
@@ -1011,5 +1193,223 @@ mod tests {
             issue.code,
             TextRulesIssueCode::NoConcreteProfileHints
         )));
+    }
+
+    // --- Profile Health: BiasPolicyWeak + acknowledged persistence ---
+
+    #[test]
+    fn health_red_on_form_conflict() {
+        let status = analyze_profile_health_with_policy(
+            "formal and casual tone",
+            &[],
+            &[],
+            None,
+            None,
+            false,
+        );
+        assert_eq!(status.level, ProfileHealthLevel::Red);
+        assert!(status.flags.iter().any(|f| matches!(f, ProfileHealthFlag::FormConflict { .. })));
+    }
+
+    #[test]
+    fn health_red_on_bias_policy_weak_with_agent_mode() {
+        let status = analyze_profile_health_with_policy(
+            "customer follow-up",
+            &[],
+            &[],
+            Some("off"),
+            Some("cleanup"),
+            true,
+        );
+        assert_eq!(status.level, ProfileHealthLevel::Red);
+        assert!(status
+            .flags
+            .iter()
+            .any(|f| matches!(f, ProfileHealthFlag::BiasPolicyWeak { .. })));
+    }
+
+    #[test]
+    fn health_red_on_bias_policy_weak_with_prompt_enhance_mode() {
+        let status = analyze_profile_health_with_policy(
+            "",
+            &[],
+            &[],
+            Some("off"),
+            Some("prompt_enhance"),
+            false,
+        );
+        assert_eq!(status.level, ProfileHealthLevel::Red);
+        assert!(status
+            .flags
+            .iter()
+            .any(|f| matches!(f, ProfileHealthFlag::BiasPolicyWeak { .. })));
+    }
+
+    #[test]
+    fn health_yellow_on_length_bias_unacknowledged() {
+        let entries: Vec<DictionaryEntry> = (0..6)
+            .map(|i| DictionaryEntry {
+                id: format!("e{i}"),
+                phrase: format!("a{i}"),
+                replace_with: format!("expanded replacement phrase number {i} and more text"),
+            })
+            .collect();
+        let status = analyze_profile_health_with_policy(
+            "",
+            &entries,
+            &[],
+            None,
+            None,
+            false,
+        );
+        // LengthBias alone is yellow, not red.
+        assert_eq!(status.level, ProfileHealthLevel::Yellow);
+        assert!(status
+            .flags
+            .iter()
+            .any(|f| matches!(f, ProfileHealthFlag::LengthBias { .. })));
+    }
+
+    #[test]
+    fn health_green_when_all_acknowledged() {
+        let entries: Vec<DictionaryEntry> = (0..6)
+            .map(|i| DictionaryEntry {
+                id: format!("e{i}"),
+                phrase: format!("a{i}"),
+                replace_with: format!("expanded replacement phrase number {i} and more text"),
+            })
+            .collect();
+        let status = analyze_profile_health_with_policy(
+            "informal and brief",
+            &entries,
+            &["length_bias".to_string(), "form_conflict".to_string()],
+            None,
+            None,
+            false,
+        );
+        assert_eq!(status.level, ProfileHealthLevel::Green);
+    }
+
+    #[test]
+    fn bias_policy_weak_not_red_for_cleanup_only_profiles() {
+        let status = analyze_profile_health_with_policy(
+            "",
+            &[],
+            &[],
+            Some("off"),
+            Some("cleanup"),
+            false,
+        );
+        assert!(
+            !status
+                .flags
+                .iter()
+                .any(|f| matches!(f, ProfileHealthFlag::BiasPolicyWeak { .. })),
+            "Off bias for cleanup-only profiles must not raise BiasPolicyWeak"
+        );
+    }
+
+    #[test]
+    fn bias_policy_weak_acked_downgrades_to_green() {
+        let status = analyze_profile_health_with_policy(
+            "",
+            &[],
+            &["bias_policy_weak".to_string()],
+            Some("off"),
+            Some("agent"),
+            false,
+        );
+        assert_eq!(status.level, ProfileHealthLevel::Green);
+    }
+
+    // --- analyze_document_with_context: provider-specific preview ---
+
+    #[test]
+    fn analyze_document_conservative_surfaces_cloud_preview_without_profile_hints() {
+        let document = TextRulesDocument {
+            schema_version: TEXT_RULES_SCHEMA_VERSION,
+            prompt: "WordScript\nSEV-1".to_string(),
+            stt_hints: "status update".to_string(),
+            dictionary_entries: vec![DictionaryEntry {
+                id: "d1".to_string(),
+                phrase: "word script".to_string(),
+                replace_with: "WordScript".to_string(),
+            }],
+            snippet_entries: Vec::new(),
+        };
+        let context = BiasRequestContext {
+            bias_mode: BiasMode::Conservative,
+            manual_bias: ManualBias::default(),
+            local_prompt_strength: "profile".to_string(),
+            local_prompt_carry: false,
+        };
+        let analysis = analyze_document_with_context(&document, None, &context);
+
+        let cloud = analysis
+            .transcription_bias
+            .cloud_prompt_preview
+            .expect("cloud preview present");
+        assert!(!cloud.contains("Vocabulary:"));
+        assert!(cloud.contains("Likely phrases: status update"));
+        assert_eq!(analysis.transcription_bias.effective_stt_hints_source, "profile");
+        assert!(analysis.transcription_bias.manual_overrides_applied.is_empty());
+    }
+
+    #[test]
+    fn analyze_document_manual_with_cloud_flag_surfaces_profile_hints_in_cloud() {
+        let document = TextRulesDocument {
+            schema_version: TEXT_RULES_SCHEMA_VERSION,
+            prompt: "WordScript\nSEV-1".to_string(),
+            stt_hints: "ignored profile hint".to_string(),
+            dictionary_entries: Vec::new(),
+            snippet_entries: Vec::new(),
+        };
+        let context = BiasRequestContext {
+            bias_mode: BiasMode::Manual,
+            manual_bias: ManualBias {
+                cloud_include_profile_terms: true,
+                local_include_profile_terms: false,
+                stt_hints_override: "alpha\nbeta".to_string(),
+            },
+            local_prompt_strength: "profile".to_string(),
+            local_prompt_carry: false,
+        };
+        let analysis = analyze_document_with_context(&document, None, &context);
+
+        let cloud = analysis
+            .transcription_bias
+            .cloud_prompt_preview
+            .expect("cloud preview present");
+        assert!(cloud.contains("Vocabulary: WordScript; SEV-1"));
+        assert!(cloud.contains("Likely phrases: alpha; beta"));
+        assert_eq!(
+            analysis.transcription_bias.effective_stt_hints_source,
+            "manual_override"
+        );
+        assert!(analysis
+            .transcription_bias
+            .manual_overrides_applied
+            .contains(&"stt_hints_override".to_string()));
+    }
+
+    #[test]
+    fn analyze_document_off_yields_no_cloud_or_local_preview() {
+        let document = TextRulesDocument {
+            schema_version: TEXT_RULES_SCHEMA_VERSION,
+            prompt: "WordScript".to_string(),
+            stt_hints: "status update".to_string(),
+            dictionary_entries: Vec::new(),
+            snippet_entries: Vec::new(),
+        };
+        let context = BiasRequestContext {
+            bias_mode: BiasMode::Off,
+            manual_bias: ManualBias::default(),
+            local_prompt_strength: "profile".to_string(),
+            local_prompt_carry: false,
+        };
+        let analysis = analyze_document_with_context(&document, None, &context);
+
+        assert!(analysis.transcription_bias.cloud_prompt_preview.is_none());
+        assert!(analysis.transcription_bias.local_prompt_preview.is_none());
     }
 }
