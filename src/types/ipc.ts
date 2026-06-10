@@ -30,6 +30,14 @@ export type ProcessingMode = "cleanup" | "rewrite" | "agent" | "prompt_enhance" 
 export type EnhanceSubMode = "enhance" | "expand";
 export type PromptTarget = "general" | "claude_code" | "cursor" | "chatgpt" | "copilot";
 
+export type BiasMode = "conservative" | "manual" | "off";
+
+export interface ManualBias {
+  cloud_include_profile_terms: boolean;
+  local_include_profile_terms: boolean;
+  stt_hints_override: string;
+}
+
 export interface TextProfileWorkMode {
   rewrite_style:           TextProfileRewriteStyle;
   insert_behavior:         TextProfileInsertBehavior;
@@ -37,6 +45,8 @@ export interface TextProfileWorkMode {
   processing_mode?:         ProcessingMode;
   enhance_sub_mode?:        EnhanceSubMode | null;
   target?:                  PromptTarget | null;
+  bias_mode?:               BiasMode;
+  manual_bias?:             ManualBias;
 }
 
 export interface WorkspaceContext {

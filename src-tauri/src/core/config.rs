@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Runtime};
@@ -111,6 +111,23 @@ pub struct TextProfileCuration {
     pub highlights: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BiasMode {
+    #[default]
+    Conservative,
+    Manual,
+    Off,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(default)]
+pub struct ManualBias {
+    pub cloud_include_profile_terms: bool,
+    pub local_include_profile_terms: bool,
+    pub stt_hints_override: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct TextProfileWorkMode {
@@ -124,6 +141,10 @@ pub struct TextProfileWorkMode {
     pub enhance_sub_mode: Option<EnhanceSubMode>,
     #[serde(default)]
     pub target: Option<PromptTarget>,
+    #[serde(default)]
+    pub bias_mode: BiasMode,
+    #[serde(default)]
+    pub manual_bias: ManualBias,
 }
 
 impl Default for TextProfileWorkMode {
@@ -135,6 +156,8 @@ impl Default for TextProfileWorkMode {
             processing_mode: ProcessingMode::default(),
             enhance_sub_mode: None,
             target: None,
+            bias_mode: BiasMode::default(),
+            manual_bias: ManualBias::default(),
         }
     }
 }
@@ -325,6 +348,10 @@ pub struct AppConfig {
     pub workspace_app_map: HashMap<String, ProcessingMode>,
     #[serde(default)]
     pub processing_modes_migrated: bool,
+    #[serde(default)]
+    pub bias_policy_migrated: bool,
+    #[serde(default)]
+    pub profile_health_acknowledged_flags: HashMap<String, HashSet<String>>,
     #[serde(default = "default_mode_picker_hotkey")]
     pub mode_picker_hotkey: String,
     #[serde(default = "default_mode_cycle_hotkey")]
@@ -409,6 +436,8 @@ impl Default for AppConfig {
             auto_detect_mode: false,
             workspace_app_map: HashMap::new(),
             processing_modes_migrated: false,
+            bias_policy_migrated: false,
+            profile_health_acknowledged_flags: HashMap::new(),
             mode_picker_hotkey: default_mode_picker_hotkey(),
             mode_cycle_hotkey: default_mode_cycle_hotkey(),
             mode_verbatim_hotkey: default_mode_verbatim_hotkey(),
@@ -446,6 +475,8 @@ impl AppConfig {
             processing_mode: work_mode.effective_processing_mode(),
             enhance_sub_mode: work_mode.enhance_sub_mode.clone(),
             target: work_mode.target.clone(),
+            bias_mode: work_mode.bias_mode.clone(),
+            manual_bias: work_mode.manual_bias.clone(),
         }
     }
 
@@ -554,6 +585,7 @@ impl AppConfig {
     fn normalize_for_runtime(&mut self) {
         self.normalize_text_profiles();
         self.migrate_text_profile_processing_modes();
+        self.migrate_bias_policy();
         self.provider = normalize_provider_value(&self.provider);
         self.local_model = normalize_local_model_value(&self.local_model);
         self.local_profile = normalize_local_profile_id(&self.local_profile, &self.local_model);
@@ -665,6 +697,27 @@ impl AppConfig {
         }
 
         self.processing_modes_migrated = true;
+    }
+
+    fn migrate_bias_policy(&mut self) {
+        if self.bias_policy_migrated {
+            return;
+        }
+
+        for profile in &mut self.text_profiles {
+            // Idempotent: Conservative + default ManualBias is the implicit pre-feature
+            // state, so profiles already in that shape need no work. Any other state
+            // (Manual, Off, or a non-default ManualBias) was already written by the
+            // running app, so we preserve it and only stamp the migration flag below.
+            if matches!(profile.work_mode.bias_mode, BiasMode::Conservative)
+                && profile.work_mode.manual_bias == ManualBias::default()
+            {
+                continue;
+            }
+            // No-op for non-default profiles; we just trust whatever the user set.
+        }
+
+        self.bias_policy_migrated = true;
     }
 
     fn normalize_text_profiles(&mut self) {
@@ -792,6 +845,47 @@ pub fn switch_active_text_profile<R: Runtime>(
     config.save_to_disk()?;
     super::sound::set_enabled(config.play_sounds);
     emit_ready_event(&app, &config);
+    Ok(config.without_secrets())
+}
+
+#[tauri::command]
+pub fn acknowledge_profile_health_flag(
+    profile_id: String,
+    flag_kind: String,
+) -> Result<AppConfig, String> {
+    let trimmed_profile = profile_id.trim();
+    let trimmed_flag = flag_kind.trim();
+    if trimmed_profile.is_empty() || trimmed_flag.is_empty() {
+        return Err("profile_id and flag_kind must be non-empty".to_string());
+    }
+    let mut config = AppConfig::load_from_disk();
+    config
+        .profile_health_acknowledged_flags
+        .entry(trimmed_profile.to_string())
+        .or_default()
+        .insert(trimmed_flag.to_string());
+    config.save_to_disk()?;
+    Ok(config.without_secrets())
+}
+
+#[tauri::command]
+pub fn unacknowledge_profile_health_flag(
+    profile_id: String,
+    flag_kind: String,
+) -> Result<AppConfig, String> {
+    let trimmed_profile = profile_id.trim();
+    let trimmed_flag = flag_kind.trim();
+    if trimmed_profile.is_empty() || trimmed_flag.is_empty() {
+        return Err("profile_id and flag_kind must be non-empty".to_string());
+    }
+    let mut config = AppConfig::load_from_disk();
+    if let Some(set) = config.profile_health_acknowledged_flags.get_mut(trimmed_profile) {
+        set.remove(trimmed_flag);
+        if set.is_empty() {
+            config.profile_health_acknowledged_flags.remove(trimmed_profile);
+        }
+    }
+    config.save_to_disk()?;
     Ok(config.without_secrets())
 }
 
@@ -1271,6 +1365,20 @@ fn normalize_text_profile_work_mode(value: &TextProfileWorkMode) -> TextProfileW
         processing_mode: value.processing_mode.clone(),
         enhance_sub_mode: value.enhance_sub_mode.clone(),
         target: value.target.clone(),
+        bias_mode: normalize_bias_mode(&value.bias_mode),
+        manual_bias: normalize_manual_bias(&value.manual_bias),
+    }
+}
+
+fn normalize_bias_mode(value: &BiasMode) -> BiasMode {
+    value.clone()
+}
+
+fn normalize_manual_bias(value: &ManualBias) -> ManualBias {
+    ManualBias {
+        cloud_include_profile_terms: value.cloud_include_profile_terms,
+        local_include_profile_terms: value.local_include_profile_terms,
+        stt_hints_override: value.stt_hints_override.trim().to_string(),
     }
 }
 
@@ -2100,6 +2208,8 @@ mod tests {
                     processing_mode: ProcessingMode::default(),
                     enhance_sub_mode: None,
                     target: None,
+                    bias_mode: BiasMode::Conservative,
+                    manual_bias: ManualBias::default(),
                 },
                 curation: TextProfileCuration::default(),
                 dictionary_entries: Vec::new(),
@@ -2131,6 +2241,8 @@ mod tests {
                     processing_mode: ProcessingMode::default(),
                     enhance_sub_mode: None,
                     target: None,
+                    bias_mode: BiasMode::Conservative,
+                    manual_bias: ManualBias::default(),
                 },
                 curation: TextProfileCuration::default(),
                 dictionary_entries: Vec::new(),
@@ -2165,5 +2277,80 @@ mod tests {
             EnhanceSubMode::Enhance
         );
         assert_eq!(EnhanceSubMode::from_str("expand"), EnhanceSubMode::Expand);
+    }
+
+    // --- Acknowledge persistence helpers (in-memory) ---
+
+    #[test]
+    fn ack_flag_persists_to_in_memory_config() {
+        let mut config = AppConfig::default();
+        config.profile_health_acknowledged_flags = HashMap::new();
+
+        let entry = config
+            .profile_health_acknowledged_flags
+            .entry("profile-1".to_string())
+            .or_default();
+        entry.insert("length_bias".to_string());
+
+        assert!(config
+            .profile_health_acknowledged_flags
+            .get("profile-1")
+            .expect("profile entry")
+            .contains("length_bias"));
+    }
+
+    #[test]
+    fn unack_flag_removes_from_in_memory_config() {
+        let mut config = AppConfig::default();
+        let mut set = HashSet::new();
+        set.insert("length_bias".to_string());
+        set.insert("form_conflict".to_string());
+        config
+            .profile_health_acknowledged_flags
+            .insert("profile-1".to_string(), set);
+
+        let entry = config
+            .profile_health_acknowledged_flags
+            .get_mut("profile-1")
+            .expect("profile entry");
+        entry.remove("length_bias");
+
+        let remaining = config
+            .profile_health_acknowledged_flags
+            .get("profile-1")
+            .expect("profile entry");
+        assert!(!remaining.contains("length_bias"));
+        assert!(remaining.contains("form_conflict"));
+    }
+
+    #[test]
+    fn unack_last_flag_clears_profile_entry() {
+        let mut config = AppConfig::default();
+        let mut set = HashSet::new();
+        set.insert("length_bias".to_string());
+        config
+            .profile_health_acknowledged_flags
+            .insert("profile-1".to_string(), set);
+
+        let entry = config
+            .profile_health_acknowledged_flags
+            .get_mut("profile-1")
+            .expect("profile entry");
+        entry.remove("length_bias");
+        if entry.is_empty() {
+            config.profile_health_acknowledged_flags.remove("profile-1");
+        }
+
+        assert!(!config
+            .profile_health_acknowledged_flags
+            .contains_key("profile-1"));
+    }
+
+    #[test]
+    fn migration_initializes_empty_ack_map() {
+        // Default-init must start with an empty map; existing configs without the
+        // field are loaded with the default (empty).
+        let config = AppConfig::default();
+        assert!(config.profile_health_acknowledged_flags.is_empty());
     }
 }

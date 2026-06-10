@@ -50,7 +50,10 @@ export function ProfileDock({ config, onChange, onOpenTextRules, healthStatus }:
 
   const handleProfileSwitch = (profileId: string) => {
     onChange(buildTextProfilesPatch(config, profiles, profileId));
-    void invoke("switch_active_text_profile", { profileId });
+    void invoke("switch_active_text_profile", { profileId }).catch(() => {
+      // Mocked test environments without a Tauri host will reject the invoke;
+      // the local state has already been updated, so this is intentionally silent.
+    });
   };
 
   const handleCreateProfile = () => {

@@ -13,7 +13,9 @@ use crate::core::config::{AppConfig, DictionaryEntry, OverlayAnchor, OverlayPosi
 use crate::core::insertion::{NativeInsertionConfig, NativeInsertionState};
 use crate::core::providers::TranscribeAudioFileRequest;
 use crate::core::sessions::NativeSessionState;
-use crate::core::transcription_hints::{analyze_transcription_bias, build_transcription_prompt};
+use crate::core::transcription_hints::{
+    analyze_transcription_bias_with_mode, bias_context_from_payload,
+};
 use crate::core::trigger::{NativeTriggerConfig, NativeTriggerState, TriggerEffect};
 use crate::v1_slice::V1SliceState;
 
@@ -35,8 +37,6 @@ const OVERLAY_PARK_MARGIN: f64 = 72.0;
 const MIN_TRANSCRIPTION_TIMEOUT_MS: u64 = 18_000;
 const MAX_TRANSCRIPTION_TIMEOUT_MS: u64 = 35_000;
 const TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS: u64 = 800;
-const CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS: usize = 896;
-const LOCAL_PREVIEW_PROMPT_MAX_CHARS: usize = 480;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -1227,42 +1227,16 @@ fn transcription_prompt_for_request(provider: &str, value: &serde_json::Value) -
 }
 
 fn cloud_transcription_prompt_for_request(value: &serde_json::Value) -> Option<String> {
-    let bias = transcription_bias_preview_from_payload(value);
-
-    // profile_hints come from the profile's `prompt` field, which is LLM cleanup context.
-    // Sending English vocabulary terms as Whisper initial_prompt biases language detection
-    // to English even when the user speaks another language. Only stt_hints and
-    // dictionary_terms are legitimate STT vocabulary signals.
-    build_transcription_prompt(
-        &[],
-        &bias.dictionary_terms,
-        &bias.stt_hints,
-        CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS,
-    )
+    let preview = transcription_bias_preview_from_payload(value);
+    // Conservative and Manual-without-flag both keep the language-bias protection;
+    // only Manual with cloud_include_profile_terms=true opts in. The preview builder
+    // already encodes this; we just take its precomputed cloud_prompt_preview.
+    preview.cloud_prompt_preview
 }
 
 fn local_preview_prompt_for_request(value: &serde_json::Value) -> Option<String> {
-    let strength = value
-        .get("local_prompt_strength")
-        .and_then(|raw| raw.as_str())
-        .unwrap_or("profile");
-    let bias = transcription_bias_preview_from_payload(value);
-
-    match strength {
-        "off" => None,
-        "profile_and_terms" => build_transcription_prompt(
-            &[],
-            &bias.dictionary_terms,
-            &bias.stt_hints,
-            LOCAL_PREVIEW_PROMPT_MAX_CHARS,
-        ),
-        _ => build_transcription_prompt(
-            &[],
-            &[],
-            &bias.stt_hints,
-            LOCAL_PREVIEW_PROMPT_MAX_CHARS,
-        ),
-    }
+    let preview = transcription_bias_preview_from_payload(value);
+    preview.local_prompt_preview
 }
 
 fn local_preview_prompt_carry(value: &serde_json::Value) -> bool {
@@ -1302,7 +1276,8 @@ fn transcription_bias_preview_from_payload(
         })
         .unwrap_or_default();
 
-    analyze_transcription_bias(
+    let context = bias_context_from_payload(value);
+    analyze_transcription_bias_with_mode(
         value
             .get("prompt")
             .and_then(|prompt| prompt.as_str())
@@ -1312,6 +1287,7 @@ fn transcription_bias_preview_from_payload(
             .and_then(|hints| hints.as_str())
             .unwrap_or_default(),
         &dictionary_entries,
+        &context,
     )
 }
 
@@ -1547,6 +1523,8 @@ pub fn run() {
             core::text_rules::export_text_rules,
             core::text_rules::import_text_rules,
             core::text_rules::get_profile_health,
+            core::config::acknowledge_profile_health_flag,
+            core::config::unacknowledge_profile_health_flag,
             core::sessions::native_session_status,
             core::sessions::start_native_session,
             core::sessions::stop_native_session,
@@ -1706,8 +1684,9 @@ mod tests {
 
     #[test]
     fn cloud_transcription_prompt_respects_conservative_size_limit() {
+        use crate::core::transcription_hints::CLOUD_PROMPT_PREVIEW_MAX_CHARS;
         let payload = json!({
-            "prompt": "a".repeat(CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS * 2),
+            "prompt": "a".repeat(CLOUD_PROMPT_PREVIEW_MAX_CHARS * 2),
             "dictionary_entries": [
                 {
                     "phrase": "word script",
@@ -1718,7 +1697,7 @@ mod tests {
 
         let prompt = transcription_prompt_for_request("groq", &payload).expect("cloud prompt");
 
-        assert!(prompt.chars().count() <= CLOUD_TRANSCRIPTION_PROMPT_MAX_CHARS);
+        assert!(prompt.chars().count() <= CLOUD_PROMPT_PREVIEW_MAX_CHARS);
     }
 
     #[test]

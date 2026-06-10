@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::config::DictionaryEntry;
+use super::config::{BiasMode, DictionaryEntry, ManualBias};
 
 const MAX_TRANSCRIPTION_PROFILE_HINTS: usize = 6;
 const MAX_TRANSCRIPTION_DICTIONARY_TERMS: usize = 8;
@@ -20,6 +20,18 @@ pub struct TranscriptionBiasPreview {
     pub stt_hints: Vec<String>,
     pub ignored_profile_lines: Vec<String>,
     pub ignored_stt_hint_lines: Vec<String>,
+    pub cloud_prompt_preview: Option<String>,
+    pub local_prompt_preview: Option<String>,
+    pub manual_overrides_applied: Vec<String>,
+    pub effective_stt_hints_source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct BiasRequestContext {
+    pub bias_mode: BiasMode,
+    pub manual_bias: ManualBias,
+    pub local_prompt_strength: String,
+    pub local_prompt_carry: bool,
 }
 
 pub fn analyze_transcription_bias(
@@ -36,7 +48,36 @@ pub fn analyze_transcription_bias(
         stt_hints: stt_hints.accepted,
         ignored_profile_lines: profile_hints.ignored,
         ignored_stt_hint_lines: stt_hints.ignored,
+        cloud_prompt_preview: None,
+        local_prompt_preview: None,
+        manual_overrides_applied: Vec::new(),
+        effective_stt_hints_source: "profile".to_string(),
     }
+}
+
+pub fn analyze_transcription_bias_with_mode(
+    prompt: &str,
+    stt_hints: &str,
+    dictionary_entries: &[DictionaryEntry],
+    context: &BiasRequestContext,
+) -> TranscriptionBiasPreview {
+    let mut preview = analyze_transcription_bias(prompt, stt_hints, dictionary_entries);
+    let effective_stt_hints = effective_stt_hints(stt_hints, context);
+    preview.effective_stt_hints_source = effective_stt_hints.source_label.clone();
+    let filtered_effective =
+        filter_stt_hint_lines(&effective_stt_hints.value);
+    let final_stt_hints = filtered_effective.accepted;
+    let final_stt_ignored = filtered_effective.ignored;
+
+    let cloud = build_cloud_prompt(&preview, context, &final_stt_hints);
+    let local = build_local_prompt(&preview, context, &final_stt_hints);
+
+    preview.cloud_prompt_preview = cloud;
+    preview.local_prompt_preview = local;
+    preview.stt_hints = final_stt_hints;
+    preview.ignored_stt_hint_lines = final_stt_ignored;
+    preview.manual_overrides_applied = effective_stt_hints.applied_labels;
+    preview
 }
 
 pub fn filter_profile_hint_lines(prompt: &str) -> FilteredTranscriptionHints {
@@ -182,6 +223,167 @@ fn truncate_transcription_prompt(prompt: String, max_chars: usize) -> Option<Str
     Some(truncated.trim().to_string())
 }
 
+/// Build a `BiasRequestContext` from the JSON payload that the runtime request
+/// path already speaks. Missing fields fall back to Conservative / profile / no carry.
+pub fn bias_context_from_payload(value: &serde_json::Value) -> BiasRequestContext {
+    let bias_mode = value
+        .get("bias_mode")
+        .and_then(|mode| mode.as_str())
+        .map(bias_mode_from_str)
+        .unwrap_or_default();
+    let manual_bias = value
+        .get("manual_bias")
+        .map(manual_bias_from_payload)
+        .unwrap_or_default();
+    let local_prompt_strength = value
+        .get("local_prompt_strength")
+        .and_then(|raw| raw.as_str())
+        .unwrap_or("profile")
+        .to_string();
+    let local_prompt_carry = value
+        .get("local_prompt_carry")
+        .and_then(|carry| carry.as_bool())
+        .unwrap_or(false);
+
+    BiasRequestContext {
+        bias_mode,
+        manual_bias,
+        local_prompt_strength,
+        local_prompt_carry,
+    }
+}
+
+fn bias_mode_from_str(value: &str) -> BiasMode {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "off" => BiasMode::Off,
+        "manual" => BiasMode::Manual,
+        _ => BiasMode::Conservative,
+    }
+}
+
+fn manual_bias_from_payload(value: &serde_json::Value) -> ManualBias {
+    ManualBias {
+        cloud_include_profile_terms: value
+            .get("cloud_include_profile_terms")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        local_include_profile_terms: value
+            .get("local_include_profile_terms")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        stt_hints_override: value
+            .get("stt_hints_override")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string(),
+    }
+}
+
+struct EffectiveSttHints {
+    value: String,
+    source_label: String,
+    applied_labels: Vec<String>,
+}
+
+fn effective_stt_hints(profile_stt_hints: &str, context: &BiasRequestContext) -> EffectiveSttHints {
+    match context.bias_mode {
+        BiasMode::Off => EffectiveSttHints {
+            value: String::new(),
+            source_label: "off".to_string(),
+            applied_labels: vec!["bias_mode=off".to_string()],
+        },
+        BiasMode::Conservative => EffectiveSttHints {
+            value: profile_stt_hints.to_string(),
+            source_label: "profile".to_string(),
+            applied_labels: Vec::new(),
+        },
+        BiasMode::Manual => {
+            let override_value = context.manual_bias.stt_hints_override.trim();
+            if !override_value.is_empty() {
+                EffectiveSttHints {
+                    value: override_value.to_string(),
+                    source_label: "manual_override".to_string(),
+                    applied_labels: vec!["stt_hints_override".to_string()],
+                }
+            } else {
+                EffectiveSttHints {
+                    value: profile_stt_hints.to_string(),
+                    source_label: "profile".to_string(),
+                    applied_labels: Vec::new(),
+                }
+            }
+        }
+    }
+}
+
+fn build_cloud_prompt(
+    preview: &TranscriptionBiasPreview,
+    context: &BiasRequestContext,
+    effective_stt_hints: &[String],
+) -> Option<String> {
+    if matches!(context.bias_mode, BiasMode::Off) {
+        return None;
+    }
+
+    let include_profile_terms = match context.bias_mode {
+        BiasMode::Manual => context.manual_bias.cloud_include_profile_terms,
+        _ => false,
+    };
+
+    let profile_hints = if include_profile_terms {
+        preview.profile_hints.as_slice()
+    } else {
+        &[]
+    };
+
+    build_transcription_prompt(
+        profile_hints,
+        &preview.dictionary_terms,
+        effective_stt_hints,
+        CLOUD_PROMPT_PREVIEW_MAX_CHARS,
+    )
+}
+
+fn build_local_prompt(
+    preview: &TranscriptionBiasPreview,
+    context: &BiasRequestContext,
+    effective_stt_hints: &[String],
+) -> Option<String> {
+    if matches!(context.bias_mode, BiasMode::Off) {
+        return None;
+    }
+    if context.local_prompt_strength == "off" {
+        return None;
+    }
+
+    let include_profile_terms = match context.bias_mode {
+        BiasMode::Manual => context.manual_bias.local_include_profile_terms,
+        _ => false,
+    };
+
+    let profile_hints = if include_profile_terms {
+        preview.profile_hints.as_slice()
+    } else {
+        &[]
+    };
+
+    let dictionary_terms: &[String] = if context.local_prompt_strength == "profile_and_terms" {
+        &preview.dictionary_terms
+    } else {
+        &[]
+    };
+
+    build_transcription_prompt(
+        profile_hints,
+        dictionary_terms,
+        effective_stt_hints,
+        LOCAL_PROMPT_PREVIEW_MAX_CHARS,
+    )
+}
+
+pub const CLOUD_PROMPT_PREVIEW_MAX_CHARS: usize = 896;
+pub const LOCAL_PROMPT_PREVIEW_MAX_CHARS: usize = 480;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +488,131 @@ mod tests {
         assert_eq!(bias.ignored_profile_lines.len(), 3);
         assert!(bias.dictionary_terms.is_empty());
         assert!(bias.stt_hints.is_empty());
+    }
+
+    // --- Bias-Mode aware preview ---
+
+    fn make_manual(cloud: bool, local: bool, override_value: &str) -> ManualBias {
+        ManualBias {
+            cloud_include_profile_terms: cloud,
+            local_include_profile_terms: local,
+            stt_hints_override: override_value.to_string(),
+        }
+    }
+
+    fn default_local_context(mode: BiasMode, manual: ManualBias) -> BiasRequestContext {
+        BiasRequestContext {
+            bias_mode: mode,
+            manual_bias: manual,
+            local_prompt_strength: "profile".to_string(),
+            local_prompt_carry: false,
+        }
+    }
+
+    #[test]
+    fn bias_mode_off_yields_no_cloud_or_local_prompt() {
+        let manual = ManualBias::default();
+        let context = default_local_context(BiasMode::Off, manual);
+
+        let preview = analyze_transcription_bias_with_mode(
+            "WordScript\nSEV-1",
+            "status update",
+            &[],
+            &context,
+        );
+
+        assert!(preview.cloud_prompt_preview.is_none());
+        assert!(preview.local_prompt_preview.is_none());
+        assert_eq!(preview.manual_overrides_applied, vec!["bias_mode=off".to_string()]);
+        assert_eq!(preview.effective_stt_hints_source, "off");
+    }
+
+    #[test]
+    fn bias_mode_conservative_excludes_profile_hints_in_cloud() {
+        let manual = ManualBias::default();
+        let context = default_local_context(BiasMode::Conservative, manual);
+
+        let preview = analyze_transcription_bias_with_mode(
+            "WordScript\nSEV-1",
+            "status update",
+            &[],
+            &context,
+        );
+
+        let cloud = preview.cloud_prompt_preview.expect("cloud prompt present");
+        assert!(!cloud.contains("Vocabulary:"), "profile_hints must not reach Whisper");
+        assert!(cloud.contains("Likely phrases: status update"));
+    }
+
+    #[test]
+    fn bias_mode_manual_with_cloud_flag_includes_profile_terms_in_cloud() {
+        let manual = make_manual(true, false, "");
+        let context = default_local_context(BiasMode::Manual, manual);
+
+        let preview = analyze_transcription_bias_with_mode(
+            "WordScript\nSEV-1",
+            "status update",
+            &[],
+            &context,
+        );
+
+        let cloud = preview.cloud_prompt_preview.expect("cloud prompt");
+        assert!(cloud.contains("Vocabulary: WordScript; SEV-1"));
+        assert!(cloud.contains("Likely phrases: status update"));
+    }
+
+    #[test]
+    fn bias_mode_manual_stt_hints_override_takes_precedence() {
+        let manual = make_manual(false, false, "alpha\nbeta");
+        let context = default_local_context(BiasMode::Manual, manual);
+
+        let preview = analyze_transcription_bias_with_mode(
+            "WordScript",
+            "ignored profile hint",
+            &[],
+            &context,
+        );
+
+        assert_eq!(preview.stt_hints, vec!["alpha", "beta"]);
+        assert_eq!(preview.effective_stt_hints_source, "manual_override");
+        assert!(preview.manual_overrides_applied.contains(&"stt_hints_override".to_string()));
+    }
+
+    #[test]
+    fn bias_mode_manual_default_does_not_send_profile_hints_to_whisper() {
+        let manual = ManualBias::default();
+        let context = default_local_context(BiasMode::Manual, manual);
+
+        let preview = analyze_transcription_bias_with_mode(
+            "WordScript\nSEV-1",
+            "status update",
+            &[],
+            &context,
+        );
+
+        let cloud = preview.cloud_prompt_preview.expect("cloud prompt");
+        assert!(!cloud.contains("Vocabulary:"));
+        assert!(cloud.contains("Likely phrases: status update"));
+    }
+
+    #[test]
+    fn bias_mode_off_with_local_strength_off_yields_no_prompts() {
+        let manual = ManualBias::default();
+        let context = BiasRequestContext {
+            bias_mode: BiasMode::Off,
+            manual_bias: manual,
+            local_prompt_strength: "off".to_string(),
+            local_prompt_carry: false,
+        };
+
+        let preview = analyze_transcription_bias_with_mode(
+            "WordScript",
+            "status update",
+            &[],
+            &context,
+        );
+
+        assert!(preview.cloud_prompt_preview.is_none());
+        assert!(preview.local_prompt_preview.is_none());
     }
 }
