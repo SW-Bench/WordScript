@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { BadgeCheck, SquarePen } from "lucide-react";
-import type { AppConfig, DictionaryEntry, SnippetEntry, TextProfile } from "../../types/ipc";
+import type { AppConfig, BiasMode, DictionaryEntry, ManualBias, SnippetEntry, TextProfile } from "../../types/ipc";
 import {
   buildTextProfilesPatch,
   clearTextProfileCuration,
@@ -410,7 +410,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
   const [isBusy, setIsBusy] = useState(false);
   const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-  const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<"context" | "dictionary" | "snippets">("context");
+  const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<"context" | "dictionary" | "snippets" | "bias_policy">("context");
   const [showStarterDetails, setShowStarterDetails] = useState(false);
   const [pendingFocusRuleId, setPendingFocusRuleId] = useState<string | null>(null);
   const ruleCardRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -448,7 +448,13 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
       prompt: activeTextProfile.prompt,
       dictionary_entries: dictionaryEntries,
       acknowledged_flags: [...acknowledgedFlags],
+      bias_mode: activeTextProfile.work_mode?.bias_mode ?? null,
+      processing_mode: activeTextProfile.work_mode?.processing_mode ?? null,
+      agent_mode_enabled: config.agent_mode_enabled,
+      profile_id: activeTextProfile.id,
     };
+    const biasMode = activeTextProfile.work_mode?.bias_mode ?? "conservative";
+    const manualBias = activeTextProfile.work_mode?.manual_bias ?? null;
     const timeoutId = window.setTimeout(() => {
       void Promise.all([
         invoke<TextRulesAnalysis>("analyze_text_rules", {
@@ -458,6 +464,16 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
             dictionary_entries: dictionaryEntries,
             snippet_entries: snippetEntries,
             sample_text: sampleText,
+            bias_mode: biasMode,
+            local_prompt_strength: config.local_prompt_strength,
+            local_prompt_carry: config.local_prompt_carry,
+            manual_bias: manualBias
+              ? {
+                  cloud_include_profile_terms: manualBias.cloud_include_profile_terms,
+                  local_include_profile_terms: manualBias.local_include_profile_terms,
+                  stt_hints_override: manualBias.stt_hints_override,
+                }
+              : null,
           },
         }),
         invoke<ProfileHealthStatus>("get_profile_health", { request: healthRequest }),
@@ -481,7 +497,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [acknowledgedFlags, activeTextProfile.prompt, dictionaryEntries, onHealthChange, onValidationChange, sampleText, snippetEntries, sttHints]);
+  }, [acknowledgedFlags, activeTextProfile.id, activeTextProfile.prompt, activeTextProfile.work_mode?.bias_mode, activeTextProfile.work_mode?.manual_bias?.cloud_include_profile_terms, activeTextProfile.work_mode?.manual_bias?.local_include_profile_terms, activeTextProfile.work_mode?.manual_bias?.stt_hints_override, activeTextProfile.work_mode?.processing_mode, config.agent_mode_enabled, config.local_prompt_carry, config.local_prompt_strength, dictionaryEntries, onHealthChange, onValidationChange, sampleText, snippetEntries, sttHints]);
 
   const applyProfiles = useCallback((nextProfiles: TextProfile[], nextActiveProfileId = activeTextProfileIdRef.current) => {
     onChange(buildTextProfilesPatch(configRef.current, nextProfiles, nextActiveProfileId));
@@ -501,6 +517,25 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
 
     applyProfiles(nextProfiles, activeProfileId);
   }, [applyProfiles]);
+
+  const updateActiveProfileWorkMode = useCallback(
+    (updater: (workMode: NonNullable<TextProfile["work_mode"]>) => NonNullable<TextProfile["work_mode"]>) => {
+      updateActiveProfile((profile) => {
+        const current: NonNullable<TextProfile["work_mode"]> = profile.work_mode ?? {
+          rewrite_style: "clean",
+          insert_behavior: "auto_paste",
+          recovery_behavior: "standard",
+          processing_mode: "cleanup",
+          enhance_sub_mode: null,
+          target: null,
+          bias_mode: "conservative",
+          manual_bias: { cloud_include_profile_terms: false, local_include_profile_terms: false, stt_hints_override: "" },
+        };
+        return { ...profile, work_mode: updater(current) };
+      });
+    },
+    [updateActiveProfile],
+  );
 
   const createProfile = () => {
     const nextProfile = createTextProfile();
@@ -1090,6 +1125,22 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                 </div>
               </div>
             </button>
+            <button
+              className={`settings__editor-step-button${activeWorkspacePanel === "bias_policy" ? " settings__editor-step-button--active" : ""}`}
+              type="button"
+              role="tab"
+              aria-label="Open bias policy workspace"
+              aria-selected={activeWorkspacePanel === "bias_policy"}
+              onClick={() => setActiveWorkspacePanel("bias_policy")}
+            >
+              <div className="settings__editor-step-button-head">
+                <span className="settings__editor-step-index" aria-hidden="true">4</span>
+                <div className="settings__editor-step-button-copy">
+                  <strong>Bias policy</strong>
+                  <span>{(activeTextProfile.work_mode?.bias_mode ?? "conservative").replace(/_/g, " ")}</span>
+                </div>
+              </div>
+            </button>
         </div>
 
         {activeWorkspacePanel === "context" && (
@@ -1446,6 +1497,169 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                 })}
               </div>
             </section>
+        )}
+
+        {activeWorkspacePanel === "bias_policy" && (
+          <section className="settings__editor-stage settings__editor-stage--stacked">
+            <article className="settings__editor-stage-banner">
+              <div className="settings__editor-stage-banner-head">
+                <div className="settings__rule-card-heading">
+                  <span className="settings__template-kicker">Bias policy</span>
+                  <strong className="settings__rule-card-title">STT vocabulary &amp; cleanup interaction</strong>
+                  <p className="settings__rule-meta">Choose how strict the transcription prompt-bias is. The preview below shows exactly what each provider will receive.</p>
+                </div>
+              </div>
+            </article>
+
+            <div className="settings__rule-stack">
+              <fieldset className="settings__rule-field settings__rule-field--wide">
+                <legend>Bias mode</legend>
+                {(["conservative", "manual", "off"] as BiasMode[]).map((mode) => {
+                  const isActive = (activeTextProfile.work_mode?.bias_mode ?? "conservative") === mode;
+                  return (
+                    <label key={mode} className="settings__radio-row">
+                      <input
+                        type="radio"
+                        name="bias-mode"
+                        value={mode}
+                        checked={isActive}
+                        onChange={() => updateActiveProfileWorkMode((wm) => ({ ...wm, bias_mode: mode }))}
+                      />
+                      <span>
+                        <strong>{mode.charAt(0).toUpperCase() + mode.slice(1)}</strong>
+                        <small>
+                          {mode === "conservative" && "Sends only explicit STT hints and dictionary terms to the provider. Safest default; no profile-context leakage."}
+                          {mode === "manual" && "Lets you opt in to profile terms and override STT hints explicitly. Requires you to know what you want."}
+                          {mode === "off" && "Sends an empty STT prompt. Combine with agent / prompt_enhance modes only if you know what you are doing."}
+                        </small>
+                      </span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+
+              {(activeTextProfile.work_mode?.bias_mode ?? "conservative") === "manual" && (
+                <div className="settings__rule-stack">
+                  <label className="settings__checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={activeTextProfile.work_mode?.manual_bias?.cloud_include_profile_terms ?? false}
+                      onChange={(event) =>
+                        updateActiveProfileWorkMode((wm) => ({
+                          ...wm,
+                          manual_bias: {
+                            cloud_include_profile_terms: event.target.checked,
+                            local_include_profile_terms: wm.manual_bias?.local_include_profile_terms ?? false,
+                            stt_hints_override: wm.manual_bias?.stt_hints_override ?? "",
+                          },
+                        }))
+                      }
+                    />
+                    <span>Include profile terms in Cloud STT (Whisper / Groq)</span>
+                  </label>
+                  <label className="settings__checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={activeTextProfile.work_mode?.manual_bias?.local_include_profile_terms ?? false}
+                      onChange={(event) =>
+                        updateActiveProfileWorkMode((wm) => ({
+                          ...wm,
+                          manual_bias: {
+                            cloud_include_profile_terms: wm.manual_bias?.cloud_include_profile_terms ?? false,
+                            local_include_profile_terms: event.target.checked,
+                            stt_hints_override: wm.manual_bias?.stt_hints_override ?? "",
+                          },
+                        }))
+                      }
+                    />
+                    <span>Include profile terms in Local STT (whisper-cli)</span>
+                  </label>
+                  <label className="settings__rule-field settings__rule-field--wide">
+                    <span>STT hints override</span>
+                    <textarea
+                      className="form-textarea settings__editor-context-input"
+                      rows={4}
+                      value={activeTextProfile.work_mode?.manual_bias?.stt_hints_override ?? ""}
+                      onChange={(event) =>
+                        updateActiveProfileWorkMode((wm) => ({
+                          ...wm,
+                          manual_bias: {
+                            cloud_include_profile_terms: wm.manual_bias?.cloud_include_profile_terms ?? false,
+                            local_include_profile_terms: wm.manual_bias?.local_include_profile_terms ?? false,
+                            stt_hints_override: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder={"alpha\nbeta\ngamma"}
+                    />
+                  </label>
+                </div>
+              )}
+
+              <fieldset className="settings__rule-field settings__rule-field--wide">
+                <legend>Live preview</legend>
+                <p className="form-dim">
+                  Source: {biasPreview?.effective_stt_hints_source ?? "profile"}.
+                  {biasPreview?.manual_overrides_applied?.length
+                    ? ` Overrides: ${biasPreview.manual_overrides_applied.join(", ")}.`
+                    : ""}
+                </p>
+                <div className="settings__rule-stack">
+                  <div className="settings__rule-field settings__rule-field--wide">
+                    <span>Cloud sees (Groq / Whisper):</span>
+                    <pre className="settings__bias-preview-block">
+                      {biasPreview?.cloud_prompt_preview ?? "(empty)"}
+                    </pre>
+                  </div>
+                  <div className="settings__rule-field settings__rule-field--wide">
+                    <span>Local sees (whisper-cli):</span>
+                    <pre className="settings__bias-preview-block">
+                      {biasPreview?.local_prompt_preview ?? "(empty)"}
+                    </pre>
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset className="settings__rule-field settings__rule-field--wide">
+                <legend>Profile health</legend>
+                <p className="form-dim">
+                  Level: <strong>{profileHealth?.level ?? "—"}</strong>
+                </p>
+                {(profileHealth?.flags ?? []).length === 0 ? (
+                  <p className="form-dim">No flags raised.</p>
+                ) : (
+                  <ul className="settings__bias-flag-list">
+                    {profileHealth?.flags.map((flag) => {
+                      const isAcked = acknowledgedFlags.has(flag.kind);
+                      return (
+                        <li key={flag.kind} className="settings__bias-flag">
+                          <strong>{flag.kind}</strong>
+                          <span>{flag.hint}</span>
+                          <button
+                            type="button"
+                            className="btn btn--cancel"
+                            onClick={() => {
+                              if (isAcked) {
+                                setAcknowledgedFlags((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(flag.kind);
+                                  return next;
+                                });
+                              } else {
+                                setAcknowledgedFlags((prev) => new Set([...prev, flag.kind]));
+                              }
+                            }}
+                          >
+                            {isAcked ? "Unacknowledge" : "Acknowledge"}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </fieldset>
+            </div>
+          </section>
         )}
 
         <p className="form-dim settings__editor-footnote">

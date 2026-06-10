@@ -15,6 +15,11 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use super::config::AppConfig;
 use super::paths::{config_file_path, scratchpad_file_path};
+use super::portal::{
+    detect_portal_capabilities, detect_portal_prompt_from_stderr, portal_prompt_signal_label,
+    request_remote_desktop_session, CompositorKind, PortalCapabilities, PortalError,
+    PortalPromptSignal, PortalSessionHandle,
+};
 use super::runtime_log;
 use super::sessions::now_ms;
 
@@ -76,6 +81,50 @@ pub(crate) struct NativeInsertPlatformContext {
     pub has_wtype: bool,
     pub has_ydotool: bool,
     pub try_xdotool_type_first: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PasteDisableReason {
+    PureWaylandPortalPrompt,
+    EnigoPortalDetected,
+    XdotoolPortalDetected,
+    PortalSessionUnavailable,
+    UnsupportedCompositor,
+    HyprlandNoPersistentPortal,
+    SwayUseWlrVirtualInput,
+    KdePlasma5UpgradeRecommended,
+}
+
+impl PasteDisableReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::PureWaylandPortalPrompt => {
+                "Pure Wayland: auto-paste is disabled to avoid the KDE Plasma 'Control input devices' portal prompt. Paste manually from the clipboard."
+            }
+            Self::EnigoPortalDetected => {
+                "Auto-paste was blocked: the enigo helper triggered the KDE Plasma 'Control input devices' portal prompt. Falling back to clipboard-only."
+            }
+            Self::XdotoolPortalDetected => {
+                "Auto-paste was blocked: xdotool over XWayland triggered the KDE Plasma 'Control input devices' portal prompt. Falling back to clipboard-only."
+            }
+            Self::PortalSessionUnavailable => {
+                "A one-time xdg-desktop-portal RemoteDesktop grant is required to enable direct auto-paste on this system."
+            }
+            Self::UnsupportedCompositor => {
+                "This Wayland compositor does not expose a persistent RemoteDesktop portal grant, so auto-paste stays clipboard-only."
+            }
+            Self::HyprlandNoPersistentPortal => {
+                "Hyprland does not expose a stable RemoteDesktop portal grant. Auto-paste stays clipboard-only; use Hyprland's dispatchers or wlr-virtual-input for a one-shot synthetic input if needed."
+            }
+            Self::SwayUseWlrVirtualInput => {
+                "Sway does not expose a stable RemoteDesktop portal grant. Install xdg-desktop-portal-wlr and wlr-virtual-input, or rely on clipboard-only recovery."
+            }
+            Self::KdePlasma5UpgradeRecommended => {
+                "KDE Plasma 5 does not expose the org.kde.kwin.RemoteDesktop portal. Upgrading to KDE Plasma 6 enables a one-time RemoteDesktop grant for auto-paste."
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,6 +269,10 @@ pub struct NativeInsertionPlatformStatus {
     pub driver_chain: Vec<NativeInsertDriverStatus>,
     pub prerequisites: Vec<String>,
     pub caveats: Vec<String>,
+    #[serde(default)]
+    pub portal_capabilities: Option<PortalCapabilities>,
+    #[serde(default)]
+    pub paste_disabled_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -229,6 +282,25 @@ pub struct NativeInsertionStatus {
     pub scratchpad_entries: Vec<ScratchpadEntry>,
     pub scratchpad_path: String,
     pub platform: NativeInsertionPlatformStatus,
+    #[serde(default)]
+    pub last_portal_prompt: Option<LastPortalPrompt>,
+    #[serde(default)]
+    pub portal_session: Option<PortalSessionSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PortalSessionSummary {
+    pub active: bool,
+    pub compositor: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LastPortalPrompt {
+    pub signal: PortalPromptSignal,
+    pub driver: NativeInsertDriver,
+    pub detected_at_ms: u64,
+    pub stderr_excerpt: String,
 }
 
 #[derive(Debug)]
@@ -236,6 +308,9 @@ pub struct NativeInsertionState {
     config: NativeInsertionConfig,
     entries: Vec<ScratchpadEntry>,
     last_transcript: Option<ScratchpadEntry>,
+    last_portal_prompt: Option<LastPortalPrompt>,
+    portal_session_attempted: bool,
+    portal_session: Option<Result<PortalSessionHandle, PortalError>>,
 }
 
 pub(crate) trait InsertIo {
@@ -310,16 +385,37 @@ impl NativeInsertionState {
             config,
             entries,
             last_transcript,
+            last_portal_prompt: None,
+            portal_session_attempted: false,
+            portal_session: None,
         }
     }
 
-    fn status(&self) -> NativeInsertionStatus {
+    fn status(&mut self) -> NativeInsertionStatus {
+        if cfg!(target_os = "linux") {
+            let capabilities = detect_portal_capabilities_for_status();
+            self.ensure_portal_session(&capabilities);
+        }
+        let portal_session = self.portal_session.as_ref().map(|result| match result {
+            Ok(handle) => PortalSessionSummary {
+                active: true,
+                compositor: handle.compositor.label().to_string(),
+                error: None,
+            },
+            Err(error) => PortalSessionSummary {
+                active: false,
+                compositor: error.label(),
+                error: Some(error.label()),
+            },
+        });
         NativeInsertionStatus {
             config: self.config.clone(),
             last_transcript: self.last_transcript.clone(),
             scratchpad_entries: self.entries.clone(),
             scratchpad_path: scratchpad_file_path().to_string_lossy().to_string(),
             platform: platform_status(self.config.auto_paste),
+            last_portal_prompt: self.last_portal_prompt.clone(),
+            portal_session,
         }
     }
 
@@ -331,30 +427,59 @@ impl NativeInsertionState {
     fn clear(&mut self) -> NativeInsertionStatus {
         self.entries.clear();
         self.last_transcript = None;
+        self.last_portal_prompt = None;
+        self.portal_session_attempted = false;
+        self.portal_session = None;
         let _ = save_scratchpad_entries(&self.entries);
         self.status()
+    }
+
+    fn ensure_portal_session(&mut self, capabilities: &PortalCapabilities) {
+        if self.portal_session_attempted {
+            return;
+        }
+        self.portal_session_attempted = true;
+        if !capabilities.compositor.supports_remote_desktop_portal() {
+            return;
+        }
+        if !capabilities.has_remote_desktop_portal {
+            self.portal_session = Some(Err(PortalError::NoPortalInterface));
+            runtime_log::record(
+                "[WordScript] Portal session skipped: RemoteDesktop interface is not reachable on the session bus.".to_string(),
+            );
+            return;
+        }
+        runtime_log::record(format!(
+            "[WordScript] Requesting RemoteDesktop portal session for compositor={}",
+            capabilities.compositor.label(),
+        ));
+        self.portal_session = Some(request_remote_desktop_session(capabilities));
     }
 
     fn insert(&mut self, request: NativeInsertRequest) -> NativeInsertResult {
         let started_at = Instant::now();
         let mut io = SystemInsertIo;
         let auto_paste = request.auto_paste.unwrap_or(self.config.auto_paste);
+        let mut portal_prompt = None;
         let result = execute_insert_request_with_io(
             request,
             &self.config,
             self.entries.len() + 1,
             detect_insert_platform_context(auto_paste),
             &mut io,
+            Some(&mut portal_prompt),
         );
 
         runtime_log::record(format!(
-            "[WordScript] Native insert state core done elapsed_ms={} insert_mode={:?} pasted={} clipboard_written={}",
+            "[WordScript] Native insert state core done elapsed_ms={} insert_mode={:?} pasted={} clipboard_written={} portal_prompt={}",
             started_at.elapsed().as_millis(),
             result.insert_mode,
             result.pasted,
             result.clipboard_written,
+            portal_prompt.is_some(),
         ));
 
+        self.last_portal_prompt = portal_prompt;
         self.last_transcript = Some(result.scratchpad_entry.clone());
         self.entries.push(result.scratchpad_entry.clone());
         if self.entries.len() > 100 {
@@ -377,7 +502,7 @@ impl NativeInsertionState {
 pub fn native_insertion_status(
     state: State<'_, Mutex<NativeInsertionState>>,
 ) -> Result<NativeInsertionStatus, String> {
-    let state = state.lock().map_err(|error| error.to_string())?;
+    let mut state = state.lock().map_err(|error| error.to_string())?;
     Ok(state.status())
 }
 
@@ -503,6 +628,7 @@ pub(crate) fn execute_insert_request_with_io(
     entry_index: usize,
     platform: NativeInsertPlatformContext,
     io: &mut impl InsertIo,
+    portal_prompt_out: Option<&mut Option<LastPortalPrompt>>,
 ) -> NativeInsertResult {
     let source = request
         .source
@@ -518,6 +644,7 @@ pub(crate) fn execute_insert_request_with_io(
     let mut fallback_reason = None;
     let mut active_driver = NativeInsertDriver::Scratchpad;
     let mut clipboard_restore = NativeClipboardRestoreStatus::NotAttempted;
+    let mut portal_prompt: Option<(PortalPromptSignal, NativeInsertDriver, String)> = None;
 
     if auto_paste
         && platform.try_xdotool_type_first
@@ -535,6 +662,14 @@ pub(crate) fn execute_insert_request_with_io(
                 ));
             }
             Err(cause) => {
+                if let Some(signal) = detect_portal_prompt_from_stderr(&cause) {
+                    runtime_log::record(format!(
+                        "[WordScript] Native insert xdotool type triggered portal signal={} stderr={}",
+                        signal.label(),
+                        cause,
+                    ));
+                    portal_prompt = Some((signal, NativeInsertDriver::XdotoolType, cause.clone()));
+                }
                 runtime_log::record(format!(
                     "[WordScript] Native insert xdotool type failed, falling through: {cause}",
                 ));
@@ -581,6 +716,19 @@ pub(crate) fn execute_insert_request_with_io(
                 NativeInsertMode::DirectPaste
             }
             Err(cause) => {
+                if let Some(signal) = detect_portal_prompt_from_stderr(&cause) {
+                    let driver = paste_driver_execution_chain(&platform)
+                        .into_iter()
+                        .next()
+                        .unwrap_or(NativeInsertDriver::Scratchpad);
+                    runtime_log::record(format!(
+                        "[WordScript] Native insert paste driver={} blocked by portal signal={} stderr={}",
+                        driver.label(),
+                        signal.label(),
+                        cause,
+                    ));
+                    portal_prompt = Some((signal, driver, cause.clone()));
+                }
                 error = Some(cause.clone());
                 fallback_reason = Some(cause);
                 NativeInsertMode::ClipboardFallback
@@ -614,7 +762,7 @@ pub(crate) fn execute_insert_request_with_io(
         clipboard_restore,
     };
 
-    NativeInsertResult {
+    let result = NativeInsertResult {
         ok: (clipboard_written || pasted)
             && (!auto_paste || pasted || matches!(insert_mode, NativeInsertMode::ClipboardOnly)),
         text: insert_text,
@@ -630,7 +778,18 @@ pub(crate) fn execute_insert_request_with_io(
         recovery_action,
         recovery_message,
         clipboard_restore,
+    };
+
+    if let Some(slot) = portal_prompt_out {
+        *slot = portal_prompt.map(|(signal, driver, stderr)| LastPortalPrompt {
+            signal,
+            driver,
+            detected_at_ms: now_ms(),
+            stderr_excerpt: stderr.chars().take(280).collect(),
+        });
     }
+
+    result
 }
 
 fn recovery_guidance_for_insert(
@@ -706,6 +865,7 @@ fn detect_insert_platform_context(auto_paste: bool) -> NativeInsertPlatformConte
     let is_wl = is_wayland_session();
     let is_x11 = cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_some();
     let has_xd = cfg!(target_os = "linux") && command_in_path("xdotool");
+    let _ = detect_portal_capabilities();
     NativeInsertPlatformContext {
         auto_paste,
         is_wayland: is_wl,
@@ -716,6 +876,10 @@ fn detect_insert_platform_context(auto_paste: bool) -> NativeInsertPlatformConte
         has_ydotool: cfg!(target_os = "linux") && command_in_path("ydotool"),
         try_xdotool_type_first: cfg!(target_os = "linux") && !is_wl && is_x11 && has_xd,
     }
+}
+
+pub(crate) fn detect_portal_capabilities_for_status() -> PortalCapabilities {
+    detect_portal_capabilities()
 }
 
 fn write_clipboard_with_system_chain(text: &str) -> Result<NativeInsertDriver, String> {
@@ -752,6 +916,7 @@ fn run_paste_driver_chain(
     io: &mut impl InsertIo,
 ) -> Result<NativeInsertDriver, String> {
     let mut errors = Vec::new();
+    let mut first_portal_signal: Option<PortalPromptSignal> = None;
     let started_at = Instant::now();
     let execution_chain = paste_driver_execution_chain(platform);
 
@@ -769,8 +934,34 @@ fn run_paste_driver_chain(
                 ));
                 return Ok(driver);
             }
-            Err(error) => errors.push(format!("{}: {error}", driver.label())),
+            Err(error) => {
+                if let Some(signal) = detect_portal_prompt_from_stderr(&error) {
+                    runtime_log::record(format!(
+                        "[WordScript] Native insert portal prompt detected driver={} signal={} stderr={}",
+                        driver.label(),
+                        signal.label(),
+                        error,
+                    ));
+                    if first_portal_signal.is_none() {
+                        first_portal_signal = Some(signal);
+                    }
+                } else {
+                    runtime_log::record(format!(
+                        "[WordScript] Native insert paste driver={} failed: {error}",
+                        driver.label(),
+                    ));
+                }
+                errors.push(format!("{}: {error}", driver.label()));
+            }
         }
+    }
+
+    if let Some(signal) = first_portal_signal {
+        return Err(format!(
+            "{}: {}",
+            portal_prompt_signal_label(&signal),
+            errors.join("; "),
+        ));
     }
 
     Err(errors.join("; "))
@@ -977,6 +1168,13 @@ fn platform_status_from_context(
     let active_driver = preferred_active_driver(&platform);
     let driver_chain = build_driver_chain(&platform, active_driver);
     let (readiness, readiness_message) = platform_readiness(&platform);
+    let portal_capabilities = if cfg!(target_os = "linux") {
+        Some(detect_portal_capabilities_for_status())
+    } else {
+        None
+    };
+    let paste_disabled_reason =
+        paste_disabled_reason_for_platform(&platform, portal_capabilities.as_ref());
 
     if cfg!(target_os = "windows") {
         NativeInsertionPlatformStatus {
@@ -1003,6 +1201,8 @@ fn platform_status_from_context(
             caveats: vec![
                 "Elevated target apps can ignore synthetic paste from a non-elevated WordScript process.".to_string(),
             ],
+            portal_capabilities,
+            paste_disabled_reason: paste_disabled_reason.map(|reason| reason.label().to_string()),
         }
     } else if cfg!(target_os = "macos") {
         NativeInsertionPlatformStatus {
@@ -1031,8 +1231,14 @@ fn platform_status_from_context(
                 "Some sandboxed, remote-desktop, or elevated target apps can still reject simulated paste even after permissions were granted.".to_string(),
                 "In development mode the permission entry may appear under Terminal or VS Code instead of a packaged WordScript app name.".to_string(),
             ],
+            portal_capabilities,
+            paste_disabled_reason: paste_disabled_reason.map(|reason| reason.label().to_string()),
         }
     } else if platform.is_wayland {
+        let compositor_label = portal_capabilities
+            .as_ref()
+            .map(|cap| cap.compositor.label())
+            .unwrap_or("Wayland compositor");
         NativeInsertionPlatformStatus {
             platform_label: "Linux Wayland".to_string(),
             support_tier: NativeSupportTier::Experimental,
@@ -1046,26 +1252,26 @@ fn platform_status_from_context(
             active_driver,
             support_message: if platform.auto_paste {
                 format!(
-                    "Experimental path: WordScript writes through {}, then tries {} before falling back to clipboard and scratchpad recovery.",
+                    "Experimental path on {}: WordScript writes through {}, then tries {} before falling back to clipboard and scratchpad recovery.",
+                    compositor_label,
                     preferred_clipboard_driver(&platform).label(),
                     preferred_paste_driver_label(&platform),
                 )
             } else {
-                "Experimental path with manual paste: WordScript writes to the clipboard and keeps a scratchpad recovery copy.".to_string()
+                format!(
+                    "Experimental path on {}: WordScript writes to the clipboard and keeps a scratchpad recovery copy.",
+                    compositor_label
+                )
             },
             driver_chain,
             prerequisites: vec![
                 wayland_prerequisite_message(&platform),
+                wayland_portal_prerequisite_message(portal_capabilities.as_ref()),
                 "Keep clipboard-only recovery enabled if your desktop blocks direct insert.".to_string(),
             ],
-            caveats: vec![
-                if platform.has_x11_display && platform.has_xdotool {
-                    "Hybrid X11/Wayland sessions stay on the xdotool lane first; WordScript skips extra fake-input helpers there to avoid compositor permission prompts.".to_string()
-                } else {
-                    "Behavior can differ between compositors, portal setups, and XWayland fallback paths on the same distro.".to_string()
-                },
-                "Behavior can differ between compositors, portal setups, and XWayland fallback paths on the same distro.".to_string(),
-            ],
+            caveats: wayland_caveats(&platform, portal_capabilities.as_ref()),
+            portal_capabilities,
+            paste_disabled_reason: paste_disabled_reason.map(|reason| reason.label().to_string()),
         }
     } else {
         NativeInsertionPlatformStatus {
@@ -1101,8 +1307,84 @@ fn platform_status_from_context(
             caveats: vec![
                 "Window manager quirks still make Linux less uniform than the Windows and macOS paths.".to_string(),
             ],
+            portal_capabilities,
+            paste_disabled_reason: paste_disabled_reason.map(|reason| reason.label().to_string()),
         }
     }
+}
+
+fn paste_disabled_reason_for_platform(
+    platform: &NativeInsertPlatformContext,
+    capabilities: Option<&PortalCapabilities>,
+) -> Option<PasteDisableReason> {
+    if !cfg!(target_os = "linux") || !platform.is_wayland {
+        return None;
+    }
+    let capabilities = capabilities?;
+    match capabilities.compositor {
+        CompositorKind::KdePlasma6 | CompositorKind::GnomeMutter => {
+            if capabilities.has_remote_desktop_portal {
+                None
+            } else {
+                Some(PasteDisableReason::PortalSessionUnavailable)
+            }
+        }
+        CompositorKind::KdePlasma5 => Some(PasteDisableReason::KdePlasma5UpgradeRecommended),
+        CompositorKind::Hyprland => Some(PasteDisableReason::HyprlandNoPersistentPortal),
+        CompositorKind::Sway => Some(PasteDisableReason::SwayUseWlrVirtualInput),
+        CompositorKind::Other | CompositorKind::Unknown => {
+            Some(PasteDisableReason::UnsupportedCompositor)
+        }
+    }
+}
+
+fn wayland_portal_prerequisite_message(capabilities: Option<&PortalCapabilities>) -> String {
+    let Some(capabilities) = capabilities else {
+        return "Wayland portal capabilities could not be detected; expect reduced auto-paste reliability.".to_string();
+    };
+    if !capabilities.has_xdg_desktop_portal_daemon {
+        return "Install xdg-desktop-portal and your compositor's portal backend (xdg-desktop-portal-kde / -gnome / -wlr) to enable the RemoteDesktop grant for auto-paste.".to_string();
+    }
+    if !capabilities.compositor.supports_remote_desktop_portal() {
+        return format!(
+            "Detected compositor '{}': no persistent RemoteDesktop portal grant is available, so direct paste stays clipboard-only.",
+            capabilities.compositor.label()
+        );
+    }
+    if !capabilities.has_remote_desktop_portal {
+        return format!(
+            "Detected compositor '{}': the RemoteDesktop portal interface is not reachable on the session bus. Start xdg-desktop-portal and the matching backend, then retry.",
+            capabilities.compositor.label()
+        );
+    }
+    format!(
+        "Detected compositor '{}': the xdg-desktop-portal RemoteDesktop grant is available. The KDE 'Control input devices' prompt will only appear once if at all.",
+        capabilities.compositor.label()
+    )
+}
+
+fn wayland_caveats(
+    platform: &NativeInsertPlatformContext,
+    capabilities: Option<&PortalCapabilities>,
+) -> Vec<String> {
+    let mut caveats = Vec::new();
+    if platform.has_x11_display && platform.has_xdotool {
+        caveats.push(
+            "Hybrid X11/Wayland sessions stay on the xdotool lane first; on KDE Plasma 6 the XTEST key injection can still trigger the 'Control input devices' portal prompt and will then fall back to clipboard-only."
+                .to_string(),
+        );
+    } else {
+        caveats.push(
+            "Behavior can differ between compositors, portal setups, and XWayland fallback paths on the same distro."
+                .to_string(),
+        );
+    }
+    if let Some(capabilities) = capabilities {
+        for blocker in capabilities.diagnose_blockers() {
+            caveats.push(blocker);
+        }
+    }
+    caveats
 }
 
 fn platform_readiness(platform: &NativeInsertPlatformContext) -> (NativeInsertReadiness, String) {
@@ -1540,7 +1822,7 @@ mod tests {
                 has_ydotool: false,
             try_xdotool_type_first: false,
             },
-            &mut io,
+             &mut io, None,
         );
 
         assert!(result.ok);
@@ -1617,7 +1899,7 @@ mod tests {
                 has_ydotool: true,
             try_xdotool_type_first: false,
             },
-            &mut io,
+             &mut io, None,
         );
 
         assert!(!result.ok);
@@ -1643,6 +1925,61 @@ mod tests {
         );
         assert!(io.paste_drivers.is_empty());
         assert!(io.scheduled_restores.is_empty());
+    }
+
+    #[test]
+    fn last_portal_prompt_is_recorded_when_paste_driver_is_blocked() {
+        let mut clipboard_results = HashMap::new();
+        clipboard_results.insert(NativeInsertDriver::Arboard, Ok(()));
+        let mut paste_results = HashMap::new();
+        paste_results.insert(
+            NativeInsertDriver::Xdotool,
+            Err(
+                "xdotool key --clearmodifiers ctrl+v: Authorization denied: org.kde.kwin.RemoteDesktop.SelectDevices"
+                    .to_string(),
+            ),
+        );
+
+        let mut io = FakeInsertIo {
+            clipboard_results,
+            clipboard_read: Some("Previous clipboard".to_string()),
+            paste_results,
+            xdotool_type_results: HashMap::new(),
+            scheduled_restores: Vec::new(),
+            waits: Vec::new(),
+            clipboard_texts: Vec::new(),
+            clipboard_drivers: Vec::new(),
+            paste_drivers: Vec::new(),
+            type_drivers: Vec::new(),
+        };
+        let mut portal_prompt = None;
+        let result = execute_insert_request_with_io(
+            NativeInsertRequest {
+                text: "Hello".to_string(),
+                source: Some("test".to_string()),
+                corrected: Some(false),
+                auto_paste: Some(true),
+            },
+            &NativeInsertionConfig::default(),
+            1,
+            NativeInsertPlatformContext {
+                auto_paste: true,
+                is_wayland: true,
+                has_x11_display: true,
+                has_wl_copy: false,
+                has_xdotool: true,
+                has_wtype: false,
+                has_ydotool: false,
+                try_xdotool_type_first: false,
+            },
+            &mut io,
+            Some(&mut portal_prompt),
+        );
+        let _ = result;
+
+        let recorded = portal_prompt.expect("expected portal prompt to be recorded");
+        assert_eq!(recorded.signal, PortalPromptSignal::KdeRemoteDesktop);
+        assert!(recorded.stderr_excerpt.contains("Authorization denied"));
     }
 
     #[test]
@@ -1689,7 +2026,7 @@ mod tests {
                 has_ydotool: false,
             try_xdotool_type_first: false,
             },
-            &mut io,
+             &mut io, None,
         );
 
         assert!(!result.ok);
@@ -1818,7 +2155,7 @@ mod tests {
                 has_ydotool: false,
                 try_xdotool_type_first: true,
             },
-            &mut io,
+             &mut io, None,
         );
 
         assert!(result.ok);
@@ -1875,7 +2212,7 @@ mod tests {
                 has_ydotool: false,
                 try_xdotool_type_first: true,
             },
-            &mut io,
+             &mut io, None,
         );
 
         assert!(result.ok);
@@ -1934,7 +2271,7 @@ mod tests {
                 has_ydotool: false,
                 try_xdotool_type_first: true,
             },
-            &mut io,
+             &mut io, None,
         );
 
         assert!(result.ok);
@@ -1984,7 +2321,7 @@ mod tests {
                 has_ydotool: false,
                 try_xdotool_type_first: true,
             },
-            &mut io,
+             &mut io, None,
         );
 
         assert!(result.ok);

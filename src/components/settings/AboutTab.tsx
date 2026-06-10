@@ -10,7 +10,7 @@ import {
   APP_SITE_URL,
   APP_VERSION,
 } from "../../lib/appMeta";
-import type { NativeInsertDriver, NativeInsertReadiness } from "../../types/nativeInsertion";
+import type { CompositorKind, LastPortalPrompt, NativeInsertDriver, NativeInsertReadiness, PortalCapabilities } from "../../types/nativeInsertion";
 import type { AppUpdateStatus, AppUpdateStatusKind, ReleaseBuildState } from "../../types/updates";
 
 interface AboutTabProps {
@@ -77,6 +77,35 @@ function insertReadinessLabel(value: NativeInsertReadiness | undefined) {
   }
 }
 
+function compositorLabel(value: CompositorKind | undefined): string {
+  switch (value) {
+    case "kde_plasma6":
+      return "KDE Plasma 6";
+    case "kde_plasma5":
+      return "KDE Plasma 5";
+    case "gnome_mutter":
+      return "GNOME Mutter";
+    case "hyprland":
+      return "Hyprland";
+    case "sway":
+      return "Sway";
+    case "other":
+      return "Other Wayland compositor";
+    case "unknown":
+    default:
+      return "Unknown";
+  }
+}
+
+function portalCapabilitySummary(capabilities: PortalCapabilities | null | undefined): string {
+  if (!capabilities) {
+    return "Portal not probed on this platform.";
+  }
+  const remoteDesktop = capabilities.has_remote_desktop_portal ? "RemoteDesktop ready" : "RemoteDesktop not reachable";
+  const daemon = capabilities.has_xdg_desktop_portal_daemon ? "xdg-desktop-portal detected" : "xdg-desktop-portal missing";
+  return `${compositorLabel(capabilities.compositor)} · ${daemon} · ${remoteDesktop}`;
+}
+
 function releaseStatusLabel(value: AppUpdateStatusKind | undefined) {
   switch (value) {
     case "update_available":
@@ -114,6 +143,31 @@ function buildStateLabel(value: ReleaseBuildState) {
     default:
       return "Building";
   }
+}
+
+function portalSignalLabel(signal: LastPortalPrompt["signal"] | undefined): string {
+  switch (signal) {
+    case "kde_remote_desktop":
+      return "KDE Plasma Remote Desktop portal rejected the input";
+    case "input_capture":
+      return "xdg-desktop-portal InputCapture rejected the input";
+    case "unknown":
+    default:
+      return "A portal prompt rejected the input";
+  }
+}
+
+function LastPortalPromptCard({ prompt }: { prompt: LastPortalPrompt }) {
+  return (
+    <div className="settings__rule-issue settings__rule-issue--warning" style={{ marginTop: 14 }}>
+      <strong>Last detected portal prompt</strong>
+      <div className="settings__rule-issue-copy">
+        <span>{`${portalSignalLabel(prompt.signal)} (driver=${prompt.driver})`}</span>
+        <code>{prompt.stderr_excerpt}</code>
+        <span>{`Detected at ${new Date(prompt.detected_at_ms).toLocaleString()}`}</span>
+      </div>
+    </div>
+  );
 }
 
 export function AboutTab({ isActive }: AboutTabProps) {
@@ -291,6 +345,44 @@ export function AboutTab({ isActive }: AboutTabProps) {
             <div className="settings__rule-issue-copy">
               <span>{platformReadinessLabel}</span>
               <span>{platformStatus.readiness_message}</span>
+            </div>
+          </div>
+        )}
+
+        {(platformStatus?.portal_capabilities || platformStatus?.paste_disabled_reason) && (
+          <div className="settings__rule-issue settings__rule-issue--warning" style={{ marginTop: 14 }}>
+            <strong>Linux portal diagnostics</strong>
+            <div className="settings__rule-issue-copy">
+              <span>{portalCapabilitySummary(platformStatus?.portal_capabilities)}</span>
+              {platformStatus.paste_disabled_reason && (
+                <span>{`Reason: ${platformStatus.paste_disabled_reason}`}</span>
+              )}
+              {platformStatus.portal_capabilities && (
+                <span>{`Session: ${platformStatus.portal_capabilities.session_type || "unknown"} · xdg_current_desktop=${platformStatus.portal_capabilities.xdg_current_desktop ?? "-"}`}</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {insertion.status?.last_portal_prompt && (
+          <LastPortalPromptCard prompt={insertion.status.last_portal_prompt} />
+        )}
+
+        {insertion.status?.portal_session && (
+          <div
+            className={`settings__rule-issue${insertion.status.portal_session.active ? "" : " settings__rule-issue--warning"}`}
+            style={{ marginTop: 14 }}
+          >
+            <strong>RemoteDesktop portal session</strong>
+            <div className="settings__rule-issue-copy">
+              <span>
+                {insertion.status.portal_session.active
+                  ? `Active portal session for ${insertion.status.portal_session.compositor}. Future paste attempts should not prompt again.`
+                  : `No active portal session for ${insertion.status.portal_session.compositor}.`}
+              </span>
+              {insertion.status.portal_session.error && (
+                <span>{`Reason: ${insertion.status.portal_session.error}`}</span>
+              )}
             </div>
           </div>
         )}

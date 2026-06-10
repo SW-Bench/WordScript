@@ -177,3 +177,7 @@ Was wir dafuer bewusst noch nicht in die naechste Baustelle ziehen:
 Wenn Profile vorgezogen werden, dann nur als lokaler, diktiernaher Ausbau fuer Context, Dictionary, Snippets, kuratierte Starter-Baselines und spaetere Rewrite-Defaults, nicht als verkappter Assistant-Scope.
 
 Dieser lokale Profilausbau ist jetzt Teil des aktiven Produkts. Was weiter strikt ausserhalb des aktuellen Kerns bleibt, ist jede automatische Profilaktivierung, Team-Sync-Logik oder eine Assistant-Identitaet um diese Profile herum.
+
+## Phasen-Roadmap
+
+Die Reihenfolge und der Scope der V1-Konsolidierungs-Phasen (Transkriptions-Bias, Settings-Polish, Live-Preview, Provider-Stack, lokale Runtime, gefuehrter Setup-Pfad) ist in [docs/ROADMAP.md](./ROADMAP.md) ausfuehrlich dokumentiert. VISION bleibt der Nordstern, ROADMAP ist die ausfuehrbare Sicht, STATUS haelt den aktuellen Phasen-Status.

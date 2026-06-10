@@ -8,7 +8,8 @@ export type LengthBiasDirection = "inflating" | "deflating";
 export type ProfileHealthFlag =
   | { kind: "length_bias"; direction: LengthBiasDirection; entry_count: number; hint: string }
   | { kind: "form_conflict"; hint: string }
-  | { kind: "cleanup_interference"; hint: string };
+  | { kind: "cleanup_interference"; hint: string }
+  | { kind: "bias_policy_weak"; hint: string };
 
 export interface ProfileHealthStatus {
   level: ProfileHealthLevel;
@@ -19,6 +20,10 @@ export interface GetProfileHealthRequest {
   prompt: string;
   dictionary_entries: DictionaryEntry[];
   acknowledged_flags: string[];
+  bias_mode?: string | null;
+  processing_mode?: string | null;
+  agent_mode_enabled?: boolean;
+  profile_id?: string | null;
 }
 
 export type TextRulesConflictResolution = "merge_imported_wins" | "replace_current";
@@ -59,6 +64,10 @@ export interface TextRulesBiasPreview {
   stt_hints: string[];
   ignored_profile_lines: string[];
   ignored_stt_hint_lines: string[];
+  cloud_prompt_preview?: string | null;
+  local_prompt_preview?: string | null;
+  manual_overrides_applied: string[];
+  effective_stt_hints_source: string;
 }
 
 export interface TextRulesAnalysis {

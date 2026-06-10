@@ -276,6 +276,20 @@ export function InputTab({ config, onChange }: Props) {
   const deliveryDriverSummary = platformStatus
     ? `${insertPreflightLabel}: ${platformStatus.readiness_message} Current driver: ${activeDriverLabel}. ${platformStatus.platform_label} reports ${driverChainSummary}.`
     : "WordScript is checking the current native insert chain.";
+  const portalDiagnosticSummary = platformStatus
+    ? [
+        platformStatus.portal_capabilities
+          ? `Compositor: ${String(platformStatus.portal_capabilities.compositor).replace(/_/g, " ")} · xdg-desktop-portal: ${
+              platformStatus.portal_capabilities.has_xdg_desktop_portal_daemon ? "present" : "missing"
+            } · RemoteDesktop: ${
+              platformStatus.portal_capabilities.has_remote_desktop_portal ? "reachable" : "not reachable"
+            }`
+          : null,
+        platformStatus.paste_disabled_reason ? `Why auto-paste is restricted: ${platformStatus.paste_disabled_reason}` : null,
+      ]
+        .filter((value): value is string => value !== null)
+        .join(" · ")
+    : "";
   const latestFallbackReason = insertion.lastRestore?.fallback_reason
     ?? insertion.status?.last_transcript?.fallback_reason
     ?? null;
@@ -633,6 +647,9 @@ export function InputTab({ config, onChange }: Props) {
         </div>
       </div>
       <p className="form-dim">{deliveryDriverSummary}</p>
+      {portalDiagnosticSummary && (
+        <p className="form-dim form-dim--error">{portalDiagnosticSummary}</p>
+      )}
       <label className="form-check">
         <input
           type="checkbox"

@@ -5,6 +5,7 @@ pub mod history;
 pub mod insertion;
 pub mod mode_router;
 pub mod paths;
+pub mod portal;
 pub mod prompt_enhance;
 pub mod providers;
 pub mod runtime_log;
@@ -19,3 +20,6 @@ pub mod workspace_context;
 
 #[cfg(test)]
 mod e2e_tests;
+
+#[cfg(test)]
+mod regression_corpus;

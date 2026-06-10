@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WordScript Regression Transcript Corpus",
+  "description": "Schema for fixture entries that drive transcription-bias and correction-guardrail regression tests. Each entry is a reproducer for one observed failure mode, used by corpus-driven unit tests.",
+  "type": "object",
+  "required": ["version", "entries"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "description": "Corpus schema version. Bump on incompatible changes."
+    },
+    "description": {
+      "type": "string"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "failure_mode",
+          "profile",
+          "raw_transcript",
+          "expected_post_correction",
+          "notes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "snake_case identifier unique within the corpus",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "failure_mode": {
+            "type": "string",
+            "description": "Categorical failure-mode tag, e.g. cs_profile_multilingual_drift"
+          },
+          "profile": {
+            "type": "object",
+            "required": ["id", "prompt", "stt_hints", "dictionary_entries", "snippet_entries"],
+            "properties": {
+              "id": {"type": "string"},
+              "prompt": {"type": "string"},
+              "stt_hints": {"type": "string"},
+              "dictionary_entries": {"type": "array"},
+              "snippet_entries": {"type": "array"}
+            }
+          },
+          "raw_transcript": {
+            "type": "string",
+            "description": "What STT (or simulated STT) actually delivered before AI cleanup"
+          },
+          "biased_correction": {
+            "type": "string",
+            "description": "Optional: the LLM's biased/incorrect correction attempt, used to assert guardrail rejection. If null, the test asserts a clean pass-through of the raw transcript."
+          },
+          "expected_transcription_bias": {
+            "type": "object",
+            "description": "Expected outcome of the bias analysis path before correction",
+            "properties": {
+              "profile_hints_accepted": {"type": "array", "items": {"type": "string"}},
+              "ignored_profile_lines_count": {"type": "integer"},
+              "dictionary_terms": {"type": "array", "items": {"type": "string"}},
+              "stt_hints": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "expected_post_correction": {
+            "type": "string",
+            "description": "What the user should see after Transform runs. Usually the raw transcript when a guardrail fires."
+          },
+          "expected_guardrail": {
+            "type": ["string", "null"],
+            "description": "Name of the applied_rules entry expected from normalize_correction. Null when no guardrail fires."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free-form explanation of the failure mode for the next reader. Anonymize any real customer data."
+          }
+        }
+      }
+    }
+  }
+}
