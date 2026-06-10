@@ -180,6 +180,60 @@ Wenn es um die konkrete Reihenfolge der naechsten Kern-Slices geht, ist [CORE_EX
 - lokale Tool-Spuren wie `.playwright-mcp/`, `wordscript.log` oder alte Python-`__pycache__`-Reste duerfen nicht in Git landen
 - vor Pushes `git status --short` gegen unbeabsichtigte lokale Artefakte pruefen
 
+## Worktree-Workflow
+
+Wir nutzen Git-Worktrees fuer parallele Feature-Arbeit. Jeder Contributor arbeitet in einem dedizierten Worktree statt mit staendigem Branch-Switching im selben Verzeichnis.
+
+### Einrichtung fuer neue Contributors
+
+```bash
+# 1. Bare-Repo als zentralen Git-Anker anlegen (einmalig pro Maschine)
+git clone --bare git@github.com:dein-org/wordscript.git ~/.git-repos/wordscript.git
+cd ~/.git-repos/wordscript.git
+
+# 2. Haupt-Worktree erstellen
+git worktree add ~/dev/wordscript/main main
+
+# 3. In das Haupt-Worktree wechseln und Setup durchfuehren
+cd ~/dev/wordscript/main
+npm install
+```
+
+### Neues Feature starten
+
+```bash
+cd ~/.git-repos/wordscript.git
+git worktree add -b feat/BEZEICHNUNG ~/dev/wordscript/feat-bezeichnung main
+cd ~/dev/wordscript/feat-bezeichnung
+# ... arbeiten, committen, pushen
+```
+
+### Branch-Namenskonvention
+
+| Praefix | Zweck | Beispiel |
+|--------|-------|----------|
+| `feat/` | Neues Feature | `feat/mode-settings-frontend` |
+| `fix/` | Bugfix | `fix/klipper-prompt-hotkey` |
+| `chore/` | Maintenance | `chore/update-deps` |
+| `docs/` | Dokumentation | `docs/architecture-update` |
+
+### Feature abschliessen und aufraeumen
+
+```bash
+# 1. PR auf GitHub erstellen, reviewen, mergen
+# 2. Worktree entfernen
+cd ~/.git-repos/wordscript.git
+git worktree remove ~/dev/wordscript/feat-bezeichnung
+git branch -d feat/bezeichnung
+```
+
+### Regeln
+
+- `main` ist immer deploybar. Direkte Pushes auf `main` sind durch Branch Protection blockiert.
+- Feature-Branches leben maximal 3 Tage. Wenn laenger noetig, in kleinere Slices aufteilen.
+- Worktrees werden **nach dem Merge sofort geloescht**, nicht wochenlang auf der Platte vorgehalten.
+- Keine Worktrees innerhalb von `.kilo/worktrees/` oder anderen versteckten Pfaden mehr — alle liegen unter `~/dev/wordscript/`.
+
 ### TODO: Build-Cache-Strategie
 
 **Problem:** Nach einem Pfad-/Ordnerumbenennung (`sw-labs` → `sw-labs-master`, `WordScript_master` → `WordScript-master`) enthielt `src-tauri/target/` veraltete absolute Pfade zur alten Location. Der Tauri-Build-Script konnte autogenerierte Permission-TOMLs nicht mehr finden — `cargo clean` war noetig und entfernte ~27 GB akkumulierten Debug-Build-Cache.
