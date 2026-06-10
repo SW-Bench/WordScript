@@ -58,6 +58,7 @@ Die Settings sind die eigentliche Produktoberflaeche. Sie fuehren durch:
 
 - Provider & Models
 - Input
+- Modes
 - Text Rules
 - About
 - Diagnostics
@@ -68,8 +69,9 @@ Die aktive Shell nutzt jetzt eine klare Utility-Orientierung: gruppierte Sidebar
 
 Fuer scrollende Utility-Flaechen gilt zusaetzlich: lange Kartenlisten muessen ruhig bleiben. Wiederholte Diagnostics- oder Text-Rules-Karten duerfen nicht ueber per-render Deep-Clones oder unnötige Parent-Renders permanent neu aufgebaut werden.
 
-Profile sind jetzt sichtbare manuelle Arbeitsmodi mit Defaults fuer Rewrite, Insert und Recovery. Die Shell darf diese Werte anzeigen und zwischen Profilen umschalten, muss aber weiterhin aus dem aktiven Profilvertrag lesen; automatische App-/Kontextaktivierung und Overlay-Commit-Entscheidungen duerfen nicht vorweggenommen werden.
+Profile sind jetzt sichtbare manuelle Arbeitsmodi mit Defaults fuer Processing-Modus, Insert und Recovery. Die Shell darf diese Werte anzeigen und zwischen Profilen umschalten, muss aber weiterhin aus dem aktiven Profilvertrag lesen; automatische App-/Kontextaktivierung und Overlay-Commit-Entscheidungen duerfen nicht vorweggenommen werden.
 Solange profilabhaengige Transkription ausserhalb von `General Writing` noch unzuverlaessig ist, darf die UI diese Profile nicht wie fertige Produktmodi inszenieren. Die Shell muss Fuehrung und Erwartungsmanagement leisten, nicht falsche Sicherheit.
+Modes ist der dedizierte Tab fuer den `ProcessingMode`-Vertrag. Er zeigt den aktiven Modus als Radio-Group, den Sub-Mode (`enhance` / `expand`, nur sichtbar bei `prompt_enhance`), den `PromptTarget` (system / developer / user), den `auto_detect_mode`-Schalter und die `workspace_app_map`. Die sieben per-Mode-Hotkeys (`mode_picker_hotkey`, `mode_cycle_hotkey`, `mode_verbatim_hotkey`, `mode_cleanup_hotkey`, `mode_rewrite_hotkey`, `mode_agent_hotkey`, `mode_prompt_enhance_hotkey`) liegen im selben Tab mit plattformspezifischen Defaults; die Shell darf sie als Hotkey-Chips mit Reset-Button anzeigen, muss aber die effektive Mode selbst aus `resolve_current_processing_mode` lesen und nicht aus dem letzten UI-Klick.
 Provider & Models muss Provider-Faehigkeiten, lokale Runtime-Grenzen und Recovery-Aktionen aus dem nativen Provider-Status anzeigen. Der Tab darf nicht aus Modellnamen raten, ob Cleanup, Prompt-Bias, Segments oder Local-Setup verfuegbar sind.
 Fuer `local_preview` muessen Runner-, Modell-, Cleanup-Endpoint- und Cleanup-Modell-Probleme ueber den nativen `local_setup`-Vertrag sichtbar werden. Labels wie `Runner path invalid`, `Runner probe failed`, `Cleanup backend unavailable` oder `Cleanup model not found` sind Produkttext, keine UI-Erfindungen.
 Provider & Models soll diesen Vertrag als kompakte Preflight-Checkliste zeigen: vier Schritte fuer Speech Runner, STT-Modell, Cleanup-Endpoint und Cleanup-Modell, jeweils mit Status, konkretem aufgeloestem Wert oder naechster lokaler Voraussetzung.

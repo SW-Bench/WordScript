@@ -37,7 +37,7 @@ Rust core
 Die aktive UI besteht derzeit aus drei Fenstern in der Tauri-Konfiguration:
 
 - `overlay`: transparente kompakte Overlay-Buehne mit einer Pill fuer Aufnahme-/Processing-Zustand, die nach einem Lauf innerhalb derselben Flaeche zu nativen `copy`-, `retry`-, `restore`- und `done`-Aktionen umschaltet; fuer `clipboard_only`-Arbeitsmodi haelt dieselbe Runtime im Processing-Schritt auf einem echten Preview vor dem Commit, ohne dafuer eine zweite vergroesserte Overlay-Flaeche oder einen separaten Shell-Backdrop aufzumachen, der Host parkt das Fenster im Idle nativ ausserhalb des sichtbaren Bereichs, respektiert gemerkte Manual-Positionen oder preset-basierte Display-Anker, verwendet fuer Compact-, Preview- und Result-Surface dieselbe gemerkte Top-Left-Position, variiert aber die rechte Status-/Action-Zone je nach Overlay-Zustand statt ein einziges statisches Seitenlayout ueber Recording, `working` und Action zu ziehen, und leitet den Zielmonitor fuer Manual-Placement aus der gespeicherten logischen Drag-Referenz statt aus dem fenstergebundenen `current_monitor()`-Snapshot ab
-- `settings`: native-dekorierte Shell mit den Tabs Provider & Models, Input, Text Rules, About und Diagnostics, gruppierter Sidebar-Navigation, persistentem Profil-Dock, kompaktem Tab-Header, einer dominanten Content-Surface und Footer-Save-Bar
+- `settings`: native-dekorierte Shell mit den Tabs Provider & Models, Input, Modes, Text Rules, About und Diagnostics, gruppierter Sidebar-Navigation, persistentem Profil-Dock, kompaktem Tab-Header, einer dominanten Content-Surface und Footer-Save-Bar
 - `rebuild-lab`: native-dekoriertes Diagnostics-Pop-out mit demselben Rebuild-Lab-Panel, kompaktem Preview-Header und einer einzelnen scrollbaren Content-Surface fuer den technischen Check ausserhalb des Settings-Fensters
 
 Wichtige Frontend-Bausteine:
@@ -49,6 +49,7 @@ Wichtige Frontend-Bausteine:
 - `src/hooks/useProvider.ts`
 - `src/hooks/useNativeInsertion.ts`
 - `src/hooks/useRuntimeLogs.ts`
+- `src/hooks/useProcessingMode.ts`
 - `src/components/settings/*`
 
 Die UI ist verantwortlich fuer:
@@ -112,6 +113,14 @@ Der aktive Produktkern sitzt in `src-tauri/src/core/`.
 - `agent.rs`: hybrid Intent-Detection (Heuristik + LLM-Classifier) und Agent-Execution; sitzt als Routing-Layer vor `transform.rs`
 - `text_rules.rs`: Analyse, Preview, Import/Export, Konfliktbehandlung und Profile-Health-Analyse der Text Rules
 
+### Mode-Routing und Workspace
+
+- `mode_router.rs`: Aufloesung des effektiven `ProcessingMode` pro Session aus manuellem Override, aktivem Profil-Work-Mode, `auto_detect_mode` und `workspace_app_map`; exponiert den Tauri-Command `resolve_current_processing_mode`
+- `workspace_context.rs`: Foreground-App-Detection auf macOS, Windows und Linux; nutzt `run_with_timeout` mit dedizierten Pipe-Drain-Threads (sonst bleibt `Output.stdout`/`stderr` leer), klassifiziert die App, erkennt Browser-Domain und IDE-Framework (aktuell nur macOS-Pfad produktiv, Cross-Plattform-Sniffing steht hinter `#[allow(dead_code)]` und ist Teil der naechsten Ausbau-Slice)
+- `prompt_enhance.rs`: Prompt-Strukturierung und -Expansion ueber den aktiven LLM-Pfad, Guardrail-Chain (empty, prompt_executes, language_mismatch, length_budget, semantic_drift) und Routing des bereinigten Ergebnisses in `transform.rs`
+
+Hinweis: IDE-Framework- und Browser-Domain-Detection in `workspace_context` sind aktuell macOS-only; die Cross-Plattform-Pfade bleiben ueber `#[allow(dead_code)]` markiert, bis der naechste `workspace_context`-Slice die Linux-/Windows-Heuristiken produktiv schaltet.
+
 ### Insertion und Recovery
 
 - `insertion.rs`: Paste-Strategien, Clipboard-Restore, Scratchpad und Plattformstatus
@@ -127,14 +136,15 @@ Der aktive Fluss sieht so aus:
 2. `capture.rs` startet die Aufnahme und emittiert Level-/Waveform-Events.
 3. Aufnahme endet durch Stop-Hotkey, Silence-Timeout, Max-Duration oder Abort.
 4. Audio wird als 16 kHz Mono-WAV fuer den Provider vorbereitet.
-5. `providers/mod.rs` loest den aktiven Provider auf und delegiert heute an `providers/groq.rs` oder `providers/local_preview.rs`.
-6. `transform.rs` prueft und bereinigt den Transkriptionsoutput und nutzt denselben Provider-Vertrag fuer AI cleanup.
+5. `mode_router.rs` loest vor dem Transform den effektiven `ProcessingMode` (cleanup/rewrite/agent/prompt_enhance/verbatim) aus manuellem Override, aktivem Profil-Work-Mode, `auto_detect_mode` und `workspace_app_map` auf; der Renderer kann die effektive Mode ueber den `resolve_current_processing_mode`-Tauri-Command abfragen.
+6. `providers/mod.rs` loest den aktiven Provider auf und delegiert heute an `providers/groq.rs` oder `providers/local_preview.rs`.
+7. `transform.rs` prueft und bereinigt den Transkriptionsoutput und nutzt denselben Provider-Vertrag fuer AI cleanup; bei `prompt_enhance`-Mode wird der bereinigte Text zusaetzlich durch die `prompt_enhance`-Guardrail-Chain geschickt.
 
 Fuer Diagnostics reicht persistierte Config hier nicht mehr als Wahrheitsquelle. `v1_slice_status` muss den persistierten Provider-/Profilvertrag mit echten Runtime-Statusquellen kombinieren: `provider_status` fuer Local-Setup-Readiness und aufgeloeste Runner-/Modellpfade sowie `native_capture_status` fuer laufenden Capture-Zustand und aktives Device.
 7. `insertion.rs` waehlt den Insert-Modus und fuehrt ihn aus.
-8. `history.rs` schreibt raw vs transformed transcript, aktives Textprofil, Insert-Outcome und Fehler in den nativen Verlauf.
+8. `history.rs` schreibt raw vs transformed transcript, aktives Textprofil, effektive `ProcessingMode`, Insert-Outcome und Fehler in den nativen Verlauf.
 9. `sessions.rs` finalisiert danach genau einmal `completed`, `aborted` oder `error` und akzeptiert async Pipeline-Ergebnisse nur fuer die aktive `processing`-Session-ID.
-10. UI bekommt Status, letztes Transkript, History und moegliche Recovery-Daten zurueck.
+10. UI bekommt Status, letztes Transkript, effektive Mode, History und moegliche Recovery-Daten zurueck.
 
 ## Session-State-Machine
 
@@ -226,7 +236,7 @@ Wichtig:
 - wenn Profil-Context, `stt_hints` oder Dictionary-Schreibweisen dennoch zu schlechteren Rohtranskripten als `General Writing` fuehren, ist das ein Vertragsbruch dieses Pfads; mehrsprachige Fragmente, Fantasietokens oder Topic-Drift sind dann nicht "nur Profilrauschen", sondern ein Kernproblem der Diktierlane
 - Dictionary- und Snippet-Matches sind literal und case-insensitive
 - Snippet-Trigger sind kein automatischer Teil des STT-Bias; wenn kurze gesprochene Cues oder alternative Phrasen in die STT-Anfrage sollen, muessen sie explizit ueber `stt_hints` im Profil gepflegt werden
-- lokale Textprofile kapseln heute `prompt`, optionale `stt_hints`, Dictionary, Snippets und Work-Mode-Defaults fuer Rewrite, Insert und Recovery als aktive Runtime-Konfiguration
+- lokale Textprofile kapseln heute `prompt`, optionale `stt_hints`, Dictionary, Snippets und Work-Mode-Defaults als aktive Runtime-Konfiguration; der primaere Work-Mode-Vertrag ist `processing_mode` (`cleanup` / `rewrite` / `agent` / `prompt_enhance` / `verbatim`) plus optional `enhance_sub_mode` und `prompt_target`, das Legacy-Feld `rewrite_style` (`polished` / `clean` / `verbatim`) ist nur noch Migrations-Eingang und wird ueber `migrate_legacy_processing_mode` auf den primaeren Vertrag abgebildet
 - AI cleanup muss Sprachmix, Umgangssprache, eingedeutschte Borrowings und technische Tokens konservativ erhalten; unsichere oder assistant-artige Rewrites fallen weiter ueber Guardrails auf das Rohtranskript zurueck
 - die aktuelle Local-Preview-Lane ist STT-only; wenn AI cleanup aktiv bleibt, faellt `transform.rs` auf das rohe lokale Transkript zurueck
 
@@ -265,7 +275,7 @@ WordScript modelliert Plattformgrenzen explizit:
 
 - macOS und Windows sind die Tier-1-Zielpfade
 - Linux X11 ist Preview
-- Linux Wayland bleibt experimentell: hybride Sessions (X11+Wayland) nutzen xdotool-XTEST ueber XWayland, reine Wayland-Sessions (kein `DISPLAY`) verwenden ausschliesslich Clipboard + manuelles Paste, weil `wtype`/`ydotool` sonst den Wayland-Portal-Prompt "Control input devices" ausloesen wuerden
+- Linux Wayland bleibt experimentell: hybride Sessions (X11+Wayland) nutzen `xdotool type` (Fake-Input ueber XWayland, nicht XTEST) als ersten Paste-Pfad und `enigo` als Hybrid-Fallback, reine Wayland-Sessions (kein `DISPLAY`) verwenden ausschliesslich Clipboard + manuelles Paste, weil `wtype`/`ydotool`/`enigo` sonst den Wayland-Portal-Prompt "Control input devices" ausloesen wuerden
 
 Das ist keine Marketing-Sprache, sondern Teil des Insert- und Support-Modells.
 

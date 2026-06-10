@@ -147,6 +147,8 @@ Insert-Recovery muss ueber den nativen Insert-Outcome laufen. Neue UI darf `reco
 Input-Preflight darf Trigger-, Mikrofon-, Insert- und Recovery-Status kompakt zusammenziehen, muss aber fuer Insert und Recovery weiter den nativen Insertion-Vertrag und fuer Capture den nativen Audio-/Capture-Status verwenden.
 Dasselbe gilt fuer durable History und Export: `TranscriptionHistoryEntry` ist eine Weitergabe des nativen Recovery-Vertrags und keine zweite, vereinfachte Recovery-Projektion.
 Dasselbe gilt fuer Diagnostics-Stage-Telemetrie: Wenn Rebuild Lab Capture-, Provider-, Transform- oder Insert-Fortschritt anzeigt, muessen `state`, `duration_ms` und `error_code` aus dem nativen Slice-Vertrag kommen und nicht aus UI-Timern, Log-Parsing oder Text-Heuristiken rekonstruiert werden.
+Dasselbe gilt fuer `workspace_context::run_with_timeout`: App- und OS-Detection-Spawns muessen dedizierte Pipe-Drain-Threads fuer `stdout` und `stderr` mitfuehren. Ohne diesen Drain blockt der Child bei vollem Pipe-Buffer und `Output.stdout`/`stderr` bleiben leer, was die Foreground-App-Erkennung auf jeder Plattform kappt. Wer an der Detection-Schicht arbeitet, muss diesen Drain erhalten oder reproduzierbar ersetzen.
+Dasselbe gilt fuer den `ProcessingMode`-Vertrag: `mode_router` und der `resolve_current_processing_mode`-Command sind die einzige Quelle der effektiven Mode. Renderer (ProfileDock, Overlay-Side-Label, ModesTab) lesen daraus und duerfen `processing_mode`/`rewrite_style`/`auto_detect_mode` nicht lokal kombinieren.
 Transform-Aenderungen muessen code-switching, Umgangssprache und technische Tokens konservativ behandeln. Der aktive Profil-Context und Dictionary-Schreibweisen duerfen als Preserve-Hinweise in die Nachkorrektur eingehen, aber nie als Freifahrtschein fuer halluzinierte Fachwoerter oder semantische Regeln missverstanden werden.
 
 ### 3. Kleine, pruefbare Slices bauen
@@ -167,12 +169,12 @@ Wenn sich Produktrealitaet aendert, muessen mindestens die passenden Kern-Dokume
 - [ARCHITECTURE.md](./ARCHITECTURE.md) fuer Ownership und Fluss
 - [DEVELOPMENT.md](./DEVELOPMENT.md) fuer Workflow und Validation
 - [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) fuer UI-Regeln
-- [REFERENCE.md](./REFERENCE.md) fuer aktuelle Fakten, Grenzen und offene Punkte
+- [STATUS.md](./STATUS.md) fuer aktuellen Produktstand, implementierte Kernfunktionen, Insertion-/Recovery-Modell, offene Luecken und Release-Status
+- [PLATFORMS.md](./PLATFORMS.md) fuer plattformspezifische Support-Matrix und Insert-/Recovery-Diagnostik
+- [REFERENCE.md](./REFERENCE.md) fuer projektweite Konstanten, Provider-/Runtime-Grenzen, Modus-Semantik
 - [CHANGELOG.md](../CHANGELOG.md) fuer veroeffentlichte Aenderungen
 
-Wenn es um Ausbaupfade, Donor-Repos und Feature-Staging geht, ist zusaetzlich [BENCHMARK_MATRIX.md](./BENCHMARK_MATRIX.md) die Arbeitsreferenz.
-
-Wenn es um die konkrete Reihenfolge der naechsten Kern-Slices geht, ist [CORE_EXECUTION_PLAN.md](./CORE_EXECUTION_PLAN.md) die operative Referenz.
+Wenn es um Ausbaupfade, Donor-Repos und Feature-Staging geht, sind die historischen Referenzen unter [donors/README.md](./donors/README.md) abgelegt; diese sind eingefroren und werden nicht mehr aktiv gefuehrt.
 
 ### 5. Repo sauber halten
 
@@ -234,14 +236,25 @@ git branch -d feat/bezeichnung
 - Worktrees werden **nach dem Merge sofort geloescht**, nicht wochenlang auf der Platte vorgehalten.
 - Keine Worktrees innerhalb von `.kilo/worktrees/` oder anderen versteckten Pfaden mehr — alle liegen unter `~/dev/wordscript/`.
 
-### TODO: Build-Cache-Strategie
+### Build-Cache-Strategie
 
-**Problem:** Nach einem Pfad-/Ordnerumbenennung (`sw-labs` → `sw-labs-master`, `WordScript_master` → `WordScript-master`) enthielt `src-tauri/target/` veraltete absolute Pfade zur alten Location. Der Tauri-Build-Script konnte autogenerierte Permission-TOMLs nicht mehr finden — `cargo clean` war noetig und entfernte ~27 GB akkumulierten Debug-Build-Cache.
+Dev-Builds akkumulieren in `src-tauri/target/` mit der Zeit mehrere GB Debug-Artefakte — bei mehreren Worktrees erreicht das schnell 30 GB. Zwei Massnahmen greifen out-of-the-box:
 
-**Zu loesen:** `sccache` oder eine vergleichbare Compiler-Cache-Loesung einrichten, damit:
-- Compiler-Output ueber Pfadwechsel und Neustarts hinweg wiederverwendbar bleibt
-- `target/` keine absoluten Pfade mehr als Invalidierungsgrund hat
-- ein vollstaendiges `cargo clean` nicht mehr ~27 GB kostet und minutenlange Rekompilation erzwingt
+1. **`[profile.dev]` in `Cargo.toml`** haelt Dev-Builds kleiner (`debug = 1` statt 2, ~40-50% kleineres `target/`).
+2. **`src-tauri/.cargo/config.toml`** setzt `incremental = true` explizit und dokumentiert den sccache-Pfad.
+
+Optional (empfohlen):
+
+- **`sccache`** (`cargo install sccache --locked` + `export RUSTC_WRAPPER=sccache` in `~/.bashrc`) teilt Compiler-Output zwischen Branches, Worktrees und Pfad-Renames — `cargo clean` kostet dann Sekunden statt Minuten und ueberlebt sogar Pfad-Umbenennungen.
+- Waehrend `setup-tauri.sh` wird auf fehlendes sccache hingewiesen, ohne den Setup abzubrechen.
+
+Manueller Notfall-Knopf:
+
+```bash
+npm run clean:dev
+```
+
+Loescht `src-tauri/target/debug` und `node_modules/.vite` — danach ist ein normaler `npm run tauri dev` ausreichend fuer einen frischen Build.
 
 ## Validation
 
@@ -315,6 +328,9 @@ Wichtig fuer den aktuellen Stand:
 - `src-tauri/src/core/providers/local_preview.rs`: lokale Runtime-Lane mit `whisper-cli` fuer STT, Ollama fuer Cleanup, Runner-Probe, selected-model-Readiness und nativer Model-Discovery
 - `src-tauri/src/core/providers/mod.rs`: gemeinsamer Provider-Vertrag inklusive typed `local_setup`-Status fuer die lokale Runtime-Lane
 - `src-tauri/src/core/transform.rs`: Cleanup, aktive Profile, Work-Mode-Rewrite-Defaults, Dictionary und Snippets
+- `src-tauri/src/core/mode_router.rs`: ProcessingMode-Aufloesung pro Session (Override, Profil-Work-Mode, `auto_detect_mode`, `workspace_app_map`) und Tauri-Command `resolve_current_processing_mode`
+- `src-tauri/src/core/workspace_context.rs`: Foreground-App-Detection auf macOS/Windows/Linux; nutzt `run_with_timeout` mit dedizierten Pipe-Drain-Threads, damit `Output.stdout`/`stderr` nicht leer zurueckkommen
+- `src-tauri/src/core/prompt_enhance.rs`: Prompt-Strukturierung und -Expansion mit Guardrail-Chain (empty / prompt_executes / language_mismatch / length_budget / semantic_drift) und Routing in `transform.rs`
 - `src-tauri/src/core/insertion.rs`: Paste-Modi, Clipboard-Restore, Scratchpad und Recovery
 - `src-tauri/src/core/updates.rs`: ehrlicher GitHub-Release-Status fuer die About-Flaeche und den Release-Aufbaupfad
 - `src-tauri/src/core/runtime_log.rs`: gepufferte Runtime-Logs
@@ -328,10 +344,14 @@ Jede verbliebene Datei im Doku-Set hat einen klaren Zweck:
 - `docs/ARCHITECTURE.md`: Systemgrenzen und aktiver Runtime-Fluss
 - `docs/DEVELOPMENT.md`: Arbeitsmodus und Validation
 - `docs/DESIGN_SYSTEM.md`: UI-Regeln fuer Overlay und Settings
-- `docs/REFERENCE.md`: aktuelle Produktrealitaet, Limits, Support und offene Punkte
+- `docs/STATUS.md`: aktueller Produktstand, implementierte Kernfunktionen, Insertion-/Recovery-Modell, offene Luecken, Release-Status
+- `docs/PLATFORMS.md`: plattformspezifische Support-Matrix und Insert-/Recovery-Diagnostik
+- `docs/REFERENCE.md`: projektweite Konstanten, Provider-/Runtime-Grenzen, Modus-Semantik
 - `docs/RELEASE_RUNBOOK.md`: aktueller manueller Build-Matrix- und Release-Aufbaupfad
+- `docs/handoffs/`: abgeschlossene Implementation-Specs und historische Hand-Offs
+- `docs/donors/`: eingefrorene Donor-Referenzen und Slice-Planung
 
-Wenn eine weitere Doku-Datei hinzukommt, braucht sie einen engeren Zweck als diese Kern-Dokumente.
+Wenn eine weitere Doku-Datei hinzukommt, braucht sie einen engeren Zweck als diese Einstiegspunkte.
 
 ## Aktueller Entwicklungsfokus
 

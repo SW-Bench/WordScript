@@ -43,7 +43,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - native transcription history with retention policy, server-side filters, JSON export, retry and persisted insert-recovery semantics, plus a dedicated diagnostics view that shows the persistent history store separately from transient runtime logs and scratchpad recovery
 - diagnostics history, decoded runtime-log hints and long Text Rules card lists now keep stable render boundaries, so routine filter edits and rule changes no longer force every visible card to rebuild at once
 - platform diagnostics and runtime logs, including a stage timeline for capture, provider, transform and insert with per-step state, duration and stable error-code truth
-- active settings surfaces for Provider & Models, Input, Text Rules, About and Diagnostics, plus a grouped utility sidebar with a persistent profile dock, a Provider & Models local-runtime preflight, an Input first-dictation preflight and a sequenced Text Rules workspace with a compact process summary, profile library for user and included profiles, pinned stage navigation and one dominant working canvas at a time
+- active settings surfaces for Provider & Models, Input, Modes, Text Rules, About and Diagnostics, plus a grouped utility sidebar with a persistent profile dock, a Provider & Models local-runtime preflight, an Input first-dictation preflight, a Modes tab for the explicit `ProcessingMode` contract (cleanup / rewrite / agent / prompt_enhance / verbatim) with optional workspace-context auto-detect, sub-mode and prompt-target pickers, per-app workspace map, per-mode hotkeys and a mode picker / cycle surface, and a sequenced Text Rules workspace with a compact process summary, profile library for user and included profiles, pinned stage navigation and one dominant working canvas at a time
 - Text Rules now also shows the effective automatic STT bias for the active profile, including the concrete vocabulary that will actually be forwarded plus warnings when broad profile context or overlong STT hints are ignored by the conservative bias path
 - a calmer utility-style Settings shell with native window controls, grouped navigation, a compact tab header, explicit runtime/save-state chips and one dominant content surface that behaves more predictably on Linux
 - a dedicated native diagnostics preview window that reuses the same Rebuild Lab surface in a calmer pop-out instead of falling back to a separate fake-chrome shell
@@ -63,6 +63,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - smoother guided local setup so users are led through runner, model and cleanup setup instead of having to assemble the full environment by hand
 - final polish for the Settings tabs as the primary utility-app surface, especially hierarchy, calm, spacing and motion across Provider & Models, Text Rules, About and Diagnostics
 - opt-in app- or context-based activation for the now-manual work-mode profiles
+  (the underlying `mode_router` plus `workspace_context::detect_active_app` plus `auto_detect_mode` flag and `workspace_app_map` are already live; the open part is curated defaults, more workspace heuristics and the deeper opt-in UX for confirmed agent-mode work-mode profiles)
 - a full live-preview and controlled-commit overlay across every delivery mode; the current overlay now has a real processing-time preview for `clipboard_only` profiles plus honest post-run `copy`, `retry`, `restore` and dismiss actions, but auto-paste modes still do not pause on a pre-commit decision path and there is still no scratchpad-open action
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
 - automated local model management, install/pull actions and a smoother first-run path beyond the current local runtime preflight checklist
@@ -71,9 +72,10 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 
 ## Planning references
 
-- benchmark and donor matrix: [docs/BENCHMARK_MATRIX.md](docs/BENCHMARK_MATRIX.md) for dictation donors plus the expanded macOS-native UI/UX donor lanes
+- frozen donor and benchmark references: [docs/donors/](docs/donors/) for dictation donors and macOS-native UI/UX donor lanes (eingefroren 2026-06-10, nicht mehr aktiv gefuehrt)
 - product direction and staging: [docs/VISION.md](docs/VISION.md)
 - active system ownership: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- current product status, support matrix and recovery model: [docs/STATUS.md](docs/STATUS.md), [docs/PLATFORMS.md](docs/PLATFORMS.md)
 
 ## Contribute
 
@@ -204,7 +206,7 @@ Distribution credentials and signing remain part of the release build-up. They a
 | Linux X11 | Preview | Usable desktop path with a smaller stability promise |
 | Linux Wayland | Experimental | XWayland- and clipboard-heavy fallback path |
 
-Details about recovery behavior, provider constraints and open product gaps live in [docs/REFERENCE.md](docs/REFERENCE.md).
+Details about recovery behavior, provider constraints and open product gaps live in [docs/STATUS.md](docs/STATUS.md) and [docs/REFERENCE.md](docs/REFERENCE.md).
 
 ## Documentation map
 
@@ -214,7 +216,9 @@ The documentation set is intentionally small:
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): runtime ownership, module boundaries and system flow
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, validation and repo working rules
 - [docs/DESIGN_SYSTEM.md](docs/DESIGN_SYSTEM.md): UI principles and current product-surface rules
-- [docs/REFERENCE.md](docs/REFERENCE.md): factual product state, limits and support matrix
+- [docs/STATUS.md](docs/STATUS.md): current product state, implemented features, recovery model, open gaps, release status
+- [docs/PLATFORMS.md](docs/PLATFORMS.md): platform support matrix and platform-specific insert/recovery diagnostics
+- [docs/REFERENCE.md](docs/REFERENCE.md): project-wide constants, provider/runtime limits, mode semantics
 - [docs/RELEASE_RUNBOOK.md](docs/RELEASE_RUNBOOK.md): release workflow and remaining gates before public rollout
 
 ## License

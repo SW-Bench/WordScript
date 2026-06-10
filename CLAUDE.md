@@ -18,14 +18,18 @@ cd src-tauri && cargo test
 
 - `src/` fuer Overlay, Settings, Rebuild Lab und UI-State
 - `src-tauri/src/` fuer nativen Runtime-Core
-- `docs/` fuer Vision, Architektur, Development, Design System, Referenz und Release-Operations
+- `docs/` fuer Vision, Architektur, Development, Design System, Status, Platforms, Reference und Release-Operations
+- `docs/handoffs/` fuer abgeschlossene Implementation-Specs
+- `docs/donors/` fuer eingefrorene Donor-Referenzen
 
 ## Source Of Truth
 
 - Architektur: `docs/ARCHITECTURE.md`
 - Arbeitsmodus und Validation: `docs/DEVELOPMENT.md`
 - Produktziel und Scope: `docs/VISION.md`
-- Produktrealitaet, Support und Limits: `docs/REFERENCE.md`
+- Aktueller Produktstand, offene Luecken, Release-Status: `docs/STATUS.md`
+- Plattform-Support und Insert-/Recovery-Diagnostik: `docs/PLATFORMS.md`
+- Provider-Grenzen und Modus-Semantik: `docs/REFERENCE.md`
 - Design-Tokens und UI-Patterns: `docs/DESIGN_SYSTEM.md`
 - Entscheidungen: `docs/VISION.md`
 

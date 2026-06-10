@@ -2,6 +2,8 @@
 
 **Branch**: `easy-wins-hotkey-hygiene`  
 **Status**: Implemented — 2026-06-10  
+**Scope**: Dieses Dokument deckt nur den urspruenglichen Cross-Platform-Hotkey-Hygiene-Slice (`RegisterHotKey` → low-level Hooks fuer Start/Stop/Pause/Abort) ab.  
+**Superseded fuer per-Mode-Hotkeys**: Seit Commit `9064df1` (feat: integrate processing modes, workspace routing, and prompt enhance) existieren sieben zusaetzliche per-Mode-Hotkeys in `AppConfig` (`mode_picker_hotkey`, `mode_cycle_hotkey`, `mode_verbatim_hotkey`, `mode_cleanup_hotkey`, `mode_rewrite_hotkey`, `mode_agent_hotkey`, `mode_prompt_enhance_hotkey`) mit plattformspezifischen Defaults. Diese werden in einem Folge-Hand-Off separat dokumentiert; siehe `src-tauri/src/core/config.rs:328-341` und `src-tauri/src/core/mode_router.rs`.  
 **Goal**: Replace `RegisterHotKey`-based hotkey detection with low-level hooks on all platforms so arbitrary key combos (including Win+\*, Cmd+\*, Super+\*) work reliably.
 
 ---

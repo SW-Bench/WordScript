@@ -44,8 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - a full local runtime lane behind the existing `local_preview` compatibility id, combining `whisper-cli` STT with local Ollama cleanup, typed runner/model/chat setup truth and a separate `local_correction_model`
 - agent mode with hybrid intent detection: a heuristic O(n) word scan (scores agent-name position and imperative-verb presence) decides directly for high-certainty texts; the uncertain zone (score 0.20–0.74) routes to a lightweight LLM classifier that distinguishes direct agent addressing from incidental name mention or standalone imperatives; `apply_agent_transform` executes confirmed instructions while unconfirmed dictation falls through to the normal correction pipeline
 - correction guardrail diagnosis logging: every guardrail rejection in `normalize_correction` now emits a structured runtime log entry with the rejection reason and active mode flags, so Rebuild Lab and log exports can surface which guard fired
+- explicit `ProcessingMode` contract (cleanup / rewrite / agent / prompt_enhance / verbatim) with per-mode `EnhanceSubMode` (enhance / expand) and `PromptTarget` (system / developer / user) lives in `AppConfig`; the Modes tab, ProfileDock label, OverlayWindow side label and `useProcessingMode` hook all read the resolved mode end-to-end
+- `mode_router` resolves the effective processing mode per session from manual override, active profile work mode, `auto_detect_mode` switch and `workspace_app_map`; the renderer queries it through the new `resolve_current_processing_mode` tauri command
+- `workspace_context` detects the active foreground app on macOS, Windows and Linux through `run_with_timeout` with dedicated pipe-drain threads (fixes empty captured stdout/stderr on all platforms), and feeds the result into `mode_router` for context-driven mode switching
+- `prompt_enhance` module structures and expands dictated prompts through the active LLM lane, runs them through a guardrail chain covering empty input, prompt-execution, language mismatch, length budget and semantic drift, and routes the cleaned result through the normal transform and insert pipeline
+- a dedicated Modes tab in Settings exposes the mode radio, sub-mode and target pickers, the `auto_detect_mode` switch, the per-app workspace map and a mode picker / cycle surface; per-mode hotkeys (`mode_picker_hotkey`, `mode_cycle_hotkey`, `mode_verbatim_hotkey`, `mode_cleanup_hotkey`, `mode_rewrite_hotkey`, `mode_agent_hotkey`, `mode_prompt_enhance_hotkey`) are persisted in `AppConfig` with platform-specific defaults
+- Dev-Build-Cache-Strategie: `[profile.dev]` mit `debug=1` haelt `target/` kleiner; optionale `sccache`-Integration (via `RUSTC_WRAPPER`) vermeidet 27 GB Verlust nach `cargo clean`; `npm run clean:dev` als manueller Reset; `src-tauri/.cargo/config.toml` und `setup-tauri.sh` Schritt 3/6 dokumentieren den Pfad
 
-### Fixed
+### Changed
 
 - replaced Windows `RegisterHotKey` with `WH_KEYBOARD_LL` low-level keyboard hook so system-reserved key combos including `Win+*` and `Ctrl+Win+*` work reliably; the hook runs on a dedicated thread with injected-event filtering, modifier tracking and `VK_F24` dummy injection to prevent the Start menu from opening after Win-key combos
 - reduced Linux X11 hotkey polling interval from 50 ms to 1 ms for noticeably lower latency
@@ -67,9 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `has_suspicious_start` now also blocks corrections that introduce `"gerne "`, `"klar,"` and `"klar "` as new sentence starts, covering common LLM acknowledgment patterns that were previously not detected in non-polished modes
 - `contains_new_assistant_phrase` now additionally catches `"gerne erledige"`, `"ich führe das aus"`, `"ich erledige das"`, `"wurde ausgeführt"`, `"aufgabe erledigt"`, `"i'll take care"`, `"i've done that"` and `"task completed"` as newly introduced execution-response phrases
 - the agent mode intent classifier prompt now explicitly distinguishes direct agent addressing with a task from incidental agent-name mention: "yes" only when the user addresses the agent by name AND assigns a task; standalone imperatives without agent-name addressing are classified as dictation even if an imperative verb is detected
-
-### Changed
-
+- the active profile work-mode contract is now primarily expressed as `ProcessingMode` (cleanup / rewrite / agent / prompt_enhance / verbatim); legacy `rewrite_style` is now only a migration input, mapped by `migrate_legacy_processing_mode` (`polished` → rewrite, `verbatim` → verbatim, fallback → cleanup)
+- text profiles persist `processing_mode`, `enhance_sub_mode` and `prompt_target` alongside the existing rewrite/insert/recovery defaults, and the renderer reads the resolved mode through `resolve_current_processing_mode` instead of inferring it from `rewrite_style` alone
 - the documentation set was consolidated into README, VISION, ARCHITECTURE, DEVELOPMENT, DESIGN_SYSTEM and REFERENCE
 - planning docs now explicitly capture the two remaining transcription-reliability follow-ups: a regression corpus from real failed dictation samples and a profile-owned bias-health / bias-policy layer on top of the new conservative preview and warning contract
 - product scope and wording now consistently describe WordScript as a dictation-first desktop app on `0.2.2-alpha`
