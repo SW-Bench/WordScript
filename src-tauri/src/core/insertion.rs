@@ -804,13 +804,16 @@ fn paste_driver_execution_chain(platform: &NativeInsertPlatformContext) -> Vec<N
     }
 
     if platform.is_wayland {
-        if platform.has_wtype {
-            chain.push(NativeInsertDriver::Wtype);
+        if platform.has_x11_display {
+            // Hybrid X11/Wayland: wtype/ydotool are intentionally skipped here
+            // to avoid compositor fake-input privilege prompts after xdotool
+            // already handled the paste above.
+            chain.push(NativeInsertDriver::Enigo);
+        } else {
+            // Pure Wayland: do not use wtype/ydotool to avoid compositor
+            // privilege prompts (e.g. KDE "Remote Control" dialog).
+            // Clipboard-only is the safe default; user can paste manually.
         }
-        if platform.has_ydotool {
-            chain.push(NativeInsertDriver::Ydotool);
-        }
-        chain.push(NativeInsertDriver::Enigo);
         return chain;
     }
 
@@ -824,7 +827,7 @@ fn no_available_paste_driver_reason(platform: &NativeInsertPlatformContext) -> S
             return "No usable paste driver available: xdotool is missing in PATH for the active XWayland lane.".to_string();
         }
 
-        return "No usable paste driver available: install wtype or ydotool, or keep clipboard-only recovery enabled on Wayland.".to_string();
+        return "Auto-paste is not available on pure Wayland sessions to avoid compositor privilege prompts. Paste manually from the clipboard.".to_string();
     }
 
     if cfg!(target_os = "linux") {
@@ -1152,30 +1155,10 @@ fn platform_readiness(platform: &NativeInsertPlatformContext) -> (NativeInsertRe
             );
         }
 
-        let mut missing_helpers = Vec::new();
-        if !platform.has_wtype {
-            missing_helpers.push("wtype");
-        }
-        if !platform.has_ydotool {
-            missing_helpers.push("ydotool");
-        }
-
-        let helper_summary = if missing_helpers.is_empty() {
-            "Wayland helper tools are present, but compositor policy can still block synthetic paste."
-                .to_string()
-        } else {
-            format!(
-                "Missing dedicated Wayland paste helpers today: {}.",
-                missing_helpers.join(", ")
-            )
-        };
-
+        // Pure Wayland: auto-paste is disabled to avoid compositor privilege prompts
         return (
             NativeInsertReadiness::RecoveryOnly,
-            format!(
-                "Clipboard and scratchpad recovery are ready now. Direct paste on pure Wayland is not considered reliable before the first dictation. {}",
-                helper_summary,
-            ),
+            "Clipboard and scratchpad recovery are ready now. Auto-paste is not available on pure Wayland to avoid compositor privilege prompts. Paste manually from the clipboard.".to_string(),
         );
     }
 
@@ -1242,6 +1225,10 @@ fn wayland_prerequisite_message(platform: &NativeInsertPlatformContext) -> Strin
         return "XWayland is available, so WordScript prefers xdotool for the active hybrid session.".to_string();
     }
 
+    if !platform.has_x11_display {
+        return "Auto-paste is disabled on pure Wayland sessions to avoid compositor privilege prompts. Paste manually from the clipboard.".to_string();
+    }
+
     let mut helpers = Vec::new();
     if !platform.has_wtype {
         helpers.push("wtype");
@@ -1289,6 +1276,7 @@ fn build_driver_chain(
 
     if platform.is_wayland {
         let hybrid_lane = platform.has_x11_display && platform.has_xdotool;
+        let pure_wayland = platform.is_wayland && !platform.has_x11_display;
         let mut statuses = vec![
             driver_status(
                 NativeInsertDriver::WlCopy,
@@ -1320,10 +1308,12 @@ fn build_driver_chain(
             ),
             driver_status(
                 NativeInsertDriver::Wtype,
-                !hybrid_lane && platform.has_wtype,
+                !hybrid_lane && !pure_wayland && platform.has_wtype,
                 active_driver,
                 if hybrid_lane {
                     "Skipped in hybrid X11/Wayland sessions to avoid compositor fake-input prompts after xdotool."
+                } else if pure_wayland {
+                    "Not used on pure Wayland sessions to avoid compositor privilege prompts."
                 } else if platform.has_wtype {
                     "Wayland-native paste helper for compositors that allow virtual keyboard input."
                 } else {
@@ -1332,10 +1322,12 @@ fn build_driver_chain(
             ),
             driver_status(
                 NativeInsertDriver::Ydotool,
-                !hybrid_lane && platform.has_ydotool,
+                !hybrid_lane && !pure_wayland && platform.has_ydotool,
                 active_driver,
                 if hybrid_lane {
                     "Skipped in hybrid X11/Wayland sessions to avoid extra fake-input prompts after xdotool."
+                } else if pure_wayland {
+                    "Not used on pure Wayland sessions to avoid compositor privilege prompts."
                 } else if platform.has_ydotool {
                     "Wayland fallback helper when ydotool and its daemon are available."
                 } else {
@@ -1344,10 +1336,12 @@ fn build_driver_chain(
             ),
             driver_status(
                 NativeInsertDriver::Enigo,
-                !hybrid_lane,
+                !hybrid_lane && !pure_wayland,
                 active_driver,
                 if hybrid_lane {
                     "Skipped in the hybrid lane; clipboard and scratchpad recovery take over after xdotool failures."
+                } else if pure_wayland {
+                    "Not used on pure Wayland sessions to avoid compositor privilege prompts."
                 } else {
                     "Last-resort synthetic paste helper after the dedicated Linux tools."
                 },
@@ -1644,9 +1638,10 @@ mod tests {
         assert_eq!(
             result.fallback_reason.as_deref(),
             Some(
-                "wtype: Target app blocked paste; ydotool: ydotool daemon unavailable; enigo: Enigo input adapter unavailable"
+                "Auto-paste is not available on pure Wayland sessions to avoid compositor privilege prompts. Paste manually from the clipboard."
             )
         );
+        assert!(io.paste_drivers.is_empty());
         assert!(io.scheduled_restores.is_empty());
     }
 
@@ -1731,15 +1726,15 @@ mod tests {
         assert_eq!(status.readiness, NativeInsertReadiness::RecoveryOnly);
         assert!(status
             .readiness_message
-            .contains("not considered reliable before the first dictation"));
+            .contains("Auto-paste is not available on pure Wayland"));
         assert!(status
             .driver_chain
             .iter()
-            .any(|item| item.driver == NativeInsertDriver::Wtype && item.detail.contains("wtype")));
+            .any(|item| item.driver == NativeInsertDriver::Wtype && item.detail.contains("Not used on pure Wayland")));
         assert!(status
             .prerequisites
             .iter()
-            .any(|item| item.contains("Missing today: wtype, ydotool")));
+            .any(|item| item.contains("Auto-paste is disabled on pure Wayland")));
     }
 
     #[test]
