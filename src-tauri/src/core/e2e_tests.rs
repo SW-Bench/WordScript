@@ -85,6 +85,14 @@ impl InsertIo for FakeInsertIo {
         }
     }
 
+    fn type_with_driver(
+        &mut self,
+        _driver: NativeInsertDriver,
+        _text: &str,
+    ) -> Result<(), String> {
+        Err("xdotool type not available in e2e dummy".to_string())
+    }
+
     fn schedule_clipboard_restore(&mut self, text: Option<String>, _delay_ms: u64) {
         self.restores.push(text);
     }
@@ -137,6 +145,7 @@ async fn resolves_native_session_transform_insert_chain_with_direct_paste() {
         &NativeInsertionConfig {
             auto_paste: true,
             paste_delay_ms: 0,
+            xdotool_type_max_chars: 800,
         },
         1,
         NativeInsertPlatformContext {
@@ -147,6 +156,7 @@ async fn resolves_native_session_transform_insert_chain_with_direct_paste() {
             has_xdotool: false,
             has_wtype: false,
             has_ydotool: false,
+            try_xdotool_type_first: false,
         },
         &mut io,
     );
@@ -215,6 +225,7 @@ async fn surfaces_direct_paste_failure_with_recovery_copy() {
         &NativeInsertionConfig {
             auto_paste: true,
             paste_delay_ms: 0,
+            xdotool_type_max_chars: 800,
         },
         1,
         NativeInsertPlatformContext {
@@ -225,6 +236,7 @@ async fn surfaces_direct_paste_failure_with_recovery_copy() {
             has_xdotool: false,
             has_wtype: false,
             has_ydotool: false,
+            try_xdotool_type_first: false,
         },
         &mut io,
     );
@@ -285,6 +297,7 @@ async fn skips_clipboard_restore_when_no_previous_clipboard_exists() {
         &NativeInsertionConfig {
             auto_paste: true,
             paste_delay_ms: 0,
+            xdotool_type_max_chars: 800,
         },
         1,
         NativeInsertPlatformContext {
@@ -295,6 +308,7 @@ async fn skips_clipboard_restore_when_no_previous_clipboard_exists() {
             has_xdotool: false,
             has_wtype: false,
             has_ydotool: false,
+            try_xdotool_type_first: false,
         },
         &mut io,
     );
@@ -341,6 +355,7 @@ async fn surfaces_clipboard_write_failure_with_scratchpad_recovery() {
         &NativeInsertionConfig {
             auto_paste: true,
             paste_delay_ms: 0,
+            xdotool_type_max_chars: 800,
         },
         1,
         NativeInsertPlatformContext {
@@ -351,6 +366,7 @@ async fn surfaces_clipboard_write_failure_with_scratchpad_recovery() {
             has_xdotool: false,
             has_wtype: false,
             has_ydotool: false,
+            try_xdotool_type_first: false,
         },
         &mut io,
     );

@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- replaced Windows `RegisterHotKey` with `WH_KEYBOARD_LL` low-level keyboard hook so system-reserved key combos including `Win+*` and `Ctrl+Win+*` work reliably; the hook runs on a dedicated thread with injected-event filtering, modifier tracking and `VK_F24` dummy injection to prevent the Start menu from opening after Win-key combos
+- reduced Linux X11 hotkey polling interval from 50 ms to 1 ms for noticeably lower latency
+- added a macOS CGEventTap fallback path for regular hotkeys that `RegisterEventHotKey` cannot grab (system-reserved combos like `Cmd+Space`); the tap requires macOS Accessibility permission
+- Linux X11 auto-paste now prefers direct XTEST keystroke injection (`xdotool type`) for texts up to 800 characters, bypassing the clipboard entirely and avoiding the recurring "This client would like to access the clipboard" permission prompt from KDE Klipper; longer texts still fall through to the existing clipboard-then-Ctrl+V path
 - dismissing the result-action overlay now keeps that same action-state pill rendered through the leave transition instead of briefly swapping back to the compact waveform overlay, so `Done` and successful action closes no longer create a stacked overlay flash
 - the live recording waveform now rises faster and with more speech gain in the standard compact overlay, so normal dictation no longer looks overly defensive or sluggish before the bars respond
 - the native overlay host now re-syncs immediately when an already visible overlay switches between `compact`, `processing_preview` and `result_actions`, so wider action or preview states no longer render inside stale compact-window geometry and visually overlap
