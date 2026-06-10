@@ -102,6 +102,13 @@ describe("PromptsTab", () => {
         };
       }
 
+      if (command === "get_profile_health") {
+        return {
+          level: "green",
+          flags: [],
+        };
+      }
+
       throw new Error(`Unexpected invoke command: ${command}`);
     });
   });
@@ -224,6 +231,13 @@ describe("PromptsTab", () => {
         };
       }
 
+      if (command === "get_profile_health") {
+        return {
+          level: "green",
+          flags: [],
+        };
+      }
+
       throw new Error(`Unexpected invoke command: ${command}`);
     });
 
@@ -314,6 +328,13 @@ describe("PromptsTab", () => {
           },
           dictionary_count: 1,
           snippet_count: 1,
+        };
+      }
+
+      if (command === "get_profile_health") {
+        return {
+          level: "green",
+          flags: [],
         };
       }
 

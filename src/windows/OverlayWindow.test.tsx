@@ -295,8 +295,8 @@ describe("OverlayWindow", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument());
     expect(invokeMock).toHaveBeenCalledWith("sync_overlay_window_visibility", { visible: true, surface: "result_actions" });
 
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Insert" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mute" })).not.toBeInTheDocument();
     expect(screen.queryByText("Last pass")).not.toBeInTheDocument();
@@ -317,26 +317,6 @@ describe("OverlayWindow", () => {
   it("routes overlay quick actions through the existing native commands", async () => {
     render(<OverlayWindow />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("retry_transcription_history_entry", {
-      request: { id: "history-1" },
-    }));
-
-    cleanup();
-    invokeMock.mockClear();
-
-    render(<OverlayWindow />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument());
-
-    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("restore_last_transcript"));
-
-    cleanup();
-    invokeMock.mockClear();
-
-    render(<OverlayWindow />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
@@ -346,6 +326,22 @@ describe("OverlayWindow", () => {
         source: "overlay_preview_copy",
         corrected: true,
         auto_paste: false,
+      },
+    }));
+
+    cleanup();
+    invokeMock.mockClear();
+
+    render(<OverlayWindow />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Insert" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("insert_text_native", {
+      request: {
+        text: "Wir shippen das morgen.",
+        source: "overlay_preview_insert",
+        corrected: true,
+        auto_paste: true,
       },
     }));
   });
