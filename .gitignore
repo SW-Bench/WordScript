@@ -59,6 +59,7 @@ CREDENTIALS.md
 # ── donors (third-party reference repos, not committed) ──────────
 donors/
 assets/doner-screenshots/
+openwhispr donor-screenshots
 
 # Allow the documented, frozen WordScript-owned reference folders under docs/
 !docs/donors/
