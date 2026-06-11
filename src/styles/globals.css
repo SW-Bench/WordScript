@@ -357,3 +357,25 @@ body.overlay-window {
 .ws-btn-secondary:active {
   transform: scale(0.97);
 }
+
+/* ── Glass subsystem tokens (scythe domain components: Chat/Notes/FileUpload) ──
+   Additive aliases mapped onto the v2 tokens above so the ported glass UI kit
+   renders natively without touching the overhaul's existing token set. */
+:root {
+  --surface-1: var(--bg-elevated);
+  --surface-2: var(--surface-elevated);
+  --surface-3: var(--surface-strong);
+  --surface-glass: var(--surface);
+  --hairline: var(--border);
+  --hairline-strong: var(--border-strong);
+  --accent-glow: rgba(230, 137, 0, 0.25);
+  --accent-glow-strong: rgba(230, 137, 0, 0.40);
+  --specular: rgba(255, 255, 255, 0.06);
+  --radius-control: var(--radius-button);
+  --duration-fast: 140ms;
+}
+
+.material {
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
