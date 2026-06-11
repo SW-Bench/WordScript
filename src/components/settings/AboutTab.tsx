@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useState, type ReactNode } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Code2, Globe } from "lucide-react";
 import { useNativeInsertion } from "../../hooks/useNativeInsertion";
-import { FormCard, FormRow, StatusBadge, type StatusTone } from "../shell";
-import { Button } from "../ui/button";
-import { cn } from "../../lib/utils";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   APP_ORGANIZATION_URL,
   APP_RELEASE_RUNBOOK_URL,
@@ -124,7 +125,7 @@ function releaseStatusLabel(value: AppUpdateStatusKind | undefined) {
   }
 }
 
-function releaseStatusTone(value: AppUpdateStatusKind | undefined): StatusTone {
+function releaseStatusTone(value: AppUpdateStatusKind | undefined): "success" | "warning" | "primary" {
   switch (value) {
     case "update_available":
     case "up_to_date":
@@ -133,70 +134,21 @@ function releaseStatusTone(value: AppUpdateStatusKind | undefined): StatusTone {
       return "warning";
     case "release_path_building":
     default:
-      return "info";
+      return "primary";
   }
 }
 
-function supportTierTone(value: string | undefined): StatusTone {
+function supportTierTone(value: string | undefined): "success" | "primary" | "warning" {
   switch (value) {
     case "tier1":
       return "success";
     case "preview":
-      return "info";
+      return "primary";
     case "experimental":
       return "warning";
     default:
-      return "neutral";
+      return "primary";
   }
-}
-
-function MetaRow({
-  label,
-  value,
-  code,
-  divider = true,
-}: {
-  label: string;
-  value?: ReactNode;
-  code?: ReactNode;
-  divider?: boolean;
-}) {
-  return (
-    <FormRow
-      label={label}
-      divider={divider}
-      align="start"
-      control={
-        <div className="flex flex-col items-end gap-0.5 text-right">
-          {value && <span className="text-[12px] text-fg-dim">{value}</span>}
-          {code && <span className="font-mono text-[11px] text-fg-muted">{code}</span>}
-        </div>
-      }
-    />
-  );
-}
-
-function DiagItem({
-  title,
-  tone = "neutral",
-  lines,
-}: {
-  title: string;
-  tone?: StatusTone;
-  lines: ReactNode[];
-}) {
-  return (
-    <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
-      <StatusBadge tone={tone} dot>
-        {title}
-      </StatusBadge>
-      <div className="mt-2 flex flex-col gap-0.5 text-[12px] leading-snug text-fg-dim">
-        {lines.map((line, index) => (
-          <span key={index}>{line}</span>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function buildStateLabel(value: ReleaseBuildState) {
@@ -221,6 +173,29 @@ function portalSignalLabel(signal: LastPortalPrompt["signal"] | undefined): stri
     default:
       return "A portal prompt rejected the input";
   }
+}
+
+function DiagItem({
+  title,
+  tone = "default",
+  lines,
+}: {
+  title: string;
+  tone?: "default" | "success" | "warning" | "primary";
+  lines: ReactNode[];
+}) {
+  return (
+    <div className="rounded-[10px] border border-[var(--hairline)] bg-[var(--surface-1)] px-3.5 py-3">
+      <Badge variant={tone === "default" ? "secondary" : tone} dot>
+        {title}
+      </Badge>
+      <div className="mt-2 flex flex-col gap-0.5 text-[12px] leading-snug text-[var(--fg-dim)]">
+        {lines.map((line, index) => (
+          <span key={index}>{line}</span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function AboutTab({ isActive }: AboutTabProps) {
@@ -295,173 +270,215 @@ export function AboutTab({ isActive }: AboutTabProps) {
   return (
     <div className="flex flex-col gap-6">
       <div className="px-1">
-        <p className="text-[15px] font-semibold text-foreground">WordScript {APP_VERSION}</p>
-        <p className="mt-0.5 text-[12px] text-fg-muted">Lightweight speech-to-text for your desktop.</p>
+        <p className="text-[15px] font-semibold text-[var(--fg)]">WordScript {APP_VERSION}</p>
+        <p className="mt-0.5 text-[12px] text-[var(--fg-muted)]">Lightweight speech-to-text for your desktop.</p>
       </div>
 
-      <FormCard
-        title="Cross-platform release build-up"
-        description="Commercial release path"
-        action={<StatusBadge tone={releaseStatusTone(releaseStatus?.status)} dot>{releaseCheckLabel}</StatusBadge>}
-      >
-        <MetaRow label="Current usable version" value="Developer build from source" />
-        <MetaRow label="Current version" value={releaseStatus?.current_version ?? APP_VERSION} />
-        <MetaRow label="Use today" code="npm run tauri dev" />
-        <MetaRow label="Release target" value="First official cross-platform app release for Linux, macOS and Windows" />
-        <MetaRow label="Latest published tag" value={releaseHeadline} divider={false} />
+      <Card className="border-[var(--accent)]/10">
+        <CardContent className="pt-5">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <span className="text-[11px] text-[var(--fg-muted)] uppercase tracking-wide font-medium">
+                Commercial release path
+              </span>
+              <h3 className="text-[14px] font-semibold text-[var(--fg)] mt-1">
+                Cross-platform release build-up
+              </h3>
+            </div>
+            <Badge variant={releaseStatusTone(releaseStatus?.status)}>
+              {releaseCheckLabel}
+            </Badge>
+          </div>
 
-        <div className="flex flex-col gap-3 border-t border-border py-4">
-          <p className="text-[12px] leading-snug text-fg-muted">
-            Today you use WordScript as a developer build from source via{" "}
-            <code className="rounded bg-surface-strong px-1 py-0.5 font-mono text-[11px] text-fg-dim">npm run tauri dev</code>. In
-            parallel, the first official cross-platform app release is being assembled.
-          </p>
-          <p className="text-[12px] leading-snug text-fg-muted">
-            Internal draft release handoffs, if the workflow creates them, stay maintainer-only and do not change this
-            public GitHub release check.
-          </p>
-          <p className={cn("text-[12px] leading-snug", releaseError ? "text-[var(--red)]" : "text-fg-muted")}>
-            {releaseSummary}
-          </p>
-        </div>
-
-        <div className="border-t border-border py-4">
-          <strong className="text-[12px] font-semibold text-foreground">Target build lanes</strong>
-          <div className="mt-2 grid gap-2 sm:grid-cols-3">
-            {(releaseStatus?.build_targets ?? []).map((target) => (
-              <div key={`${target.platform}:${target.artifact}`} className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <strong className="text-[12px] font-semibold text-foreground">{target.platform}</strong>
-                  <span className="text-[11px] text-fg-muted">{buildStateLabel(target.state)}</span>
-                </div>
-                <div className="mt-0.5 text-[11px] text-fg-dim">{target.artifact}</div>
-                <p className="mt-1 text-[11px] leading-snug text-fg-muted">{target.note}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+            {[
+              { label: "Current usable version", value: "Developer build from source" },
+              { label: "Current version", value: releaseStatus?.current_version ?? APP_VERSION },
+              { label: "Use today", value: "npm run tauri dev" },
+              { label: "Release target", value: "First official cross-platform app release for Linux, macOS and Windows" },
+              { label: "Latest published tag", value: releaseHeadline },
+            ].map((item) => (
+              <div key={item.label} className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-[var(--fg-muted)] uppercase tracking-wide font-medium">
+                  {item.label}
+                </span>
+                <span className="text-[12px] text-[var(--fg)]">{item.value}</span>
               </div>
             ))}
           </div>
-        </div>
 
-        {releaseStatus?.release_notes && (
-          <p className="border-t border-border py-4 text-[12px] leading-snug text-fg-dim">{releaseStatus.release_notes}</p>
-        )}
-
-        <p className="border-t border-border py-4 text-[12px] leading-snug text-fg-muted">
-          Until the first published release exists, treat this card as public release-path diagnostics. It should explain
-          what is being built, not imply that installers, draft handoffs or in-app updates already work for end users.
-        </p>
-
-        <div className="flex flex-wrap gap-2 border-t border-border py-3">
-          {releaseLinks.map((link) => (
-            <Button key={link.url} size="sm" variant="outline" onClick={() => void open(link.url)}>
-              <ExternalLink /> {link.label}
-            </Button>
-          ))}
-        </div>
-      </FormCard>
-
-      <FormCard
-        title={platformStatus?.platform_label ?? "Checking current platform"}
-        description="Platform support"
-        action={<StatusBadge tone={supportTierTone(platformStatus?.support_tier)} dot>{supportTierLabel(platformStatus?.support_tier)}</StatusBadge>}
-      >
-        <p className={cn("py-3 text-[12px] leading-snug", insertion.error ? "text-[var(--red)]" : "text-fg-muted")}>
-          {insertion.error ?? platformStatus?.support_message ?? "WordScript is checking the active insert path for this machine."}
-        </p>
-
-        {platformStatus?.readiness_message && (
-          <div className="border-t border-border py-3">
-            <DiagItem
-              title="Insert preflight"
-              tone={platformStatus.readiness === "ready" ? "success" : "warning"}
-              lines={[platformReadinessLabel, platformStatus.readiness_message]}
-            />
+          <div className="flex flex-col gap-3 border-t border-[var(--hairline)] py-4">
+            <p className="text-[12px] leading-snug text-[var(--fg-muted)]">
+              Today you use WordScript as a developer build from source via{" "}
+              <code className="rounded bg-[var(--surface-3)] px-1 py-0.5 font-mono text-[11px] text-[var(--fg-dim)]">npm run tauri dev</code>. In
+              parallel, the first official cross-platform app release is being assembled.
+            </p>
+            <p className="text-[12px] leading-snug text-[var(--fg-muted)]">
+              Internal draft release handoffs, if the workflow creates them, stay maintainer-only and do not change this
+              public GitHub release check.
+            </p>
+            <p className={cn("text-[12px] leading-snug", releaseError ? "text-[var(--red)]" : "text-[var(--fg-muted)]")}>
+              {releaseSummary}
+            </p>
           </div>
-        )}
 
-        {(platformStatus?.portal_capabilities || platformStatus?.paste_disabled_reason) && (
-          <div className="border-t border-border py-3">
-            <DiagItem
-              title="Linux portal diagnostics"
-              tone="warning"
-              lines={[
-                portalCapabilitySummary(platformStatus?.portal_capabilities),
-                platformStatus?.paste_disabled_reason ? `Reason: ${platformStatus.paste_disabled_reason}` : "",
-                platformStatus?.portal_capabilities
-                  ? `Session: ${platformStatus.portal_capabilities.session_type || "unknown"} · xdg_current_desktop=${platformStatus.portal_capabilities.xdg_current_desktop ?? "-"}`
-                  : "",
-              ].filter(Boolean)}
-            />
+          <div className="border-t border-[var(--hairline)] py-4">
+            <strong className="text-[12px] font-semibold text-[var(--fg)]">Target build lanes</strong>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {(releaseStatus?.build_targets ?? []).map((target) => (
+                <div key={`${target.platform}:${target.artifact}`} className="rounded-[10px] border border-[var(--hairline)] bg-[var(--surface-1)] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="text-[12px] font-semibold text-[var(--fg)]">{target.platform}</strong>
+                    <span className="text-[11px] text-[var(--fg-muted)]">{buildStateLabel(target.state)}</span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-[var(--fg-dim)]">{target.artifact}</div>
+                  <p className="mt-1 text-[11px] leading-snug text-[var(--fg-muted)]">{target.note}</p>
+                </div>
+              ))}
+            </div>
           </div>
-        )}
 
-        {insertion.status?.last_portal_prompt && (
-          <div className="border-t border-border py-3">
-            <DiagItem
-              title="Last detected portal prompt"
-              tone="warning"
-              lines={[
-                `${portalSignalLabel(insertion.status.last_portal_prompt.signal)} (driver=${insertion.status.last_portal_prompt.driver})`,
-                insertion.status.last_portal_prompt.stderr_excerpt,
-                `Detected at ${new Date(insertion.status.last_portal_prompt.detected_at_ms).toLocaleString()}`,
-              ]}
-            />
+          {releaseStatus?.release_notes && (
+            <p className="border-t border-[var(--hairline)] py-4 text-[12px] leading-snug text-[var(--fg-dim)]">{releaseStatus.release_notes}</p>
+          )}
+
+          <p className="border-t border-[var(--hairline)] py-4 text-[12px] leading-snug text-[var(--fg-muted)]">
+            Until the first published release exists, treat this card as public release-path diagnostics. It should explain
+            what is being built, not imply that installers, draft handoffs or in-app updates already work for end users.
+          </p>
+
+          <div className="flex flex-wrap gap-2 border-t border-[var(--hairline)] py-3">
+            {releaseLinks.map((link) => (
+              <Button key={link.url} size="sm" variant="outline" onClick={() => void open(link.url)}>
+                <ExternalLink size={14} className="mr-1" /> {link.label}
+              </Button>
+            ))}
           </div>
-        )}
+        </CardContent>
+      </Card>
 
-        {insertion.status?.portal_session && (
-          <div className="border-t border-border py-3">
-            <DiagItem
-              title="RemoteDesktop portal session"
-              tone={insertion.status.portal_session.active ? "success" : "warning"}
-              lines={[
-                insertion.status.portal_session.active
-                  ? `Active portal session for ${insertion.status.portal_session.compositor}. Future paste attempts should not prompt again.`
-                  : `No active portal session for ${insertion.status.portal_session.compositor}.`,
-                insertion.status.portal_session.error ? `Reason: ${insertion.status.portal_session.error}` : "",
-              ].filter(Boolean)}
-            />
+      <Card>
+        <CardContent className="pt-5">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <span className="text-[11px] text-[var(--fg-muted)] uppercase tracking-wide font-medium">
+                Platform support
+              </span>
+              <h3 className="text-[14px] font-semibold text-[var(--fg)] mt-1">
+                {platformStatus?.platform_label ?? "Checking current platform"}
+              </h3>
+            </div>
+            <Badge variant={supportTierTone(platformStatus?.support_tier)}>
+              {supportTierLabel(platformStatus?.support_tier)}
+            </Badge>
           </div>
-        )}
 
-        <MetaRow label="Insert path" value={insertPathLabel(platformStatus?.insert_strategy)} />
-        <MetaRow label="Preflight" value={platformReadinessLabel} />
-        <MetaRow label="Active driver" value={insertDriverLabel(platformStatus?.active_driver)} />
-        <MetaRow
-          label="Fallback recovery"
-          value={scratchpadEntries === 1 ? "1 stored transcript" : `${scratchpadEntries} stored transcripts`}
-          code={insertion.status?.scratchpad_path ?? "Loading recovery store"}
-          divider={driverChain.length > 0 || platformChecks.length > 0 || platformCaveats.length > 0}
-        />
+          <p className={cn("text-[12px] leading-snug mb-4", insertion.error ? "text-[var(--red)]" : "text-[var(--fg-muted)]")}>
+            {insertion.error ?? platformStatus?.support_message ?? "WordScript is checking the active insert path for this machine."}
+          </p>
 
-        {driverChain.length > 0 && (
-          <div className="flex flex-col gap-2 py-3">
-            {driverChain.map((item) => (
+          {platformStatus?.readiness_message && (
+            <div className="border-t border-[var(--hairline)] py-3">
               <DiagItem
-                key={`driver:${item.role}:${item.driver}`}
-                title={item.active ? "Active driver" : item.available ? "Fallback driver" : "Unavailable driver"}
-                tone={item.active ? "success" : item.available ? "neutral" : "warning"}
-                lines={[`${item.label} · ${item.role}`, item.detail]}
+                title="Insert preflight"
+                tone={platformStatus.readiness === "ready" ? "success" : "warning"}
+                lines={[platformReadinessLabel, platformStatus.readiness_message]}
               />
-            ))}
-          </div>
-        )}
+            </div>
+          )}
 
-        {(platformChecks.length > 0 || platformCaveats.length > 0) && (
-          <div className="flex flex-col gap-2 border-t border-border py-3">
-            {platformChecks.map((item) => (
-              <DiagItem key={`check:${item}`} title="Before relying on this path" lines={[item]} />
-            ))}
-            {platformCaveats.map((item) => (
-              <DiagItem key={`caveat:${item}`} title="Honest limit" tone="warning" lines={[item]} />
+          {(platformStatus?.portal_capabilities || platformStatus?.paste_disabled_reason) && (
+            <div className="border-t border-[var(--hairline)] py-3">
+              <DiagItem
+                title="Linux portal diagnostics"
+                tone="warning"
+                lines={[
+                  portalCapabilitySummary(platformStatus?.portal_capabilities),
+                  platformStatus?.paste_disabled_reason ? `Reason: ${platformStatus.paste_disabled_reason}` : "",
+                  platformStatus?.portal_capabilities
+                    ? `Session: ${platformStatus.portal_capabilities.session_type || "unknown"} · xdg_current_desktop=${platformStatus.portal_capabilities.xdg_current_desktop ?? "-"}`
+                    : "",
+                ].filter(Boolean)}
+              />
+            </div>
+          )}
+
+          {insertion.status?.last_portal_prompt && (
+            <div className="border-t border-[var(--hairline)] py-3">
+              <DiagItem
+                title="Last detected portal prompt"
+                tone="warning"
+                lines={[
+                  `${portalSignalLabel(insertion.status.last_portal_prompt.signal)} (driver=${insertion.status.last_portal_prompt.driver})`,
+                  insertion.status.last_portal_prompt.stderr_excerpt,
+                  `Detected at ${new Date(insertion.status.last_portal_prompt.detected_at_ms).toLocaleString()}`,
+                ]}
+              />
+            </div>
+          )}
+
+          {insertion.status?.portal_session && (
+            <div className="border-t border-[var(--hairline)] py-3">
+              <DiagItem
+                title="RemoteDesktop portal session"
+                tone={insertion.status.portal_session.active ? "success" : "warning"}
+                lines={[
+                  insertion.status.portal_session.active
+                    ? `Active portal session for ${insertion.status.portal_session.compositor}. Future paste attempts should not prompt again.`
+                    : `No active portal session for ${insertion.status.portal_session.compositor}.`,
+                  insertion.status.portal_session.error ? `Reason: ${insertion.status.portal_session.error}` : "",
+                ].filter(Boolean)}
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 border-t border-[var(--hairline)] pt-4">
+            {[
+              { label: "Insert path", value: insertPathLabel(platformStatus?.insert_strategy) },
+              { label: "Preflight", value: platformReadinessLabel },
+              { label: "Active driver", value: insertDriverLabel(platformStatus?.active_driver) },
+              { label: "Fallback recovery", value: scratchpadEntries === 1 ? "1 stored transcript" : `${scratchpadEntries} stored transcripts` },
+            ].map((item) => (
+              <div key={item.label} className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-[var(--fg-muted)] uppercase tracking-wide font-medium">
+                  {item.label}
+                </span>
+                <span className="text-[12px] text-[var(--fg)]">{item.value}</span>
+              </div>
             ))}
           </div>
-        )}
-      </FormCard>
+
+          {driverChain.length > 0 && (
+            <div className="flex flex-col gap-2 border-t border-[var(--hairline)] py-3 mt-3">
+              {driverChain.map((item) => (
+                <DiagItem
+                  key={`driver:${item.role}:${item.driver}`}
+                  title={item.active ? "Active driver" : item.available ? "Fallback driver" : "Unavailable driver"}
+                  tone={item.active ? "success" : item.available ? "default" : "warning"}
+                  lines={[`${item.label} · ${item.role}`, item.detail]}
+                />
+              ))}
+            </div>
+          )}
+
+          {(platformChecks.length > 0 || platformCaveats.length > 0) && (
+            <div className="flex flex-col gap-2 border-t border-[var(--hairline)] py-3">
+              {platformChecks.map((item) => (
+                <DiagItem key={`check:${item}`} title="Before relying on this path" lines={[item]} />
+              ))}
+              {platformCaveats.map((item) => (
+                <DiagItem key={`caveat:${item}`} title="Honest limit" tone="warning" lines={[item]} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap gap-2 px-1">
         {projectLinks.map((link) => (
           <Button key={link.url} size="sm" variant="ghost" onClick={() => void open(link.url)}>
-            <ExternalLink /> {link.label}
+            {link.url === APP_REPOSITORY_URL ? <Code2 size={14} className="mr-1" /> : link.url === APP_SITE_URL ? <Globe size={14} className="mr-1" /> : <ExternalLink size={14} className="mr-1" />}
+            {link.label}
           </Button>
         ))}
       </div>

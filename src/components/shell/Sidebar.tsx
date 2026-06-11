@@ -31,9 +31,9 @@ interface SidebarProps {
 }
 
 /**
- * Finder-style grouped navigation. 200px, translucent, uppercase section
- * headers, 4px accent stripe + aria-current on the active item. Non-scrolling
- * by design; if items overflow, reduce density rather than scroll.
+ * Finder-style grouped navigation with material surfaces.
+ * 240px, translucent, uppercase section headers,
+ * material specular + pressed inset on active items.
  */
 export function Sidebar({
   groups,
@@ -46,7 +46,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full w-[200px] shrink-0 flex-col border-r border-border bg-sidebar",
+        "flex h-full w-[240px] shrink-0 flex-col border-r border-[var(--hairline)] bg-[var(--surface-1)]",
         className,
       )}
     >
@@ -54,11 +54,11 @@ export function Sidebar({
 
       <nav
         aria-label="WordScript sections"
-        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 py-3"
+        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 py-2"
       >
         {groups.map((group) => (
           <section key={group.label} aria-label={group.label}>
-            <h2 className="px-2 pb-1.5 text-[11px] font-semibold tracking-[0.01em] text-fg-muted">
+            <h2 className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--fg-muted)]">
               {group.label}
             </h2>
             <ul className="flex flex-col gap-0.5">
@@ -76,7 +76,7 @@ export function Sidebar({
         ))}
       </nav>
 
-      {footer && <div className="shrink-0 border-t border-border">{footer}</div>}
+      {footer && <div className="shrink-0 border-t border-[var(--hairline)] m-2">{footer}</div>}
     </aside>
   );
 }
@@ -99,26 +99,37 @@ function SidebarButton({
       aria-disabled={item.preview || undefined}
       onClick={() => !item.preview && onSelect(item.id)}
       className={cn(
-        "relative flex w-full items-center gap-2.5 rounded-[7px] px-2.5 py-[7px] text-left text-[13px] transition-colors",
+        "group relative flex items-center gap-2 rounded-[var(--radius-control)] px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40",
         item.preview
-          ? "cursor-not-allowed font-medium text-fg-muted/55"
+          ? "opacity-40 cursor-not-allowed text-[var(--fg-dim)]"
           : active
-            ? "bg-[rgba(255,255,255,0.07)] font-semibold text-foreground"
-            : "font-medium text-fg-dim hover:bg-[rgba(255,255,255,0.04)] hover:text-foreground",
+            ? "text-[var(--fg)]"
+            : "text-[var(--fg-dim)] hover:text-[var(--fg)] hover:bg-[var(--surface-2)]",
       )}
     >
       {active && !item.preview && (
         <span
           aria-hidden
-          className="absolute left-0 top-1/2 h-[18px] w-[3px] -translate-y-1/2 rounded-r-full bg-brand"
+          className="absolute inset-0 rounded-[var(--radius-control)] material"
+          style={{
+            background: "var(--surface-2)",
+            border: "1px solid var(--hairline-strong)",
+          }}
         />
       )}
-      <Icon
-        className={cn("size-[17px] shrink-0", active && !item.preview && "text-brand")}
-        strokeWidth={1.75}
-      />
-      <span className="truncate">{item.label}</span>
-      {item.badge && <span className="ml-auto shrink-0">{item.badge}</span>}
+      <span
+        className={cn(
+          "relative shrink-0",
+          active && !item.preview ? "text-[var(--accent)]" : ""
+        )}
+      >
+        <Icon
+          size={14}
+          strokeWidth={1.75}
+        />
+      </span>
+      <span className="relative truncate">{item.label}</span>
+      {item.badge && <span className="relative ml-auto shrink-0">{item.badge}</span>}
     </button>
   );
 
