@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { HOTKEY_MODIFIER_KEYS, splitHotkeyParts } from "../../lib/hotkeys";
+import { cn } from "@/lib/utils";
 
 // Browser event.code → pynput key name
 const CODE_TO_PYNPUT: Record<string, string> = {
@@ -135,7 +136,12 @@ export function HotkeyRecorder({ value, onChange, onStartRecording, onStopRecord
 
   return (
     <div
-      className={`hotkey-recorder${recording ? " hotkey-recorder--recording" : ""}`}
+      className={cn(
+        "inline-flex min-h-9 min-w-[120px] cursor-pointer items-center gap-1.5 rounded-lg border bg-surface-strong px-3 py-1.5 text-[13px] transition-colors outline-none",
+        recording
+          ? "border-brand ring-2 ring-[var(--accent-soft)]"
+          : "border-border hover:border-border-strong focus-visible:border-brand",
+      )}
       onClick={!recording ? startRecording : undefined}
       onBlur={() => { if (recording) cancel(); }}
       tabIndex={0}
@@ -143,22 +149,23 @@ export function HotkeyRecorder({ value, onChange, onStartRecording, onStopRecord
       aria-label={recording ? "Recording shortcut, press keys" : "Click to record shortcut"}
     >
       {recording && displayedKeys.length === 0 ? (
-        <span className="hotkey-recorder__hint">Press your shortcut…</span>
+        <span className="text-fg-dim">Press your shortcut…</span>
       ) : displayedKeys.length > 0 ? (
         <>
           {displayedKeys.map((k) => (
-            <span key={k} className="hotkey-recorder__key">
+            <kbd
+              key={k}
+              className="inline-flex min-w-7 items-center justify-center rounded-md border border-border bg-surface-elevated px-1.5 py-0.5 font-mono text-[12px] font-medium text-foreground shadow-[inset_0_-1px_0_rgba(0,0,0,0.25)]"
+            >
               {DISPLAY[k] ?? k.toUpperCase()}
-            </span>
+            </kbd>
           ))}
           {recording && (
-            <span className="hotkey-recorder__hint" style={{ marginLeft: 6 }}>
-              — release to confirm
-            </span>
+            <span className="ml-1 text-[11px] text-fg-muted">— release to confirm</span>
           )}
         </>
       ) : (
-        <span className="hotkey-recorder__hint">{error ?? "Click to record"}</span>
+        <span className="text-fg-dim">{error ?? "Click to record"}</span>
       )}
     </div>
   );

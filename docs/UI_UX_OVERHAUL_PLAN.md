@@ -2,6 +2,17 @@
 
 Stand: 2026-06-10
 
+> ## Final decisions (implemented in `feat/ui-overhaul-v2` — supersedes contradictions below)
+>
+> Dieser Plan wurde umgesetzt; wo er von den folgenden Punkten abweicht, gelten die folgenden Punkte:
+>
+> - **Native Titelleiste auf jedem OS** (`decorations: true`). **Kein** frameless Main Window, **keine** custom titlebar, **kein** `macOSPrivateApi`, keine fake Traffic-Lights. Das macOS-Gefuehl kommt rein aus dem Content-Design. (Loest den Widerspruch zugunsten der Regel in `docs/DESIGN_SYSTEM.md`.)
+> - **Stack:** shadcn/ui + Tailwind v4, auf den bestehenden CSS-Variablen-Tokens (`@theme inline`). Tokens bleiben Single Source of Truth.
+> - **Motion:** React bleibt 18 → `useTransition` + CSS-Crossfade statt React-19-ViewTransition-API.
+> - **Neue IA (9 aktive Areas):** WORKSPACE (Home, History, Profiles) · ENGINE (Speech & AI, Modes, Capture) · SYSTEM (Permissions & Recovery, Diagnostics, About), plus deaktivierte PREVIEW-Items (Chat, Upload, Notes, Workspace, Account) mit "coming later"-Tooltip. Home/History/Permissions sind neu und vollstaendig im Form-Kit gebaut.
+> - **Overlay:** Glassmorphism via `backdrop-filter` mit `@supports`-Solid-Fallback (Linux) + orangefarbener Recording-Glow.
+> - **Bekannter Folgeschritt:** Die grossen Legacy-Tabs (Speech & AI, Modes, Capture, Profiles, Diagnostics) nutzen weiterhin ihre `settings.css`-Markup-Struktur (an die neue macOS-Optik angeglichen) und werden noch nicht voll auf das Form-Kit migriert; dadurch ueberschneiden sich aktuell einige Inhalte mit den neuen Areas (History ↔ Diagnostics-History, Permissions ↔ Input-Recovery/About-Platform). Die Legacy-Tabs sind die uebergangsweise Quelle; die neuen Areas sind die kanonischen Ziele. Volle Kit-Migration + Sub-Tabs (Speech/Intelligence, Shortcuts/Mic/Delivery/Overlay, Context/Dictionary/Snippets/Bias) + Entfernen der Duplikate sind der naechste Pass.
+
 ## 1. Zielbild
 
 WordScript reift von einer funktionalen Dev-Utility zu einer **nativen, polished Voice Workstation** fuer macOS (und cross-platform). Der Look ist **macOS-native mit SW-labs-Identitaet** — nicht ein generisches Web-UI im Dark Mode.

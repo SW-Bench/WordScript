@@ -1,69 +1,53 @@
 import { RebuildLabTab } from "../components/settings/RebuildLabTab";
 import { useRuntime } from "../hooks/useRuntime";
 import { WindowChrome } from "../components/settings/WindowChrome";
-import "../styles/settings.css";
+import { StatusBadge, type StatusTone } from "../components/shell";
 
 export default function RebuildLabWindow() {
   const { state } = useRuntime();
-  const previewState = state.error
-    ? { label: "Error", title: state.error, ok: false }
+  const previewState: { label: string; title: string; tone: StatusTone } = state.error
+    ? { label: "Error", title: state.error, tone: "error" }
     : state.status === "processing"
-      ? { label: "Processing", title: "WordScript is currently transcribing the last capture.", ok: true }
+      ? { label: "Processing", title: "WordScript is currently transcribing the last capture.", tone: "info" }
       : state.status === "recording"
-        ? { label: state.paused ? "Paused" : "Recording", title: state.paused ? "Recording is paused." : "Recording is active.", ok: true }
-        : { label: "Ready", title: "Diagnostics preview is connected to the native runtime.", ok: true };
+        ? {
+            label: state.paused ? "Paused" : "Recording",
+            title: state.paused ? "Recording is paused." : "Recording is active.",
+            tone: state.paused ? "warning" : "accent",
+          }
+        : { label: "Ready", title: "Diagnostics preview is connected to the native runtime.", tone: "success" };
 
   if (!state.config) {
     return (
-      <div className="settings settings--loading">
+      <div className="flex min-h-screen items-center justify-center bg-background text-[13px] text-fg-muted">
         Connecting to runtime…
       </div>
     );
   }
 
   return (
-    <div className="settings settings--tool-window">
-      <div className="settings__shell settings__shell--single">
-        <main className="settings__main">
-          <WindowChrome
-            title="Diagnostics"
-            subtitle="Native capture, transform and insert checks"
-            status={(
-              <span className={`settings__runtime-pill${previewState.ok ? " settings__runtime-pill--ok" : ""}`} title={previewState.title}>
-                {previewState.label}
-              </span>
-            )}
-          />
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <WindowChrome
+        title="Diagnostics"
+        subtitle="Native capture, transform and insert checks"
+        status={
+          <StatusBadge tone={previewState.tone} dot>
+            {previewState.label}
+          </StatusBadge>
+        }
+      />
 
-          <div className="settings__body">
-            <section className="settings__panel">
-              <header className="settings__panel-header">
-                <div className="settings__panel-heading">
-                  <span className="settings__panel-eyebrow">Runtime preview</span>
-                  <div className="settings__panel-title-row">
-                    <h2 className="settings__panel-title">Diagnostics Preview</h2>
-                    <div className="settings__panel-meta" aria-label="Diagnostics preview meta">
-                      <span className={`settings__panel-chip${previewState.ok ? " settings__panel-chip--ok" : ""}`}>
-                        {previewState.label}
-                      </span>
-                      <span className="settings__panel-chip settings__panel-chip--muted">Dedicated window</span>
-                    </div>
-                  </div>
-                </div>
-                <p className="settings__panel-blurb">
-                  Inspect the same native diagnostics lane in a wider pop-out without losing the calmer single-surface shell.
-                </p>
-              </header>
+      <main className="mx-auto w-full max-w-[760px] flex-1 px-6 py-6">
+        <div className="mb-5">
+          <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-fg-muted">Runtime preview</span>
+          <h2 className="mt-1 text-[17px] font-semibold text-foreground">Diagnostics Preview</h2>
+          <p className="mt-1 text-[13px] leading-snug text-fg-muted">
+            Inspect the same native diagnostics lane in a wider pop-out without losing the calmer single-surface shell.
+          </p>
+        </div>
 
-              <div className="settings__content">
-                <div className="tab tab--active">
-                  <RebuildLabTab isActive config={state.config} onChange={() => {}} />
-                </div>
-              </div>
-            </section>
-          </div>
-        </main>
-      </div>
+        <RebuildLabTab isActive config={state.config} onChange={() => {}} />
+      </main>
     </div>
   );
 }

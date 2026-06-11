@@ -1,135 +1,184 @@
-import type { Meta, StoryObj } from '@storybook/react-vite';
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import {
+  FormCard,
+  FormRow,
+  SegmentControl,
+  Select,
+  StatTiles,
+  StatusBadge,
+  Stepper,
+  Toggle,
+} from "../components/shell";
+import { Button } from "../components/ui/button";
+import "../styles/globals.css";
 
+/**
+ * These stories render the REAL production shell components so Storybook stays
+ * an honest mirror of the app. No bespoke markup or invented classes — if it
+ * looks a certain way here, it looks that way in WordScript.
+ */
 const meta: Meta = {
-  title: 'Design System/Components',
-  parameters: {
-    layout: 'fullscreen',
-  },
+  title: "Design System/Form Kit",
+  parameters: { layout: "fullscreen" },
+  decorators: [
+    (Story) => (
+      <div className="min-h-screen bg-background p-8 text-foreground">
+        <div className="mx-auto max-w-[560px]">
+          <Story />
+        </div>
+      </div>
+    ),
+  ],
 };
 
 export default meta;
 
 type Story = StoryObj;
 
-/* ── Stories ────────────────────────────────────────────────────────────────── */
-
-export const Card: Story = {
+export const StatTilesRow: Story = {
+  name: "StatTiles",
   render: () => (
-    <div style={{ padding: '32px', background: 'var(--bg)', minHeight: '100vh' }}>
-      <h2 style={{ fontSize: 'var(--text-display)', fontWeight: 600, marginBottom: '24px', color: 'var(--fg)' }}>
-        Settings Cards
-      </h2>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '520px' }}>
-        {/* Provider Card — uses real .settings__provider-card + .form-row */}
-        <div className="settings__provider-card">
-          <div style={{ fontSize: 'var(--text-label)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--fg-muted)', marginBottom: 'var(--space-3)' }}>
-            Provider Setup
-          </div>
-          <div className="form-row">
-            <label>Cloud Provider</label>
-            <div>
-              <button className="pill__action-button pill__action-button--primary">Cloud</button>
-              <button className="pill__action-button">Local</button>
-            </div>
-          </div>
-          <div className="form-row">
-            <label>API Key</label>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--fg-dim)' }}>••••••••gsk_</span>
-          </div>
-        </div>
-
-        {/* Processing Mode Card */}
-        <div className="settings__provider-card">
-          <div style={{ fontSize: 'var(--text-label)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--fg-muted)', marginBottom: 'var(--space-3)' }}>
-            Processing Mode
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {['Verbatim', 'Cleanup', 'Rewrite', 'Agent'].map((m, i) => (
-              <button key={m} className={i === 1 ? 'pill__action-button pill__action-button--primary' : 'pill__action-button'}>
-                {m}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
+    <StatTiles
+      items={[
+        { label: "Lane", value: "Groq cloud", hint: "Cloud transcription with local BYOK." },
+        { label: "Active model", value: "whisper-large-v3", hint: "quality transcription mode" },
+        { label: "Status", value: "Stored key available", hint: "Not checked in this session", accent: true },
+      ]}
+    />
   ),
 };
 
-export const Sidebar: Story = {
+export const ProviderCard: Story = {
+  render: () => {
+    const [lane, setLane] = useState("cloud");
+    const [language, setLanguage] = useState("auto");
+    const [cleanup, setCleanup] = useState(true);
+    return (
+      <FormCard
+        title="Speech & AI"
+        description="Cloud BYOK or local lane, language, models and cleanup."
+        action={
+          <StatusBadge tone="success" dot>
+            Ready
+          </StatusBadge>
+        }
+      >
+        <FormRow
+          label="Transcription lane"
+          hint="Cloud uses your stored Groq key. Local runs fully offline."
+          control={
+            <SegmentControl
+              aria-label="Transcription lane"
+              value={lane}
+              onChange={setLane}
+              options={[
+                { value: "cloud", label: "Cloud" },
+                { value: "local", label: "Local" },
+              ]}
+            />
+          }
+        />
+        <FormRow
+          label="Language"
+          htmlFor="lang"
+          control={
+            <Select id="lang" className="w-[180px]" value={language} onChange={(e) => setLanguage(e.target.value)}>
+              <option value="auto">Auto-detect</option>
+              <option value="en">English</option>
+              <option value="de">German</option>
+            </Select>
+          }
+        />
+        <FormRow
+          label="Cleanup pass"
+          hint="Removes filler words and fixes punctuation after transcription."
+          divider={false}
+          control={<Toggle aria-label="Cleanup pass" checked={cleanup} onCheckedChange={setCleanup} />}
+        />
+      </FormCard>
+    );
+  },
+};
+
+export const Controls: Story = {
+  render: () => {
+    const [mode, setMode] = useState("cleanup");
+    const [beam, setBeam] = useState(5);
+    const [sound, setSound] = useState(false);
+    return (
+      <FormCard title="Modes & controls" bodyClassName="py-1">
+        <FormRow
+          label="Processing mode"
+          control={
+            <SegmentControl
+              aria-label="Processing mode"
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: "verbatim", label: "Verbatim" },
+                { value: "cleanup", label: "Cleanup" },
+                { value: "rewrite", label: "Rewrite" },
+                { value: "agent", label: "Agent" },
+              ]}
+            />
+          }
+        />
+        <FormRow
+          label="Beam size"
+          hint="Higher is more accurate but slower."
+          control={<Stepper aria-label="Beam size" value={beam} onChange={setBeam} min={1} max={10} />}
+        />
+        <FormRow
+          label="Play sound feedback"
+          divider={false}
+          control={<Toggle aria-label="Play sound feedback" checked={sound} onCheckedChange={setSound} />}
+        />
+      </FormCard>
+    );
+  },
+};
+
+export const Badges: Story = {
   render: () => (
-    <div style={{ display: 'flex', height: '100vh' }}>
-      <div className="settings__sidebar" style={{ width: '220px', flexShrink: 0 }}>
-        <nav className="settings__nav">
-          <div className="settings__nav-group">
-            <span className="settings__nav-group-label">Navigation</span>
-            <div className="settings__nav-group-stack">
-              {[
-                { label: 'Dictate', active: true },
-                { label: 'Text Rules', active: false },
-                { label: 'Modes', active: false },
-                { label: 'Provider', active: false },
-                { label: 'Input', active: false },
-                { label: 'Diagnostics', active: false },
-                { label: 'About', active: false },
-              ].map(item => (
-                <button key={item.label} className={item.active ? 'settings__nav-item settings__nav-item--active' : 'settings__nav-item'}>
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="settings__nav-group">
-            <span className="settings__nav-group-label">Preview</span>
-            <div className="settings__nav-group-stack">
-              {['Chat', 'Upload', 'Notes'].map(label => (
-                <button key={label} className="settings__nav-item" disabled style={{ opacity: 0.35 }}>
-                  <span>{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </nav>
+    <FormCard title="Status badges">
+      <div className="flex flex-wrap gap-2 py-3">
+        <StatusBadge tone="success" dot>
+          Ready
+        </StatusBadge>
+        <StatusBadge tone="accent" dot>
+          Recording
+        </StatusBadge>
+        <StatusBadge tone="warning" dot>
+          Paused
+        </StatusBadge>
+        <StatusBadge tone="error" dot>
+          Error
+        </StatusBadge>
+        <StatusBadge tone="info" dot>
+          Processing
+        </StatusBadge>
+        <StatusBadge tone="neutral">Idle</StatusBadge>
       </div>
-
-      <div style={{ flex: 1, padding: '28px', background: 'var(--bg)' }}>
-        <h2 style={{ fontSize: '28px', fontWeight: 600, color: 'var(--fg)', marginBottom: '8px' }}>
-          Content Area
-        </h2>
-        <p style={{ color: 'var(--fg-dim)', fontSize: '13px' }}>
-          Active nav item shows gradient background with inset highlight.
-          Preview items at 35% opacity.
-        </p>
-      </div>
-    </div>
+    </FormCard>
   ),
 };
 
-export const Toggle: Story = {
+export const Buttons: Story = {
   render: () => (
-    <div style={{ padding: '32px', background: 'var(--bg)', minHeight: '100vh' }}>
-      <h2 style={{ fontSize: 'var(--text-display)', fontWeight: 600, marginBottom: '24px', color: 'var(--fg)' }}>
-        Toggle Switch
-      </h2>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '400px' }}>
-        <label className="form-check">
-          <input type="checkbox" defaultChecked />
-          <span>Enable Feature</span>
-        </label>
-
-        <label className="form-check">
-          <input type="checkbox" />
-          <span>Auto-detect</span>
-        </label>
-
-        <label className="form-check">
-          <input type="checkbox" disabled />
-          <span>Disabled Option</span>
-        </label>
+    <FormCard title="Buttons">
+      <div className="flex flex-wrap gap-2 py-3">
+        <Button size="sm">Primary</Button>
+        <Button size="sm" variant="outline">
+          Outline
+        </Button>
+        <Button size="sm" variant="ghost">
+          Ghost
+        </Button>
+        <Button size="sm" variant="destructive">
+          Destructive
+        </Button>
       </div>
-    </div>
+    </FormCard>
   ),
 };

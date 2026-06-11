@@ -25,6 +25,16 @@ Das Design System beschreibt die aktive Produktsprache von WordScript. Es ist ke
 - Der aktive UI-Pass fuehrt diese Richtung ueber eine Utility-Sidebar (200px), Card-Layout, Segment-Controls, Toggle-Switches und Preview-Tabs fuer zukuenftigen Scope.
 - Siehe `docs/UI_UX_OVERHAUL_PLAN.md` fuer den vollstaendigen Plan.
 
+### Umsetzungsstand v2 (`feat/ui-overhaul-v2`)
+
+Die Shell-Ueberarbeitung ist umgesetzt. Verbindliche Entscheidungen, die aeltere Notizen in diesem Dokument ueberschreiben:
+
+- **Stack:** Tailwind CSS v4 (`@tailwindcss/vite`) + shadcn/ui (new-york), auf den bestehenden v2-Tokens in `src/styles/globals.css` ueber `@theme inline`. Tokens bleiben Single Source of Truth.
+- **Chrome:** **Native Titelleiste auf jedem OS** (`decorations: true`). Kein frameless Fenster, kein `titleBarStyle: "Overlay"`, kein `macOSPrivateApi`, keine fake Traffic-Lights. Das "macOS-Gefuehl" entsteht ausschliesslich aus dem Content-Design (Sidebar-Rhythmus, gruppierte Form-Cards, Controls, Typo, Motion).
+- **Motion:** React bleibt 18 → Tab-/Area-Wechsel ueber `useTransition` + CSS-Crossfade (`animate-in fade-in`), nicht die React-19-ViewTransition-API.
+- **Form-Kit (`src/components/shell/`):** `Sidebar`, `FormCard`/`FormRow`, `DisclosureRow`, `Inspector`, `SegmentControl`, `Stepper`, `StatusBadge`, `Toggle`, `Select`, `ProfileSwitcher` — das System-Settings-Grouped-Form-Idiom als wiederverwendbare Bausteine.
+- **Overlay:** echtes Glassmorphism via `backdrop-filter`, mit `@supports`-Solid-Fallback fuer Linux/Wayland-Compositors ohne Blur, plus orangefarbener Recording-Glow.
+
 ## UI-Donoren und Stilreferenzen
 
 - Primaere Produktdonoren fuer diesen UI-Pass bleiben `VoiceInk`, `FluidVoice` und `OpenSuperWhisper`.
@@ -33,7 +43,7 @@ Das Design System beschreibt die aktive Produktsprache von WordScript. Es ist ke
 - Sekundaere Stil- und UX-Referenzen werden jetzt in drei Lanes gelesen: `menu bar utilities` mit `Ice`, `MonitorControl` und `Clipy`; `keyboard-first command surfaces` mit `raycast/extensions`, `massCode`, `Zed` und `AeroSpace`; sowie `desktop productivity shells` mit `Spacedrive`, `Mullvad VPN`, `Beekeeper Studio`, `Standard Notes` und `UTM`.
 - Zusaetzliche React-/TypeScript-Stilreferenzen fuer Shell und Komponenten bleiben [surajmandalcell/darwin-ui](https://github.com/surajmandalcell/darwin-ui), [andrejilderda/desktop-ui](https://github.com/andrejilderda/desktop-ui) und [kitlib/tauri-app-template](https://github.com/kitlib/tauri-app-template).
 - **UI-UX-Pro-Max Skill** liefert die strukturelle Design-Datenbank: "Operation orange on dark" Calculator-Palette (Background `#1C1917`, Card `#262321`, Muted `#2C1E16`, Border `rgba(255,255,255,0.08)`), Typography-Scale, Motion-Tokens und Accessibility-Checklisten.
-- **Context7 (Tauri v2 + React 19)** liefert die technische Umsetzung: `titleBarStyle: "Overlay"`, `transparent: true`, `macOSPrivateApi`, React 19 ViewTransitions fuer Tab-Wechsel.
+- **Context7 (Tauri v2 + React 18)** liefert die technische Umsetzung. Hinweis (ueberschrieben durch v2-Umsetzung): WordScript nutzt **native Dekoration auf jedem OS** statt `titleBarStyle: "Overlay"` und `macOSPrivateApi`; das Overlay bleibt `transparent: true`; Tab-Wechsel laufen ueber React-18-`useTransition` + CSS-Crossfade statt React-19-ViewTransitions.
 - Diese Stilreferenzen duerfen Window-Chrome, Sidebar-Rhythmus, Control-Sprache, Secondary-Surfaces, Action-Naming und Tauri-App-Shell-Ideen liefern, aber nicht den aktiven Produktpfad in ein generisches Web-OS, eine IDE, einen File Manager oder eine VPN-App verwandeln.
 - **Siehe auch `docs/UI_UX_OVERHAUL_PLAN.md`** fuer den vollstaendigen v2-Umsetzungsplan.
 

@@ -1,5 +1,9 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
+import { FormCard, FormRow, Select, StatTiles, StatusBadge, Toggle, type StatusTone } from "../shell";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { cn } from "../../lib/utils";
 import { useTranscriptionHistory } from "../../hooks/useTranscriptionHistory";
 import { useRuntimeLogs } from "../../hooks/useRuntimeLogs";
 import { useV1Slice } from "../../hooks/useV1Slice";
@@ -121,8 +125,48 @@ function pipelineDurationLabel(durationMs: number | null) {
   return durationMs === null ? "Duration pending" : `${durationMs} ms`;
 }
 
-function pipelineTone(step: SlicePipelineStepStatus) {
-  return step.state === "failed" ? " settings__rule-issue--warning" : "";
+function pipelineTone(step: SlicePipelineStepStatus): StatusTone {
+  return step.state === "failed" ? "warning" : "neutral";
+}
+
+const RL_TEXTAREA_CLASS =
+  "w-full resize-y rounded-md border border-border bg-surface-strong px-3 py-2 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-fg-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40";
+
+function Chip({ children }: { children: ReactNode }) {
+  return <span className="rounded-full bg-surface-strong px-2.5 py-0.5 text-[11px] text-fg-dim">{children}</span>;
+}
+
+function MetaRow({ label, value, divider = true }: { label: string; value: ReactNode; divider?: boolean }) {
+  return (
+    <FormRow
+      label={label}
+      divider={divider}
+      control={<span className="text-right text-[12px] text-fg-dim">{value}</span>}
+    />
+  );
+}
+
+function DiagItem({
+  title,
+  tone = "neutral",
+  lines,
+}: {
+  title: ReactNode;
+  tone?: StatusTone;
+  lines: ReactNode[];
+}) {
+  return (
+    <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+      <StatusBadge tone={tone} dot>
+        {title}
+      </StatusBadge>
+      <div className="mt-2 flex flex-col gap-0.5 text-[12px] leading-snug text-fg-dim">
+        {lines.map((line, index) => (
+          <span key={index}>{line}</span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function humanizeValue(value: string | null | undefined, fallback: string) {
@@ -469,84 +513,81 @@ interface HistoryEntryCardProps {
 
 const HistoryEntryCard = memo(function HistoryEntryCard({ entry, isLoading, onRetry, onRemove }: HistoryEntryCardProps) {
   return (
-    <div className="settings__rule-issue">
-      <strong>{historyStatusLabel(entry.status)} · {humanizeValue(entry.provider, "Provider")}</strong>
-      <p className="form-dim" style={{ margin: "4px 0 0" }}>
-        {formatHistoryTimestamp(entry.created_at_ms)} · {historySourceLabel(entry.source)}
-        {entry.retry_of ? ` · retry of ${entry.retry_of}` : ""}
-      </p>
-      <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
-        <span className="settings__rule-chip">{entry.model ?? "default model"}</span>
-        {entry.provider_profile && <span className="settings__rule-chip">{entry.provider_profile}</span>}
-        {entry.local_prompt_strength && (
-          <span className="settings__rule-chip">
-            {localPromptStrengthLabel(entry.local_prompt_strength) ?? entry.local_prompt_strength}
-          </span>
-        )}
-        {entry.local_prompt_carry !== null && entry.local_prompt_carry !== undefined && (
-          <span className="settings__rule-chip">
-            {entry.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}
-          </span>
-        )}
-        {entry.local_beam_size !== null && entry.local_beam_size !== undefined && (
-          <span className="settings__rule-chip">{`Beam ${entry.local_beam_size}`}</span>
-        )}
-        {entry.local_best_of !== null && entry.local_best_of !== undefined && (
-          <span className="settings__rule-chip">{`Best of ${entry.local_best_of}`}</span>
-        )}
-        {entry.insert_mode && <span className="settings__rule-chip">{humanizeValue(entry.insert_mode, "Insert mode")}</span>}
-        {entry.active_driver && <span className="settings__rule-chip">{humanizeValue(entry.active_driver, "Driver")}</span>}
-        {entry.recovery_action && <span className="settings__rule-chip">{historyRecoveryActionLabel(entry.recovery_action)}</span>}
-        {entry.clipboard_restore && <span className="settings__rule-chip">{historyClipboardRestoreLabel(entry.clipboard_restore)}</span>}
-        {entry.work_mode && <span className="settings__rule-chip">{describeTextProfileWorkMode({ work_mode: entry.work_mode })}</span>}
-        <span className="settings__rule-chip">{entry.active_profile ?? "Global rules"}</span>
-      </div>
-      <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-        <div>
-          <strong>Raw transcript</strong>
-          <p className="form-dim" style={{ margin: "4px 0 0" }}>
-            {entry.raw_transcript ?? "No raw transcript stored."}
+    <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <strong className="text-[13px] font-semibold text-foreground">
+            {historyStatusLabel(entry.status)} · {humanizeValue(entry.provider, "Provider")}
+          </strong>
+          <p className="mt-0.5 text-[12px] text-fg-muted">
+            {formatHistoryTimestamp(entry.created_at_ms)} · {historySourceLabel(entry.source)}
+            {entry.retry_of ? ` · retry of ${entry.retry_of}` : ""}
           </p>
         </div>
+        <StatusBadge tone={entry.status === "completed" ? "success" : entry.status === "failed" ? "error" : "neutral"} dot>
+          {historyStatusLabel(entry.status)}
+        </StatusBadge>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Chip>{entry.model ?? "default model"}</Chip>
+        {entry.provider_profile && <Chip>{entry.provider_profile}</Chip>}
+        {entry.local_prompt_strength && (
+          <Chip>{localPromptStrengthLabel(entry.local_prompt_strength) ?? entry.local_prompt_strength}</Chip>
+        )}
+        {entry.local_prompt_carry !== null && entry.local_prompt_carry !== undefined && (
+          <Chip>{entry.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}</Chip>
+        )}
+        {entry.local_beam_size !== null && entry.local_beam_size !== undefined && <Chip>{`Beam ${entry.local_beam_size}`}</Chip>}
+        {entry.local_best_of !== null && entry.local_best_of !== undefined && <Chip>{`Best of ${entry.local_best_of}`}</Chip>}
+        {entry.insert_mode && <Chip>{humanizeValue(entry.insert_mode, "Insert mode")}</Chip>}
+        {entry.active_driver && <Chip>{humanizeValue(entry.active_driver, "Driver")}</Chip>}
+        {entry.recovery_action && <Chip>{historyRecoveryActionLabel(entry.recovery_action)}</Chip>}
+        {entry.clipboard_restore && <Chip>{historyClipboardRestoreLabel(entry.clipboard_restore)}</Chip>}
+        {entry.work_mode && <Chip>{describeTextProfileWorkMode({ work_mode: entry.work_mode })}</Chip>}
+        <Chip>{entry.active_profile ?? "Global rules"}</Chip>
+      </div>
+      <div className="mt-3 grid gap-2.5">
         <div>
-          <strong>Final transcript</strong>
-          <p className="form-dim" style={{ margin: "4px 0 0" }}>
+          <strong className="text-[12px] font-semibold text-foreground">Raw transcript</strong>
+          <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{entry.raw_transcript ?? "No raw transcript stored."}</p>
+        </div>
+        <div>
+          <strong className="text-[12px] font-semibold text-foreground">Final transcript</strong>
+          <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">
             {entry.transformed_transcript ?? entry.error ?? "No transformed transcript stored."}
           </p>
         </div>
         {(entry.recovery_message || entry.fallback_reason || entry.clipboard_restore) && (
           <div>
-            <strong>Recovery</strong>
-            <p className="form-dim" style={{ margin: "4px 0 0" }}>
+            <strong className="text-[12px] font-semibold text-foreground">Recovery</strong>
+            <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">
               {entry.recovery_message ?? entry.fallback_reason ?? "No recovery guidance stored."}
             </p>
             {entry.clipboard_restore && (
-              <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                {historyClipboardRestoreLabel(entry.clipboard_restore)}
-              </p>
+              <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{historyClipboardRestoreLabel(entry.clipboard_restore)}</p>
             )}
           </div>
         )}
       </div>
-      <div className="settings__provider-actions settings__provider-actions--compact">
-        <button
-          className="btn btn--cancel"
-          type="button"
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
           aria-label={`Retry history entry ${entry.id}`}
           disabled={isLoading || !canRetryHistoryEntry(entry)}
           onClick={() => void onRetry(entry.id)}
         >
           Retry
-        </button>
-        <button
-          className="btn btn--cancel"
-          type="button"
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
           aria-label={`Delete history entry ${entry.id}`}
           disabled={isLoading}
           onClick={() => void onRemove(entry.id)}
         >
           Delete
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -561,11 +602,11 @@ interface HistoryEntriesListProps {
 
 const HistoryEntriesList = memo(function HistoryEntriesList({ entries, isLoading, onRetry, onRemove }: HistoryEntriesListProps) {
   if (!entries.length) {
-    return <p className="form-dim">No history entries match the current filters.</p>;
+    return <p className="text-[12px] text-fg-muted">No history entries match the current filters.</p>;
   }
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
+    <div className="grid gap-3">
       {entries.map((entry) => (
         <HistoryEntryCard
           key={entry.id}
@@ -589,31 +630,34 @@ const RuntimeRuleHintList = memo(function RuntimeRuleHintList({ hints }: Runtime
   }
 
   return (
-    <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+    <div className="mt-3 grid gap-3">
       <div>
-        <strong className="settings__about-title">Decoded transform rules</strong>
-        <p className="form-dim" style={{ margin: "4px 0 0" }}>
-          Raw logs stay unchanged in the textarea above. Known transform rules from recent entries are translated here for faster reading.
+        <strong className="text-[13px] font-semibold text-foreground">Decoded transform rules</strong>
+        <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">
+          Raw logs stay unchanged in the textarea above. Known transform rules from recent entries are translated here for
+          faster reading.
         </p>
       </div>
       {hints.map((hint, index) => (
-        <div key={`${hint.entry}-${index}`}>
-          <strong>{describeCorrectionOutcome(hint.corrected)}</strong>
-          <p className="form-dim" style={{ margin: "4px 0 0" }}>
-            {hint.entry}
-          </p>
-          <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
+        <div key={`${hint.entry}-${index}`} className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+          <strong className="text-[12px] font-semibold text-foreground">{describeCorrectionOutcome(hint.corrected)}</strong>
+          <p className="mt-0.5 font-mono text-[11px] leading-snug text-fg-muted">{hint.entry}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {hint.rules.map((rule) => (
-              <span key={`${hint.entry}:${rule.id}`} className="settings__rule-chip" title={rule.id}>{rule.label}</span>
+              <span
+                key={`${hint.entry}:${rule.id}`}
+                title={rule.id}
+                className="rounded-full bg-surface-strong px-2.5 py-0.5 text-[11px] text-fg-dim"
+              >
+                {rule.label}
+              </span>
             ))}
           </div>
-          <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+          <div className="mt-2.5 grid gap-2">
             {hint.rules.map((rule) => (
               <div key={`${hint.entry}:${rule.id}:details`}>
-                <strong>{rule.label}</strong>
-                <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                  {rule.description}
-                </p>
+                <strong className="text-[12px] font-semibold text-foreground">{rule.label}</strong>
+                <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{rule.description}</p>
               </div>
             ))}
           </div>
@@ -774,462 +818,489 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
   };
 
   return (
-    <>
-      <div className="tab__title">Diagnostics</div>
-      <p className="form-dim" style={{ marginTop: 0 }}>
-        Diagnostics is the native control room for capture, transform, recovery and insert. Use it to verify the live runtime path without leaving the settings shell.
-      </p>
+    <div className="flex flex-col gap-6">
+      <FormCard
+        title="Runtime checks"
+        description="Run a full capture-to-insert check, inspect the current native state and confirm which fallback path the runtime will use right now."
+        bodyClassName="py-4"
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => void refresh()}>
+              Refresh status
+            </Button>
+            <Button size="sm" disabled={isPending} onClick={() => void handleRunDemo()}>
+              Run end-to-end check
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-[12px] leading-snug text-fg-muted">
+          Diagnostics is the native control room for capture, transform, recovery and insert. Use it to verify the live
+          runtime path without leaving the settings shell.
+        </p>
+      </FormCard>
 
-      <div className="settings__rule-toolbar settings__rule-toolbar--top">
-        <div className="settings__rule-toolbar-copy">
-          <strong>Runtime checks</strong>
-          <span>Run a full capture-to-insert check, inspect the current native state and confirm which fallback path the runtime will use right now.</span>
-        </div>
-        <div className="settings__rule-toolbar-buttons">
-          <button className="btn btn--cancel" type="button" onClick={() => void refresh()}>
-            Refresh status
-          </button>
-          <button className="btn btn--save" type="button" onClick={() => void handleRunDemo()} disabled={isPending}>
-            Run end-to-end check
-          </button>
-        </div>
-      </div>
-
-      <div className="form-section">Runtime Snapshot</div>
-      <div className="form-row">
-        <label>Stage</label>
-        <div className="provider-status">
-          <span className={`provider-status__dot${status?.stage === "completed" ? " provider-status__dot--ok" : ""}`} />
-          <span>{stageLabel(status?.stage)}</span>
-        </div>
-      </div>
-      <div className="form-row">
-        <label>Active session</label>
-        <div className="provider-status"><span>{status?.session_id ?? "No session armed"}</span></div>
-      </div>
-      <div className="form-row">
-        <label>Session source</label>
-        <div className="provider-status"><span>{optionLabel(TRIGGER_OPTIONS, status?.active_trigger, humanizeValue(status?.active_trigger, "Not armed"))}</span></div>
-      </div>
-      <div className="form-row">
-        <label>Transcription path</label>
-        <div className="provider-status"><span>{runtimeProviderLabel(runtimeContract, status?.preferred_provider)}</span></div>
-      </div>
-      <div className="form-row">
-        <label>Runtime model</label>
-        <div className="provider-status"><span>{runtimeContract?.model ?? "No runtime model loaded"}</span></div>
-      </div>
-      <div className="form-row">
-        <label>Provider readiness</label>
-        <div className="provider-status"><span>{providerReadinessLabel(runtimeContract)}</span></div>
-      </div>
-      <div className="form-row">
-        <label>Work mode</label>
-        <div className="provider-status"><span>{runtimeWorkModeLabel}</span></div>
-      </div>
-      <div className="form-row">
-        <label>Capture runtime</label>
-        <div className="provider-status"><span>{captureRuntimeLabel(runtimeContract)}</span></div>
-      </div>
-      <div className="form-row">
-        <label>Capture device</label>
-        <div className="provider-status"><span>{runtimeCaptureStatus?.device_name ?? "No active device"}</span></div>
-      </div>
-      <div className="form-row">
-        <label>Pipeline</label>
-        <div className="provider-status"><span>{humanizeValue(status?.architecture_mode, "Native Runtime Slice")}</span></div>
-      </div>
-      {!!status?.pipeline.length && (
-        <div className="settings__rule-issues" style={{ marginTop: 14 }}>
-          {status.pipeline.map((step) => (
-            <div key={step.step} className={`settings__rule-issue${pipelineTone(step)}`}>
-              <strong>{`${pipelineStepLabel(step.step)} · ${pipelineStateLabel(step.state)}`}</strong>
-              <span>{pipelineDurationLabel(step.duration_ms)}</span>
-              {step.error_code && <span>{`Error code: ${step.error_code}`}</span>}
-              {step.detail && <span>{step.detail}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-      {isPending && <p className="form-dim">Refreshing native runtime status…</p>}
+      <FormCard title="Runtime snapshot">
+        <FormRow
+          label="Stage"
+          control={
+            <StatusBadge tone={status?.stage === "completed" ? "success" : "neutral"} dot>
+              {stageLabel(status?.stage)}
+            </StatusBadge>
+          }
+        />
+        <MetaRow label="Active session" value={status?.session_id ?? "No session armed"} />
+        <MetaRow
+          label="Session source"
+          value={optionLabel(TRIGGER_OPTIONS, status?.active_trigger, humanizeValue(status?.active_trigger, "Not armed"))}
+        />
+        <MetaRow label="Transcription path" value={runtimeProviderLabel(runtimeContract, status?.preferred_provider)} />
+        <MetaRow label="Runtime model" value={runtimeContract?.model ?? "No runtime model loaded"} />
+        <MetaRow label="Provider readiness" value={providerReadinessLabel(runtimeContract)} />
+        <MetaRow label="Work mode" value={runtimeWorkModeLabel} />
+        <MetaRow label="Capture runtime" value={captureRuntimeLabel(runtimeContract)} />
+        <MetaRow label="Capture device" value={runtimeCaptureStatus?.device_name ?? "No active device"} />
+        <MetaRow
+          label="Pipeline"
+          value={humanizeValue(status?.architecture_mode, "Native Runtime Slice")}
+          divider={Boolean(status?.pipeline.length) || isPending}
+        />
+        {!!status?.pipeline.length && (
+          <div className="flex flex-col gap-2 py-3">
+            {status.pipeline.map((step) => (
+              <DiagItem
+                key={step.step}
+                title={`${pipelineStepLabel(step.step)} · ${pipelineStateLabel(step.state)}`}
+                tone={pipelineTone(step)}
+                lines={[
+                  pipelineDurationLabel(step.duration_ms),
+                  ...(step.error_code ? [`Error code: ${step.error_code}`] : []),
+                  ...(step.detail ? [step.detail] : []),
+                ]}
+              />
+            ))}
+          </div>
+        )}
+        {isPending && <p className="py-3 text-[12px] text-fg-muted">Refreshing native runtime status…</p>}
+      </FormCard>
 
       {(runtimeLocalPreview || config.provider === "local_preview") && (
-        <>
-          <div className="form-section">Local Runtime Contract</div>
-          <div className="settings__about-card">
-            <p className="form-dim" style={{ marginTop: 0 }}>
-              This contract comes from the native runtime snapshot. Unsaved changes in this window do not change the running contract until you save settings.
-            </p>
+        <FormCard
+          title="Local runtime contract"
+          description="This contract comes from the native runtime snapshot. Unsaved changes in this window do not change the running contract until you save settings."
+          bodyClassName="py-4"
+        >
+          <div className="flex flex-col gap-3">
             {runtimeLocalPreview ? (
               <>
-                <div className="settings__rule-chip-row">
-                  <span className="settings__rule-chip">{runtimeLocalPreview.provider_profile}</span>
-                  <span className="settings__rule-chip">{localPromptStrengthLabel(runtimeLocalPreview.prompt_strength) ?? "Prompt bias unknown"}</span>
-                  <span className="settings__rule-chip">{runtimeLocalPreview.prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}</span>
-                  <span className="settings__rule-chip">{`Beam ${runtimeLocalPreview.beam_size}`}</span>
-                  <span className="settings__rule-chip">{`Best of ${runtimeLocalPreview.best_of}`}</span>
+                <div className="flex flex-wrap gap-1.5">
+                  <Chip>{runtimeLocalPreview.provider_profile}</Chip>
+                  <Chip>{localPromptStrengthLabel(runtimeLocalPreview.prompt_strength) ?? "Prompt bias unknown"}</Chip>
+                  <Chip>{runtimeLocalPreview.prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}</Chip>
+                  <Chip>{`Beam ${runtimeLocalPreview.beam_size}`}</Chip>
+                  <Chip>{`Best of ${runtimeLocalPreview.best_of}`}</Chip>
                 </div>
-                <p className="form-dim" style={{ marginBottom: runtimeDraftDifferences.length ? 12 : 0 }}>
-                  These values are currently active in the native runtime and flow into local runtime requests and transcription history.
+                <p className="text-[12px] leading-snug text-fg-muted">
+                  These values are currently active in the native runtime and flow into local runtime requests and
+                  transcription history.
                 </p>
                 {runtimeLocalSetup && (
                   <>
-                    <div className="settings__rule-chip-row">
-                      <span className="settings__rule-chip">{localSetupReadinessLabel(runtimeLocalSetup.readiness)}</span>
-                      <span className="settings__rule-chip">{runtimeLocalSetup.runner_ready ? "Runner ready" : "Runner missing"}</span>
-                      <span className="settings__rule-chip">{runtimeLocalSetup.model_ready ? "Model ready" : "Model missing"}</span>
-                      <span className="settings__rule-chip">{runtimeLocalSetup.chat_ready ? "Cleanup ready" : "Cleanup missing"}</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Chip>{localSetupReadinessLabel(runtimeLocalSetup.readiness)}</Chip>
+                      <Chip>{runtimeLocalSetup.runner_ready ? "Runner ready" : "Runner missing"}</Chip>
+                      <Chip>{runtimeLocalSetup.model_ready ? "Model ready" : "Model missing"}</Chip>
+                      <Chip>{runtimeLocalSetup.chat_ready ? "Cleanup ready" : "Cleanup missing"}</Chip>
                     </div>
-                    <div className="settings__rule-issues" style={{ marginTop: 12 }}>
-                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
-                        <strong>Resolved runner</strong>
-                        <span>{runtimeLocalSetup.resolved_runner ?? "Not resolved"}</span>
-                      </div>
-                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
-                        <strong>Resolved model</strong>
-                        <span>{runtimeLocalSetup.resolved_model ?? "Not resolved"}</span>
-                      </div>
-                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
-                        <strong>Resolved cleanup endpoint</strong>
-                        <span>{runtimeLocalSetup.resolved_chat_base_url ?? "Not resolved"}</span>
-                      </div>
-                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
-                        <strong>Resolved cleanup model</strong>
-                        <span>{runtimeLocalSetup.resolved_chat_model ?? "Not resolved"}</span>
-                      </div>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        { title: "Resolved runner", value: runtimeLocalSetup.resolved_runner ?? "Not resolved" },
+                        { title: "Resolved model", value: runtimeLocalSetup.resolved_model ?? "Not resolved" },
+                        { title: "Resolved cleanup endpoint", value: runtimeLocalSetup.resolved_chat_base_url ?? "Not resolved" },
+                        { title: "Resolved cleanup model", value: runtimeLocalSetup.resolved_chat_model ?? "Not resolved" },
+                      ].map((item) => (
+                        <DiagItem
+                          key={item.title}
+                          title={item.title}
+                          tone={runtimeProviderStatus?.ready ? "neutral" : "warning"}
+                          lines={[item.value]}
+                        />
+                      ))}
                       {runtimeLocalSetup.issue_code && (
-                        <div className="settings__rule-issue settings__rule-issue--warning">
-                          <strong>Provider issue</strong>
-                          <span>{humanizeValue(runtimeLocalSetup.issue_code, runtimeLocalSetup.issue_code)}</span>
-                        </div>
+                        <DiagItem
+                          title="Provider issue"
+                          tone="warning"
+                          lines={[humanizeValue(runtimeLocalSetup.issue_code, runtimeLocalSetup.issue_code)]}
+                        />
                       )}
-                      <div className={`settings__rule-issue${runtimeProviderStatus?.ready ? "" : " settings__rule-issue--warning"}`}>
-                        <strong>Setup guidance</strong>
-                        <span>{runtimeLocalSetup.guidance}</span>
-                      </div>
+                      <DiagItem
+                        title="Setup guidance"
+                        tone={runtimeProviderStatus?.ready ? "neutral" : "warning"}
+                        lines={[runtimeLocalSetup.guidance]}
+                      />
                     </div>
                   </>
                 )}
               </>
             ) : (
-              <p className="form-dim" style={{ marginBottom: runtimeDraftDifferences.length ? 12 : 0 }}>
+              <p className="text-[12px] leading-snug text-fg-muted">
                 The native runtime is not currently using the local runtime lane.
               </p>
             )}
             {runtimeDraftDifferences.length > 0 && (
-              <div className="settings__rule-issues">
+              <div className="flex flex-col gap-2">
                 {runtimeDraftDifferences.map((difference) => (
-                  <div key={difference} className="settings__rule-issue settings__rule-issue--warning">
-                    <strong>Unsaved draft differs from runtime</strong>
-                    <span>{difference}</span>
-                  </div>
+                  <DiagItem key={difference} title="Unsaved draft differs from runtime" tone="warning" lines={[difference]} />
                 ))}
               </div>
             )}
             {config.provider === "local_preview" && (
-              <>
-                <strong className="settings__about-title" style={{ display: "block", marginTop: 12 }}>Draft in this window</strong>
-                <div className="settings__rule-chip-row" style={{ marginTop: 8 }}>
-                  <span className="settings__rule-chip">{config.local_profile}</span>
-                  <span className="settings__rule-chip">{localPromptStrengthLabel(config.local_prompt_strength) ?? "Prompt bias unknown"}</span>
-                  <span className="settings__rule-chip">{config.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}</span>
-                  <span className="settings__rule-chip">{`Beam ${config.local_beam_size}`}</span>
-                  <span className="settings__rule-chip">{`Best of ${config.local_best_of}`}</span>
+              <div>
+                <strong className="text-[12px] font-semibold text-foreground">Draft in this window</strong>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <Chip>{config.local_profile}</Chip>
+                  <Chip>{localPromptStrengthLabel(config.local_prompt_strength) ?? "Prompt bias unknown"}</Chip>
+                  <Chip>{config.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}</Chip>
+                  <Chip>{`Beam ${config.local_beam_size}`}</Chip>
+                  <Chip>{`Best of ${config.local_best_of}`}</Chip>
                 </div>
-              </>
+              </div>
             )}
           </div>
-        </>
+        </FormCard>
       )}
 
-      <div className="form-section">Coverage</div>
-      <div className="settings__about-card">
-        <div className="settings__rule-chip-row">
-          {capabilityText.map((item) => (
-            <span key={item} className="settings__rule-chip">{item}</span>
-          ))}
-        </div>
-        <div className="settings__rule-issues">
-          {(status?.next_milestones ?? []).map((item) => (
-            <div key={item} className="settings__rule-issue settings__rule-issue--warning">
-              <strong>Next</strong>
-              <span>{item}</span>
+      <FormCard title="Coverage" bodyClassName="py-4">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            {capabilityText.map((item) => (
+              <Chip key={item}>{item}</Chip>
+            ))}
+          </div>
+          {(status?.next_milestones ?? []).length > 0 && (
+            <div className="flex flex-col gap-2">
+              {(status?.next_milestones ?? []).map((item) => (
+                <DiagItem key={item} title="Next" tone="warning" lines={[item]} />
+              ))}
             </div>
-          ))}
-        </div>
-        {!status?.next_milestones?.length && (
-          <p className="form-dim" style={{ margin: "12px 0 0" }}>
-            No pending milestones were reported by the runtime snapshot.
-          </p>
-        )}
-      </div>
-
-      <div className="form-section">Run a Diagnostic</div>
-      <div className="form-row">
-        <label>Session source</label>
-        <select value={trigger} onChange={(event) => setTrigger(event.target.value)}>
-          {TRIGGER_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </div>
-      <div className="form-row">
-        <label>Text profile</label>
-        <select value={profile} onChange={(event) => setProfile(event.target.value)}>
-          {PROFILE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </div>
-      <div className="form-row">
-        <label>Preview target</label>
-        <select value={insertTarget} onChange={(event) => setInsertTarget(event.target.value)}>
-          {INSERT_TARGET_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </div>
-      <div className="form-section">Sample Dictation</div>
-      <textarea className="form-textarea" value={rawText} onChange={(event) => setRawText(event.target.value)} rows={5} />
-      <div className="settings__provider-actions">
-        <button className="btn btn--cancel" type="button" onClick={handleLoadSample}>
-          Load sample text
-        </button>
-        <button className="btn btn--cancel" type="button" onClick={() => void handleStart()} disabled={!canStartSession}>
-          Start capture
-        </button>
-        <button className="btn btn--cancel" type="button" onClick={() => void handleComplete()} disabled={!canCompleteSession}>
-          Complete step
-        </button>
-        <button className="btn btn--save" type="button" onClick={() => void handleRunDemo()} disabled={isPending}>
-          Run end-to-end
-        </button>
-        <button className="btn btn--cancel" type="button" onClick={() => void handleReset()} disabled={isPending}>
-          Reset diagnostics
-        </button>
-      </div>
-      <p className="form-dim">
-        Start capture opens a fresh native session. Complete step resolves the current session with the sample text below. End-to-end does both in one go and appends the final insert preview.
-      </p>
-
-      <div className="form-section">Diagnostics Preview</div>
-      <div className="settings__about-card settings__about-card--highlight">
-        <div className="settings__about-head">
-          <div>
-            <strong className="settings__about-title">Current diagnostic transcript</strong>
-            <p className="form-dim" style={{ margin: "4px 0 0" }}>
-              This preview belongs to the active diagnostics lane in this window. It is not the recovery scratchpad from Input and not the persisted history store below.
+          )}
+          {!status?.next_milestones?.length && (
+            <p className="text-[12px] leading-snug text-fg-muted">
+              No pending milestones were reported by the runtime snapshot.
             </p>
-          </div>
-          <div className="settings__rule-chip-row">
-            <span className="settings__rule-chip">{previewProfileLabel}</span>
-            <span className="settings__rule-chip">{previewTargetLabel}</span>
-            <span className="settings__rule-chip">{previewModeLabel}</span>
-            <span className="settings__rule-chip">{runtimeWorkModeLabel}</span>
-          </div>
+          )}
         </div>
+      </FormCard>
 
-        <div className="settings__diagnostic-preview-grid">
-          <div className="settings__diagnostic-preview-card">
-            <span className="settings__rule-preview-label">Transcript</span>
-            <p className="settings__diagnostic-preview-copy">{previewTranscript}</p>
-          </div>
-
-          <div className="settings__diagnostic-preview-card">
-            <span className="settings__rule-preview-label">Insert plan</span>
-            <div className="settings__rule-issues">
-              <div className="settings__rule-issue">
-                <strong>Target</strong>
-                <span>{previewTargetLabel}</span>
-              </div>
-              <div className="settings__rule-issue">
-                <strong>Insert mode</strong>
-                <span>{previewModeLabel}</span>
-              </div>
-              <div className="settings__rule-issue">
-                <strong>Fallback path</strong>
-                <span>{previewFallbackLabel}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="settings__diagnostic-preview-editor">
-          <strong className="settings__about-title">Preview editor</strong>
-          <p className="form-dim" style={{ margin: "4px 0 0" }}>
-            This editor mirrors the current insert plan. It is diagnostic, but it already reflects the real fallback contract coming back from the native runtime.
-          </p>
-          <textarea className="form-textarea" value={editorValue} onChange={(event) => setEditorValue(event.target.value)} rows={8} placeholder="No preview text yet." />
-        </div>
-
-        <div className="form-row">
-          <label>Profile used</label>
-          <div className="provider-status"><span>{previewProfileLabel}</span></div>
-        </div>
-
-        <div className="settings__rule-chip-row">
-          {transcriptRules.map((rule) => (
-            <span key={rule.id} className="settings__rule-chip" title={rule.id}>{rule.label}</span>
-          ))}
-        </div>
-        {transcriptRules.length > 0 && (
-          <div style={{ display: "grid", gap: 10 }}>
-            {transcriptRules.map((rule) => (
-              <div key={rule.id}>
-                <strong>{rule.label}</strong>
-                <p className="form-dim" style={{ margin: "4px 0 0" }}>
-                  {rule.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="form-section">Transcription History</div>
-      <div className="settings__about-card">
-        <p className="form-dim" style={{ marginTop: 0 }}>
-          History is stored natively and survives the diagnostics UI. Retry re-runs transform and insertion from the stored raw transcript instead of only restoring clipboard state, so this is a separate store from Input recovery.
-        </p>
-        <div className="form-row">
-          <label>History store</label>
-          <div className="provider-status provider-status--stacked">
-            <span className={`provider-status__dot${transcriptionHistory.storagePath ? " provider-status__dot--ok" : ""}`} />
-            <div>
-              <strong>Persistent transcript log</strong>
-              <span className="provider-status__path">{transcriptionHistory.storagePath ?? "Loading native history path"}</span>
-            </div>
-          </div>
-        </div>
-        <div className="form-row">
-          <label htmlFor="history-provider-filter">Provider filter</label>
-          <select id="history-provider-filter" aria-label="History provider filter" value={historyProviderFilter} onChange={(event) => setHistoryProviderFilter(event.target.value)}>
-            {HISTORY_PROVIDER_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-row">
-          <label htmlFor="history-status-filter">Status filter</label>
-          <select id="history-status-filter" aria-label="History status filter" value={historyStatusFilter} onChange={(event) => setHistoryStatusFilter(event.target.value)}>
-            {HISTORY_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-row">
-          <label htmlFor="history-profile-filter">Profile filter</label>
-          <select id="history-profile-filter" aria-label="History profile filter" value={historyProfileFilter} onChange={(event) => setHistoryProfileFilter(event.target.value)}>
-            <option value="all">All profiles</option>
-            {config.text_profiles.map((profileOption) => (
-              <option key={profileOption.id} value={profileOption.id}>{profileOption.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-row">
-          <label htmlFor="history-source-filter">Source filter</label>
-          <select id="history-source-filter" aria-label="History source filter" value={historySourceFilter} onChange={(event) => setHistorySourceFilter(event.target.value)}>
-            {HISTORY_SOURCE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-row">
-          <label htmlFor="history-search">Search history</label>
-          <input
-            id="history-search"
-            aria-label="Search history"
-            type="search"
-            value={historySearch}
-            placeholder="Find transcript text, recovery notes, errors or models"
-            onChange={(event) => setHistorySearch(event.target.value)}
-          />
-        </div>
-        <div className="form-row">
-          <label htmlFor="history-view-limit">Visible entries</label>
-          <select id="history-view-limit" aria-label="History visible entries" value={historyViewLimit} onChange={(event) => setHistoryViewLimit(Number(event.target.value))}>
-            {HISTORY_VIEW_LIMIT_OPTIONS.map((value) => (
-              <option key={value} value={value}>{value}</option>
-            ))}
-          </select>
-        </div>
-        <label className="form-check" htmlFor="history-errors-only">
-          <input
-            id="history-errors-only"
-            aria-label="Only failed history entries"
-            type="checkbox"
-            checked={historyErrorsOnly}
-            onChange={(event) => setHistoryErrorsOnly(event.target.checked)}
-          />
-          <span>Only failed entries</span>
-        </label>
-        <div className="form-section">History Policy</div>
-        <div className="form-row">
-          <label htmlFor="history-limit">Stored entries</label>
-          <select id="history-limit" aria-label="Stored history entries" value={config.history_limit} onChange={(event) => onChange({ history_limit: Number(event.target.value) })}>
-            {HISTORY_LIMIT_OPTIONS.map((value) => (
-              <option key={value} value={value}>{value}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-row">
-          <label htmlFor="history-retention-days">Retention window</label>
-          <select id="history-retention-days" aria-label="History retention window" value={config.history_retention_days} onChange={(event) => onChange({ history_retention_days: Number(event.target.value) })}>
-            {HISTORY_RETENTION_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-        <p className="form-dim">
-          Native retention currently keeps up to {config.history_limit} entries and prunes anything older than {retentionLabel.toLowerCase()}. Save settings to apply policy changes to the runtime store.
-        </p>
-        <div className="settings__provider-actions">
-          <button className="btn btn--cancel" type="button" onClick={() => void transcriptionHistory.refresh(historyQuery)} disabled={transcriptionHistory.isLoading}>
-            Refresh history
-          </button>
-          <button className="btn btn--cancel" type="button" onClick={() => void handleExportHistory()} disabled={transcriptionHistory.isLoading || !visibleHistoryEntries.length}>
-            Export history
-          </button>
-          <button className="btn btn--cancel" type="button" onClick={() => void transcriptionHistory.clear()} disabled={transcriptionHistory.isLoading || !transcriptionHistory.entries.length}>
-            Clear history
-          </button>
-        </div>
-        <HistoryEntriesList
-          entries={visibleHistoryEntries}
-          isLoading={transcriptionHistory.isLoading}
-          onRetry={transcriptionHistory.retry}
-          onRemove={transcriptionHistory.remove}
+      <FormCard title="Run a diagnostic" bodyClassName="py-1">
+        <FormRow
+          label="Session source"
+          control={
+            <Select aria-label="Session source" className="w-[220px]" value={trigger} onChange={(event) => setTrigger(event.target.value)}>
+              {TRIGGER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          }
         />
-        <p className={`form-dim${transcriptionHistory.error ? " form-dim--error" : ""}`}>
-          {transcriptionHistory.error ?? historyFeedback ?? `${transcriptionHistory.entries.length} history entries match the current filters.`}
-        </p>
-      </div>
+        <FormRow
+          label="Text profile"
+          control={
+            <Select aria-label="Text profile" className="w-[220px]" value={profile} onChange={(event) => setProfile(event.target.value)}>
+              {PROFILE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Preview target"
+          divider={false}
+          control={
+            <Select aria-label="Preview target" className="w-[220px]" value={insertTarget} onChange={(event) => setInsertTarget(event.target.value)}>
+              {INSERT_TARGET_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          }
+        />
+      </FormCard>
 
-      <div className="form-section">Runtime Logs</div>
-      <div className="settings__about-card">
-        <p className="form-dim" style={{ marginTop: 0 }}>
-          Structured native logs stay enabled and are buffered here for fast inspection while the runtime is active. History above keeps the durable transcript record separate from this transient log stream.
-        </p>
-        <div className="settings__provider-actions">
-          <button className="btn btn--cancel" type="button" onClick={() => void runtimeLogs.refresh()} disabled={runtimeLogs.isLoading}>
-            Refresh logs
-          </button>
-          <button className="btn btn--cancel" type="button" onClick={() => void runtimeLogs.clear()} disabled={runtimeLogs.isLoading || !runtimeLogs.entries.length}>
-            Clear logs
-          </button>
+      <FormCard title="Sample dictation" bodyClassName="py-4">
+        <div className="flex flex-col gap-3">
+          <textarea className={RL_TEXTAREA_CLASS} value={rawText} onChange={(event) => setRawText(event.target.value)} rows={5} />
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={handleLoadSample}>
+              Load sample text
+            </Button>
+            <Button size="sm" variant="outline" disabled={!canStartSession} onClick={() => void handleStart()}>
+              Start capture
+            </Button>
+            <Button size="sm" variant="outline" disabled={!canCompleteSession} onClick={() => void handleComplete()}>
+              Complete step
+            </Button>
+            <Button size="sm" disabled={isPending} onClick={() => void handleRunDemo()}>
+              Run end-to-end
+            </Button>
+            <Button size="sm" variant="ghost" disabled={isPending} onClick={() => void handleReset()}>
+              Reset diagnostics
+            </Button>
+          </div>
+          <p className="text-[12px] leading-snug text-fg-muted">
+            Start capture opens a fresh native session. Complete step resolves the current session with the sample text
+            below. End-to-end does both in one go and appends the final insert preview.
+          </p>
         </div>
-        <textarea className="form-textarea" value={runtimeLogText} readOnly rows={10} />
-        <RuntimeRuleHintList hints={runtimeRuleHints} />
-        <p className={`form-dim${runtimeLogs.error ? " form-dim--error" : ""}`}>
-          {runtimeLogs.error ?? `${runtimeLogs.entries.length} runtime log entries buffered.`}
-        </p>
-      </div>
+      </FormCard>
+
+      <FormCard
+        title="Diagnostics Preview"
+        description="This preview belongs to the active diagnostics lane in this window. It is not the recovery scratchpad from Input and not the persisted history store below."
+        bodyClassName="py-4"
+        action={
+          <div className="flex flex-wrap gap-1.5">
+            <Chip>{previewProfileLabel}</Chip>
+            <Chip>{previewTargetLabel}</Chip>
+            <Chip>{previewModeLabel}</Chip>
+            <Chip>{runtimeWorkModeLabel}</Chip>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Transcript</span>
+              <p className="mt-1 text-[13px] leading-snug text-foreground">{previewTranscript}</p>
+            </div>
+            <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Insert plan</span>
+              <div className="mt-2 flex flex-col gap-2">
+                <DiagItem title="Target" lines={[previewTargetLabel]} />
+                <DiagItem title="Insert mode" lines={[previewModeLabel]} />
+                <DiagItem title="Fallback path" lines={[previewFallbackLabel]} />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <strong className="text-[12px] font-semibold text-foreground">Preview editor</strong>
+            <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">
+              This editor mirrors the current insert plan. It is diagnostic, but it already reflects the real fallback
+              contract coming back from the native runtime.
+            </p>
+            <textarea
+              className={cn(RL_TEXTAREA_CLASS, "mt-2")}
+              value={editorValue}
+              onChange={(event) => setEditorValue(event.target.value)}
+              rows={8}
+              placeholder="No preview text yet."
+            />
+          </div>
+
+          <MetaRow label="Profile used" value={previewProfileLabel} divider={false} />
+
+          {transcriptRules.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {transcriptRules.map((rule) => (
+                <span key={rule.id} title={rule.id} className="rounded-full bg-surface-strong px-2.5 py-0.5 text-[11px] text-fg-dim">
+                  {rule.label}
+                </span>
+              ))}
+            </div>
+          )}
+          {transcriptRules.length > 0 && (
+            <div className="grid gap-2.5">
+              {transcriptRules.map((rule) => (
+                <div key={rule.id}>
+                  <strong className="text-[12px] font-semibold text-foreground">{rule.label}</strong>
+                  <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{rule.description}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </FormCard>
+
+      <FormCard
+        title="Transcription History"
+        description="History is stored natively and survives the diagnostics UI. Retry re-runs transform and insertion from the stored raw transcript instead of only restoring clipboard state, so this is a separate store from Input recovery."
+        bodyClassName="py-1"
+      >
+        <FormRow
+          label="History store"
+          align="start"
+          control={
+            <div className="flex flex-col items-end gap-1 text-right">
+              <StatusBadge tone={transcriptionHistory.storagePath ? "success" : "neutral"} dot>
+                Persistent transcript log
+              </StatusBadge>
+              <span className="font-mono text-[11px] text-fg-muted">
+                {transcriptionHistory.storagePath ?? "Loading native history path"}
+              </span>
+            </div>
+          }
+        />
+        <FormRow
+          label="Provider filter"
+          htmlFor="history-provider-filter"
+          control={
+            <Select id="history-provider-filter" aria-label="History provider filter" className="w-[200px]" value={historyProviderFilter} onChange={(event) => setHistoryProviderFilter(event.target.value)}>
+              {HISTORY_PROVIDER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Status filter"
+          htmlFor="history-status-filter"
+          control={
+            <Select id="history-status-filter" aria-label="History status filter" className="w-[200px]" value={historyStatusFilter} onChange={(event) => setHistoryStatusFilter(event.target.value)}>
+              {HISTORY_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Profile filter"
+          htmlFor="history-profile-filter"
+          control={
+            <Select id="history-profile-filter" aria-label="History profile filter" className="w-[200px]" value={historyProfileFilter} onChange={(event) => setHistoryProfileFilter(event.target.value)}>
+              <option value="all">All profiles</option>
+              {config.text_profiles.map((profileOption) => (
+                <option key={profileOption.id} value={profileOption.id}>{profileOption.label}</option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Source filter"
+          htmlFor="history-source-filter"
+          control={
+            <Select id="history-source-filter" aria-label="History source filter" className="w-[200px]" value={historySourceFilter} onChange={(event) => setHistorySourceFilter(event.target.value)}>
+              {HISTORY_SOURCE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Search history"
+          htmlFor="history-search"
+          control={
+            <Input
+              id="history-search"
+              aria-label="Search history"
+              type="search"
+              className="w-[260px]"
+              value={historySearch}
+              placeholder="Find transcript text, recovery notes, errors or models"
+              onChange={(event) => setHistorySearch(event.target.value)}
+            />
+          }
+        />
+        <FormRow
+          label="Visible entries"
+          htmlFor="history-view-limit"
+          control={
+            <Select id="history-view-limit" aria-label="History visible entries" className="w-[120px]" value={historyViewLimit} onChange={(event) => setHistoryViewLimit(Number(event.target.value))}>
+              {HISTORY_VIEW_LIMIT_OPTIONS.map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Only failed entries"
+          htmlFor="history-errors-only"
+          control={
+            <Toggle
+              id="history-errors-only"
+              aria-label="Only failed history entries"
+              checked={historyErrorsOnly}
+              onCheckedChange={(checked) => setHistoryErrorsOnly(checked)}
+            />
+          }
+        />
+        <FormRow
+          label="Stored entries"
+          htmlFor="history-limit"
+          control={
+            <Select id="history-limit" aria-label="Stored history entries" className="w-[120px]" value={config.history_limit} onChange={(event) => onChange({ history_limit: Number(event.target.value) })}>
+              {HISTORY_LIMIT_OPTIONS.map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Retention window"
+          htmlFor="history-retention-days"
+          hint={`Native retention currently keeps up to ${config.history_limit} entries and prunes anything older than ${retentionLabel.toLowerCase()}. Save settings to apply policy changes to the runtime store.`}
+          control={
+            <Select id="history-retention-days" aria-label="History retention window" className="w-[160px]" value={config.history_retention_days} onChange={(event) => onChange({ history_retention_days: Number(event.target.value) })}>
+              {HISTORY_RETENTION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          }
+        />
+        <div className="flex flex-col gap-3 py-3">
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" disabled={transcriptionHistory.isLoading} onClick={() => void transcriptionHistory.refresh(historyQuery)}>
+              Refresh history
+            </Button>
+            <Button size="sm" variant="outline" disabled={transcriptionHistory.isLoading || !visibleHistoryEntries.length} onClick={() => void handleExportHistory()}>
+              Export history
+            </Button>
+            <Button size="sm" variant="ghost" disabled={transcriptionHistory.isLoading || !transcriptionHistory.entries.length} onClick={() => void transcriptionHistory.clear()}>
+              Clear history
+            </Button>
+          </div>
+          <HistoryEntriesList
+            entries={visibleHistoryEntries}
+            isLoading={transcriptionHistory.isLoading}
+            onRetry={transcriptionHistory.retry}
+            onRemove={transcriptionHistory.remove}
+          />
+          <p className={cn("text-[12px] leading-snug", transcriptionHistory.error ? "text-danger" : "text-fg-muted")}>
+            {transcriptionHistory.error ?? historyFeedback ?? `${transcriptionHistory.entries.length} history entries match the current filters.`}
+          </p>
+        </div>
+      </FormCard>
+
+      <FormCard
+        title="Runtime Logs"
+        description="Structured native logs stay enabled and are buffered here for fast inspection while the runtime is active. History above keeps the durable transcript record separate from this transient log stream."
+        bodyClassName="py-4"
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" disabled={runtimeLogs.isLoading} onClick={() => void runtimeLogs.refresh()}>
+              Refresh logs
+            </Button>
+            <Button size="sm" variant="ghost" disabled={runtimeLogs.isLoading || !runtimeLogs.entries.length} onClick={() => void runtimeLogs.clear()}>
+              Clear logs
+            </Button>
+          </div>
+          <textarea className={cn(RL_TEXTAREA_CLASS, "font-mono text-[12px]")} value={runtimeLogText} readOnly rows={10} />
+          <RuntimeRuleHintList hints={runtimeRuleHints} />
+          <p className={cn("text-[12px] leading-snug", runtimeLogs.error ? "text-danger" : "text-fg-muted")}>
+            {runtimeLogs.error ?? `${runtimeLogs.entries.length} runtime log entries buffered.`}
+          </p>
+        </div>
+      </FormCard>
 
       {(error || status?.last_error) && (
-        <p className="form-dim form-dim--error">
-          {error ?? status?.last_error}
-        </p>
+        <p className="text-[12px] leading-snug text-danger">{error ?? status?.last_error}</p>
       )}
-    </>
+    </div>
   );
 }

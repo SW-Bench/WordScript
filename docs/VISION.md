@@ -130,6 +130,7 @@ Parallel dazu wird ein interner Cross-Platform-Release-Aufbau fuer Linux, macOS 
 - Recovery mit Clipboard, Scratchpad und Last-Transcript-Restore ist Teil des Produktversprechens.
 - Distribution, Signierung und Updater sind aktive Aufbaupfade, aber noch kein fertiges Nutzer-Versprechen.
 - falls spaeter Sync kommt, dann als optionale WordScript-eigene local-first Schicht und nicht als P2P-Primarmodell
+- UI-Architektur: Die Settings sind eine native-macOS-inspirierte WordScript Shell mit gruppierter Sidebar und System-Settings-Grouped-Form-Kit. Stack ist shadcn/ui + Tailwind v4 auf den bestehenden v2-CSS-Variablen-Tokens. Window-Chrome bleibt **nativ auf jedem OS** (`decorations: true`) — kein frameless Fenster, keine fake Traffic-Lights, kein `macOSPrivateApi`; das native Gefuehl kommt aus dem Content-Design.
 
 ## Plattformziel
 

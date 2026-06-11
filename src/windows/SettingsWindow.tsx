@@ -1,13 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ActivitySquare,
+  BookText,
+  Cpu,
+  History as HistoryIcon,
+  Home,
   Info,
   Keyboard,
-  Settings2,
+  MessageSquare,
+  Monitor,
+  NotebookPen,
+  ShieldCheck,
   SlidersHorizontal,
-  SquarePen,
+  Upload,
+  User,
+  type LucideIcon,
 } from "lucide-react";
 import { useProvider } from "../hooks/useProvider";
 import { useRuntime } from "../hooks/useRuntime";
@@ -16,80 +25,61 @@ import { APP_VERSION } from "../lib/appMeta";
 import type { AppConfig } from "../types/ipc";
 import type { ProviderId } from "../types/providers";
 import type { ProfileHealthLevel, TextRulesAnalysis } from "../types/textRules";
-import { ModesTab }       from "../components/settings/ModesTab";
-import { ApiModelsTab }   from "../components/settings/ApiModelsTab";
-import { InputTab }       from "../components/settings/InputTab";
-import { ProfileDock } from "../components/settings/ProfileDock";
-import { PromptsTab }     from "../components/settings/PromptsTab";
-import { AboutTab }       from "../components/settings/AboutTab";
-import { RebuildLabTab }  from "../components/settings/RebuildLabTab";
-import { WindowChrome } from "../components/settings/WindowChrome";
-import swBenchWordmark from "../../assets/SW bench_wordmark.png";
-import wordmark from "../../assets/wordscript_wordmark.png";
-import "../styles/settings.css";
+import { ModesTab } from "../components/settings/ModesTab";
+import { ApiModelsTab } from "../components/settings/ApiModelsTab";
+import { InputTab } from "../components/settings/InputTab";
+import { PromptsTab } from "../components/settings/PromptsTab";
+import { AboutTab } from "../components/settings/AboutTab";
+import { RebuildLabTab } from "../components/settings/RebuildLabTab";
+import { HomeArea } from "../components/areas/HomeArea";
+import { HistoryArea } from "../components/areas/HistoryArea";
+import { PermissionsArea } from "../components/areas/PermissionsArea";
+import { Sidebar, ProfileSwitcher, StatusBadge } from "../components/shell";
+import type { SidebarGroup } from "../components/shell";
+import { Button } from "../components/ui/button";
+import { TooltipProvider } from "../components/ui/tooltip";
 
-const NAV_ICONS = {
-  gear: Settings2,
-  key: Keyboard,
-  sliders: SlidersHorizontal,
-  panel: SquarePen,
-  info: Info,
-  diagnostics: ActivitySquare,
-} as const;
+type AreaId =
+  | "home"
+  | "history"
+  | "profiles"
+  | "speech"
+  | "modes"
+  | "capture"
+  | "permissions"
+  | "diagnostics"
+  | "about";
 
-const TABS = [
-  {
-    section: "Configure",
-    label: "Provider",
-    id: "Provider & Models",
-    icon: "gear",
-    eyebrow: "Provider & Models",
-    blurb: "Cloud BYOK, local runtime lane, language, model choice and post-correction.",
-  },
-  {
-    section: "Configure",
-    label: "Modes",
-    id: "Modes",
-    icon: "sliders",
-    eyebrow: "Processing Mode",
-    blurb: "Choose how WordScript processes your dictation: verbatim, cleanup, rewrite, agent or prompt enhancement.",
-  },
-  {
-    section: "Configure",
-    label: "Input",
-    id: "Input",
-    icon: "key",
-    eyebrow: "Capture & Delivery",
-    blurb: "Shortcut, microphone, delivery and capture recovery.",
-  },
-  {
-    section: "Configure",
-    label: "Text Rules",
-    id: "Text Rules",
-    icon: "panel",
-    eyebrow: "Profiles",
-    blurb: "Personal dictionary, snippets and transform preview.",
-  },
-  {
-    section: "Inspect",
-    label: "About",
-    id: "About",
-    icon: "info",
-    eyebrow: "Support",
-    blurb: "Version, installer flow, platform support and project links.",
-  },
-  {
-    section: "Inspect",
-    label: "Diagnostics",
-    id: "Rebuild Lab",
-    icon: "diagnostics",
-    eyebrow: "Runtime",
-    blurb: "Native capture, transform, recovery and insert diagnostics.",
-  },
-] as const;
+interface AreaDef {
+  id: AreaId;
+  label: string;
+  icon: LucideIcon;
+  group: string;
+  eyebrow: string;
+  blurb: string;
+  /** Does this area edit the persisted config draft (show the save bar)? */
+  config?: boolean;
+}
 
-type SettingsTab = (typeof TABS)[number];
-type Tab = (typeof TABS)[number]["id"];
+const AREAS: AreaDef[] = [
+  { id: "home", label: "Home", icon: Home, group: "Workspace", eyebrow: "Overview", blurb: "Runtime readiness, recent dictations and quick recovery." },
+  { id: "history", label: "History", icon: HistoryIcon, group: "Workspace", eyebrow: "Transcriptions", blurb: "Searchable transcription history, export and retention.", config: true },
+  { id: "profiles", label: "Profiles", icon: BookText, group: "Workspace", eyebrow: "Text Rules", blurb: "Context, dictionary, snippets and transcription bias.", config: true },
+  { id: "speech", label: "Speech & AI", icon: Cpu, group: "Engine", eyebrow: "Provider & Models", blurb: "Cloud BYOK or local lane, language, models and cleanup.", config: true },
+  { id: "modes", label: "Modes", icon: SlidersHorizontal, group: "Engine", eyebrow: "Processing", blurb: "Verbatim, cleanup, rewrite, agent or prompt enhancement.", config: true },
+  { id: "capture", label: "Capture", icon: Keyboard, group: "Engine", eyebrow: "Input & Delivery", blurb: "Shortcuts, microphone, delivery and overlay placement.", config: true },
+  { id: "permissions", label: "Permissions", icon: ShieldCheck, group: "System", eyebrow: "Insert & Recovery", blurb: "Insert readiness, driver chain and recovery scratchpad." },
+  { id: "diagnostics", label: "Diagnostics", icon: ActivitySquare, group: "System", eyebrow: "Runtime", blurb: "Capture, transform and insert pipeline diagnostics.", config: true },
+  { id: "about", label: "About", icon: Info, group: "System", eyebrow: "Support", blurb: "Version, release path and project links." },
+];
+
+const PREVIEW_ITEMS = [
+  { id: "chat", label: "Chat", icon: MessageSquare },
+  { id: "upload", label: "Upload", icon: Upload },
+  { id: "notes", label: "Notes", icon: NotebookPen },
+  { id: "workspace", label: "Workspace", icon: Monitor },
+  { id: "account", label: "Account", icon: User },
+];
 
 interface ConfiguredTriggerStatus {
   hotkey: string;
@@ -107,36 +97,40 @@ function clampSettingsNumber(value: number, minimum: number, maximum: number, fa
 
 export default function SettingsWindow() {
   const { state, saveConfig } = useRuntime();
-  const [form, setForm]       = useState<AppConfig | null>(null);
-  const [active, setActive]   = useState<Tab>("Provider & Models");
-  const [status, setStatus]   = useState<{ msg: string; ok: boolean } | null>(null);
+  const [form, setForm] = useState<AppConfig | null>(null);
+  const [active, setActive] = useState<AreaId>("home");
+  const [, startTransition] = useTransition();
+  const [status, setStatus] = useState<{ msg: string; ok: boolean } | null>(null);
   const [textRulesAnalysis, setTextRulesAnalysis] = useState<TextRulesAnalysis | null>(null);
   const [profileHealthLevel, setProfileHealthLevel] = useState<ProfileHealthLevel | null>(null);
-  const selectedProvider: ProviderId = (form?.provider ?? state.config?.provider) === "local_preview"
-    ? "local_preview"
-    : "groq";
-  const selectedLocalModel = selectedProvider === "local_preview"
-    ? (form?.local_model ?? state.config?.local_model ?? "base")
-    : null;
-  const selectedCleanupModel = selectedProvider === "local_preview"
-    ? (form?.local_correction_model ?? state.config?.local_correction_model ?? "llama3.2:latest")
-    : (form?.correction_model ?? state.config?.correction_model ?? "llama-3.3-70b-versatile");
-  const { status: providerStatus } = useProvider(selectedProvider, selectedLocalModel, selectedCleanupModel);
-  const providerReady = selectedProvider === "local_preview"
-    ? providerStatus?.local_setup?.readiness === "ready"
-    : providerStatus?.credential.configured;
 
-  // Populate form when the runtime provides config
+  const selectedProvider: ProviderId =
+    (form?.provider ?? state.config?.provider) === "local_preview" ? "local_preview" : "groq";
+  const selectedLocalModel =
+    selectedProvider === "local_preview"
+      ? form?.local_model ?? state.config?.local_model ?? "base"
+      : null;
+  const selectedCleanupModel =
+    selectedProvider === "local_preview"
+      ? form?.local_correction_model ?? state.config?.local_correction_model ?? "llama3.2:latest"
+      : form?.correction_model ?? state.config?.correction_model ?? "llama-3.3-70b-versatile";
+  const { status: providerStatus } = useProvider(selectedProvider, selectedLocalModel, selectedCleanupModel);
+  const providerReady =
+    selectedProvider === "local_preview"
+      ? providerStatus?.local_setup?.readiness === "ready"
+      : providerStatus?.credential.configured;
+
+  const navigate = (id: string) => startTransition(() => setActive(id as AreaId));
+
+  // Populate form when the runtime provides config; route to Speech if not ready.
   useEffect(() => {
     if (state.config && !form) {
       setForm({ ...state.config });
-      if (!providerReady) {
-        setActive("Provider & Models");
-      }
+      if (!providerReady) setActive("speech");
     }
   }, [state.config, form, providerReady]);
 
-  // Keep form in sync if config reloads externally
+  // Keep form in sync if config reloads externally.
   useEffect(() => {
     if (state.config) setForm({ ...state.config });
   }, [state.config]);
@@ -144,44 +138,62 @@ export default function SettingsWindow() {
   const patch = (partial: Partial<AppConfig>) =>
     setForm((prev) => (prev ? { ...prev, ...partial } : prev));
 
-  const activeTab = TABS.find((tab) => tab.id === active) ?? TABS[0];
-  const groupedTabs = useMemo(() => {
-    const groups = new Map<string, SettingsTab[]>();
+  const activeArea = AREAS.find((area) => area.id === active) ?? AREAS[0];
 
-    for (const tab of TABS) {
-      const existing = groups.get(tab.section) ?? [];
-      groups.set(tab.section, [...existing, tab]);
-    }
-
-    return Array.from(groups.entries()).map(([label, items]) => ({ label, items }));
+  const groups: SidebarGroup[] = useMemo(() => {
+    const order = ["Workspace", "Engine", "System"];
+    const byGroup: SidebarGroup[] = order.map((label) => ({
+      label,
+      items: AREAS.filter((area) => area.group === label).map((area) => ({
+        id: area.id,
+        label: area.label,
+        icon: area.icon,
+      })),
+    }));
+    byGroup.push({
+      label: "Preview",
+      items: PREVIEW_ITEMS.map((item) => ({ ...item, preview: true })),
+    });
+    return byGroup;
   }, []);
+
   const readiness = state.error
     ? { label: "Error", title: state.error, ok: false }
     : state.status === "processing"
       ? { label: "Processing", title: "WordScript is currently transcribing the last capture.", ok: true }
       : state.status === "recording"
-        ? { label: state.paused ? "Paused" : "Recording", title: state.paused ? "Recording is paused." : "Recording is active.", ok: true }
-          : providerReady
+        ? {
+            label: state.paused ? "Paused" : "Recording",
+            title: state.paused ? "Recording is paused." : "Recording is active.",
+            ok: true,
+          }
+        : providerReady
           ? {
               label: selectedProvider === "local_preview" ? "Local ready" : "Ready",
-              title: selectedProvider === "local_preview"
-                  ? providerStatus?.local_setup?.guidance ?? "Local runtime helper, STT model and cleanup model are configured for the native runtime."
-                : "Groq key is present and the native runtime is configured.",
+              title:
+                selectedProvider === "local_preview"
+                  ? providerStatus?.local_setup?.guidance ??
+                    "Local runtime helper, STT model and cleanup model are configured for the native runtime."
+                  : "Groq key is present and the native runtime is configured.",
               ok: true,
             }
           : {
               label: selectedProvider === "local_preview" ? "Needs local setup" : "Needs key",
-              title: selectedProvider === "local_preview"
-                  ? providerStatus?.local_setup?.guidance ?? "Configure whisper-cli, a local STT model and a local cleanup model before the local runtime lane can run."
-                : "Add a Groq key before transcription can run.",
+              title:
+                selectedProvider === "local_preview"
+                  ? providerStatus?.local_setup?.guidance ??
+                    "Configure whisper-cli, a local STT model and a local cleanup model before the local runtime lane can run."
+                  : "Add a Groq key before transcription can run.",
               ok: false,
             };
+
+  const laneLabel = selectedProvider === "local_preview" ? "Local runtime" : "Groq cloud";
   const isDirty = Boolean(state.config && form && JSON.stringify(form) !== JSON.stringify(state.config));
 
   const handleSave = async () => {
     if (!form) return;
     if (textRulesAnalysis?.blocking) {
-      setActive("Text Rules");
+      setActive("profiles");
       setStatus({ msg: "✗  Fix blocking text-rule issues before saving", ok: false });
       return;
     }
@@ -197,11 +209,18 @@ export default function SettingsWindow() {
       { label: "Pause / Resume Hotkey", value: normalizedHotkeys.pause_hotkey, allowModifierOnly: true },
       { label: "Abort Hotkey", value: normalizedHotkeys.abort_hotkey, allowModifierOnly: true },
     ];
-    const invalidHotkey = hotkeyIssues.find((item) => getHotkeyValidationMessage(item.value, { allowModifierOnly: item.allowModifierOnly }));
+    const invalidHotkey = hotkeyIssues.find((item) =>
+      getHotkeyValidationMessage(item.value, { allowModifierOnly: item.allowModifierOnly }),
+    );
 
     if (invalidHotkey) {
-      setActive("Input");
-      setStatus({ msg: `✗  ${invalidHotkey.label}: ${getHotkeyValidationMessage(invalidHotkey.value, { allowModifierOnly: invalidHotkey.allowModifierOnly })} Use + between keys, e.g. ctrl_l+f9.`, ok: false });
+      setActive("capture");
+      setStatus({
+        msg: `✗  ${invalidHotkey.label}: ${getHotkeyValidationMessage(invalidHotkey.value, {
+          allowModifierOnly: invalidHotkey.allowModifierOnly,
+        })} Use + between keys, e.g. ctrl_l+f9.`,
+        ok: false,
+      });
       return;
     }
 
@@ -267,150 +286,148 @@ export default function SettingsWindow() {
 
   if (!form) {
     return (
-      <div className="settings settings--loading">
+      <div className="flex h-full items-center justify-center text-[13px] text-fg-dim">
         Connecting to runtime…
       </div>
     );
   }
 
-  return (
-    <div className="settings">
-      <div className="settings__shell">
-        <aside className="settings__sidebar">
-          <div className="settings__brand">
-            <span className="settings__brand-kicker">WordScript utility</span>
-            <img className="settings__brand-mark" src={wordmark} alt="WordScript" />
-            <p className="settings__brand-copy">
-              Native settings shell for provider truth, capture reliability, profiles and recovery.
-            </p>
-            <span>v{APP_VERSION}</span>
-          </div>
-
-          <nav className="settings__nav" aria-label="Settings sections">
-            {groupedTabs.map((group) => (
-              <section key={group.label} className="settings__nav-group" aria-label={group.label}>
-                <span className="settings__nav-group-label">{group.label}</span>
-                <div className="settings__nav-group-stack">
-                  {group.items.map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      className={`settings__nav-item${active === tab.id ? " settings__nav-item--active" : ""}`}
-                      onClick={() => setActive(tab.id)}
-                    >
-                      {(() => {
-                        const NavIcon = NAV_ICONS[tab.icon];
-                        return <NavIcon className="settings__nav-icon" size={16} strokeWidth={1.9} />;
-                      })()}
-                      <span>{tab.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </nav>
-
-          <div className="settings__sidebar-bottom">
-            <ProfileDock config={form} onChange={patch} onOpenTextRules={() => setActive("Text Rules")} healthStatus={profileHealthLevel ?? undefined} />
-
-            <div className="settings__project">
-              <span className="settings__project-kicker">Open-source brand by SW labs</span>
-              <img className="settings__project-mark" src={swBenchWordmark} alt="SW Bench" />
-            </div>
-          </div>
-        </aside>
-
-        <main className="settings__main">
-          <WindowChrome
-            title="Settings"
-            subtitle={activeTab.eyebrow}
-            status={(
-              <span className={`settings__runtime-pill${readiness.ok ? " settings__runtime-pill--ok" : ""}`} title={readiness.title}>
-                {readiness.label}
-              </span>
-            )}
-            actions={(
-              <>
-                <span className={`settings__runtime-pill${isDirty ? " settings__runtime-pill--warn" : " settings__runtime-pill--sync"}`}>
-                  {isDirty ? "Unsaved" : "Synced"}
-                </span>
-                {active === "Rebuild Lab" ? (
-                  <button
-                    className="btn btn--cancel"
-                    type="button"
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onClick={() => void handleOpenDiagnosticsWindow()}
-                  >
-                    Open diagnostics window
-                  </button>
-                ) : null}
-              </>
-            )}
+  const renderArea = () => {
+    switch (active) {
+      case "home":
+        return (
+          <HomeArea
+            isActive
+            config={form}
+            readiness={readiness}
+            providerReady={Boolean(providerReady)}
+            laneLabel={laneLabel}
+            onNavigate={navigate}
           />
-          <div className="settings__body">
-            <section className="settings__panel">
-              <header className="settings__panel-header">
-                <div className="settings__panel-heading">
-                  <span className="settings__panel-eyebrow">{activeTab.eyebrow}</span>
-                  <div className="settings__panel-title-row">
-                    <h2 className="settings__panel-title">{activeTab.label}</h2>
-                    <div className="settings__panel-meta" aria-label="Section meta">
-                      <span className={`settings__panel-chip${readiness.ok ? " settings__panel-chip--ok" : ""}`}>
-                        {readiness.label}
-                      </span>
-                      <span className={`settings__panel-chip${isDirty ? " settings__panel-chip--warn" : " settings__panel-chip--muted"}`}>
-                        {isDirty ? "Unsaved local draft" : "Local save window"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <p className="settings__panel-blurb">{activeTab.blurb}</p>
-              </header>
+        );
+      case "history":
+        return <HistoryArea isActive config={form} onChange={patch} />;
+      case "profiles":
+        return (
+          <PromptsTab
+            config={form}
+            onChange={patch}
+            onValidationChange={setTextRulesAnalysis}
+            onHealthChange={(s) => setProfileHealthLevel(s?.level ?? null)}
+          />
+        );
+      case "speech":
+        return <ApiModelsTab config={form} onChange={patch} onOpenDiagnostics={() => navigate("diagnostics")} />;
+      case "modes":
+        return <ModesTab config={form} onChange={patch} />;
+      case "capture":
+        return <InputTab config={form} onChange={patch} />;
+      case "permissions":
+        return <PermissionsArea />;
+      case "diagnostics":
+        return <RebuildLabTab isActive config={form} onChange={patch} />;
+      case "about":
+        return <AboutTab isActive />;
+      default:
+        return null;
+    }
+  };
 
-              <div className="settings__content">
-                <div className={`tab${active === "Provider & Models" ? " tab--active" : ""}`}>
-                  <ApiModelsTab config={form} onChange={patch} onOpenDiagnostics={() => setActive("Rebuild Lab")} />
-                </div>
-                <div className={`tab${active === "Modes" ? " tab--active" : ""}`}>
-                  <ModesTab config={form} onChange={patch} />
-                </div>
-                <div className={`tab${active === "Input" ? " tab--active" : ""}`}>
-                  <InputTab config={form} onChange={patch} />
-                </div>
-                <div className={`tab${active === "Text Rules" ? " tab--active" : ""}`}>
-                  <PromptsTab config={form} onChange={patch} onValidationChange={setTextRulesAnalysis} onHealthChange={(s) => setProfileHealthLevel(s?.level ?? null)} />
-                </div>
-                <div className={`tab${active === "About" ? " tab--active" : ""}`}>
-                  <AboutTab isActive={active === "About"} />
-                </div>
-                <div className={`tab${active === "Rebuild Lab" ? " tab--active" : ""}`}>
-                  <RebuildLabTab isActive={active === "Rebuild Lab"} config={form} onChange={patch} />
+  return (
+    <TooltipProvider delayDuration={300}>
+      <div className="flex h-full w-full overflow-hidden text-foreground">
+        <Sidebar
+          groups={groups}
+          activeId={active}
+          onSelect={navigate}
+          header={
+            <div className="flex items-center gap-2.5 px-5 pb-3.5 pt-4">
+              <span
+                aria-hidden
+                className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-gradient-to-b from-brand to-brand-strong text-[14px] font-bold text-[#1a1206] shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
+              >
+                W
+              </span>
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-[14px] font-semibold leading-tight text-foreground">
+                  WordScript
+                </span>
+                <span className="text-[11px] leading-tight text-fg-muted">v{APP_VERSION}</span>
+              </div>
+            </div>
+          }
+          footer={
+            <ProfileSwitcher config={form} onChange={patch} onEdit={() => navigate("profiles")} />
+          }
+        />
+
+        <main className="flex min-w-0 flex-1 flex-col">
+          {/* Toolbar header (sits under the native title bar) */}
+          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-6 py-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <activeArea.icon className="size-5 shrink-0 text-fg-dim" strokeWidth={1.75} />
+              <div className="min-w-0">
+                <h1 className="truncate text-[15px] font-semibold leading-tight">{activeArea.label}</h1>
+                <p className="truncate text-[12px] text-fg-muted">{activeArea.eyebrow}</p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <StatusBadge tone={readiness.ok ? "success" : "warning"} dot>
+                {readiness.label}
+              </StatusBadge>
+              <StatusBadge tone={isDirty ? "warning" : "neutral"}>
+                {isDirty ? "Unsaved" : "Synced"}
+              </StatusBadge>
+              {active === "diagnostics" && (
+                <Button size="sm" variant="outline" onClick={() => void handleOpenDiagnosticsWindow()}>
+                  Pop out
+                </Button>
+              )}
+            </div>
+          </header>
+
+          {/* Scrollable content area (relative so an Inspector slide-over can anchor here) */}
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <div className="h-full overflow-y-auto px-8 py-8">
+              <div className="mx-auto max-w-[760px]">
+                <div key={active} className="animate-in fade-in-50 duration-150">
+                  {renderArea()}
                 </div>
               </div>
-            </section>
-          </div>
-
-          <div className="settings__footer">
-            <span className={`settings__footer-status${
-              status
-                ? (status.ok ? " settings__footer-status--ok" : " settings__footer-status--err")
-                : textRulesAnalysis?.blocking
-                  ? " settings__footer-status--err"
-                  : ""
-            }`}>
-              {status?.msg ?? (textRulesAnalysis?.blocking
-                ? "Fix blocking text-rule issues before saving this window."
-                : isDirty
-                  ? "Changes stay local to this window until you save them into the runtime config."
-                  : "This settings window is currently in sync with the persisted runtime config.")}
-            </span>
-            <div className="settings__footer-btns">
-              <button className="btn btn--cancel" onClick={handleCancel}>Cancel</button>
-              <button className="btn btn--save" onClick={handleSave} disabled={Boolean(textRulesAnalysis?.blocking)}>Save Changes</button>
             </div>
           </div>
+
+          {/* Footer save bar */}
+          <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-border px-6 py-3">
+            <span
+              className={
+                status
+                  ? status.ok
+                    ? "text-[12px] text-[var(--green)]"
+                    : "text-[12px] text-[var(--red)]"
+                  : textRulesAnalysis?.blocking
+                    ? "text-[12px] text-[var(--red)]"
+                    : "text-[12px] text-fg-muted"
+              }
+            >
+              {status?.msg ??
+                (textRulesAnalysis?.blocking
+                  ? "Fix blocking text-rule issues before saving this window."
+                  : isDirty
+                    ? "Changes stay local to this window until you save them into the runtime config."
+                    : "This window is in sync with the persisted runtime config.")}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" onClick={handleCancel}>
+                Cancel
+              </Button>
+              <Button onClick={handleSave} disabled={Boolean(textRulesAnalysis?.blocking)}>
+                Save Changes
+              </Button>
+            </div>
+          </footer>
         </main>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

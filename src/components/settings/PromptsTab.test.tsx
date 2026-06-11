@@ -354,7 +354,7 @@ describe("PromptsTab", () => {
 
     expect(within(dictionaryCardArticle as HTMLElement).getByText("Dictionary phrase collides with another rule.")).toBeInTheDocument();
 
-    expect(dictionaryCardArticle).toHaveClass("settings__rule-card--active");
+    expect(dictionaryCardArticle).toHaveAttribute("data-active");
     expect(screen.getByRole("textbox", { name: /heard as/i })).toHaveFocus();
   });
 

@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ExternalLink } from "lucide-react";
 import { useNativeInsertion } from "../../hooks/useNativeInsertion";
+import { FormCard, FormRow, StatusBadge, type StatusTone } from "../shell";
+import { Button } from "../ui/button";
+import { cn } from "../../lib/utils";
 import {
   APP_ORGANIZATION_URL,
   APP_RELEASE_RUNBOOK_URL,
@@ -91,17 +95,79 @@ function releaseStatusLabel(value: AppUpdateStatusKind | undefined) {
   }
 }
 
-function releaseStatusPillClass(value: AppUpdateStatusKind | undefined) {
+function releaseStatusTone(value: AppUpdateStatusKind | undefined): StatusTone {
   switch (value) {
     case "update_available":
     case "up_to_date":
-      return " settings__support-pill--tier1";
+      return "success";
     case "check_failed":
-      return " settings__support-pill--experimental";
+      return "warning";
     case "release_path_building":
     default:
-      return " settings__support-pill--preview";
+      return "info";
   }
+}
+
+function supportTierTone(value: string | undefined): StatusTone {
+  switch (value) {
+    case "tier1":
+      return "success";
+    case "preview":
+      return "info";
+    case "experimental":
+      return "warning";
+    default:
+      return "neutral";
+  }
+}
+
+function MetaRow({
+  label,
+  value,
+  code,
+  divider = true,
+}: {
+  label: string;
+  value?: ReactNode;
+  code?: ReactNode;
+  divider?: boolean;
+}) {
+  return (
+    <FormRow
+      label={label}
+      divider={divider}
+      align="start"
+      control={
+        <div className="flex flex-col items-end gap-0.5 text-right">
+          {value && <span className="text-[12px] text-fg-dim">{value}</span>}
+          {code && <span className="font-mono text-[11px] text-fg-muted">{code}</span>}
+        </div>
+      }
+    />
+  );
+}
+
+function DiagItem({
+  title,
+  tone = "neutral",
+  lines,
+}: {
+  title: string;
+  tone?: StatusTone;
+  lines: ReactNode[];
+}) {
+  return (
+    <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+      <StatusBadge tone={tone} dot>
+        {title}
+      </StatusBadge>
+      <div className="mt-2 flex flex-col gap-0.5 text-[12px] leading-snug text-fg-dim">
+        {lines.map((line, index) => (
+          <span key={index}>{line}</span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function buildStateLabel(value: ReleaseBuildState) {
@@ -186,185 +252,135 @@ export function AboutTab({ isActive }: AboutTabProps) {
   const releaseCheckLabel = isCheckingRelease ? "Checking GitHub" : releaseStatusLabel(releaseStatus?.status);
 
   return (
-    <>
-      <div className="tab__title">About</div>
+    <div className="flex flex-col gap-6">
+      <div className="px-1">
+        <p className="text-[15px] font-semibold text-foreground">WordScript {APP_VERSION}</p>
+        <p className="mt-0.5 text-[12px] text-fg-muted">Lightweight speech-to-text for your desktop.</p>
+      </div>
 
-      <p style={{ fontSize: 14, marginBottom: 4 }}>WordScript&nbsp;&nbsp;{APP_VERSION}</p>
-      <p className="form-dim" style={{ marginBottom: 16 }}>
-        Lightweight speech-to-text for your desktop.
-      </p>
+      <FormCard
+        title="Cross-platform release build-up"
+        description="Commercial release path"
+        action={<StatusBadge tone={releaseStatusTone(releaseStatus?.status)} dot>{releaseCheckLabel}</StatusBadge>}
+      >
+        <MetaRow label="Current usable version" value="Developer build from source" />
+        <MetaRow label="Current version" value={releaseStatus?.current_version ?? APP_VERSION} />
+        <MetaRow label="Use today" code="npm run tauri dev" />
+        <MetaRow label="Release target" value="First official cross-platform app release for Linux, macOS and Windows" />
+        <MetaRow label="Latest published tag" value={releaseHeadline} divider={false} />
 
-      <div className="settings__about-card settings__about-card--highlight">
-        <div className="settings__about-head">
-          <div>
-            <span className="settings__about-kicker">Commercial release path</span>
-            <strong className="settings__about-title">Cross-platform release build-up</strong>
-          </div>
-          <span className={`settings__support-pill${releaseStatusPillClass(releaseStatus?.status)}`}>
-            {releaseCheckLabel}
-          </span>
+        <div className="flex flex-col gap-3 border-t border-border py-4">
+          <p className="text-[12px] leading-snug text-fg-muted">
+            Today you use WordScript as a developer build from source via{" "}
+            <code className="rounded bg-surface-strong px-1 py-0.5 font-mono text-[11px] text-fg-dim">npm run tauri dev</code>. In
+            parallel, the first official cross-platform app release is being assembled.
+          </p>
+          <p className="text-[12px] leading-snug text-fg-muted">
+            Internal draft release handoffs, if the workflow creates them, stay maintainer-only and do not change this
+            public GitHub release check.
+          </p>
+          <p className={cn("text-[12px] leading-snug", releaseError ? "text-[var(--red)]" : "text-fg-muted")}>
+            {releaseSummary}
+          </p>
         </div>
 
-        <div className="settings__provider-meta-grid">
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Current usable version</span>
-            <span>Developer build from source</span>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Current version</span>
-            <span>{releaseStatus?.current_version ?? APP_VERSION}</span>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Use today</span>
-            <code>npm run tauri dev</code>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Release target</span>
-            <span>First official cross-platform app release for Linux, macOS and Windows</span>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Latest published tag</span>
-            <span>{releaseHeadline}</span>
-          </div>
-        </div>
-
-        <p className="form-dim settings__about-copy">
-          Today you use WordScript as a developer build from source via <code>npm run tauri dev</code>. In parallel, the first official cross-platform app release is being assembled.
-        </p>
-
-        <p className="form-dim settings__about-copy">
-          Internal draft release handoffs, if the workflow creates them, stay maintainer-only and do not change this public GitHub release check.
-        </p>
-
-        <p className={`form-dim settings__about-copy${releaseError ? " form-dim--error" : ""}`}>
-          {releaseSummary}
-        </p>
-
-        <div className="settings__about-installers">
-          <strong className="settings__about-title">Target build lanes</strong>
-          <div className="settings__about-installer-list">
+        <div className="border-t border-border py-4">
+          <strong className="text-[12px] font-semibold text-foreground">Target build lanes</strong>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
             {(releaseStatus?.build_targets ?? []).map((target) => (
-              <div key={`${target.platform}:${target.artifact}`} className="settings__about-installer settings__about-installer--static">
-                <strong>{target.platform}</strong>
-                <span className="settings__about-installer-meta">{buildStateLabel(target.state)} • {target.artifact}</span>
-                <span>{target.note}</span>
+              <div key={`${target.platform}:${target.artifact}`} className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <strong className="text-[12px] font-semibold text-foreground">{target.platform}</strong>
+                  <span className="text-[11px] text-fg-muted">{buildStateLabel(target.state)}</span>
+                </div>
+                <div className="mt-0.5 text-[11px] text-fg-dim">{target.artifact}</div>
+                <p className="mt-1 text-[11px] leading-snug text-fg-muted">{target.note}</p>
               </div>
             ))}
           </div>
         </div>
 
         {releaseStatus?.release_notes && (
-          <p className="settings__about-release-body">{releaseStatus.release_notes}</p>
+          <p className="border-t border-border py-4 text-[12px] leading-snug text-fg-dim">{releaseStatus.release_notes}</p>
         )}
 
-        <p className="form-dim settings__about-copy">
-          Until the first published release exists, treat this card as public release-path diagnostics. It should explain what is being built, not imply that installers, draft handoffs or in-app updates already work for end users.
+        <p className="border-t border-border py-4 text-[12px] leading-snug text-fg-muted">
+          Until the first published release exists, treat this card as public release-path diagnostics. It should explain
+          what is being built, not imply that installers, draft handoffs or in-app updates already work for end users.
         </p>
 
-        <div className="settings__about-actions">
+        <div className="flex flex-wrap gap-2 border-t border-border py-3">
           {releaseLinks.map((link) => (
-            <button key={link.url} type="button" className="about-link" onClick={() => void open(link.url)}>
-              {link.label}
-            </button>
+            <Button key={link.url} size="sm" variant="outline" onClick={() => void open(link.url)}>
+              <ExternalLink /> {link.label}
+            </Button>
           ))}
         </div>
-      </div>
+      </FormCard>
 
-      <div className="settings__about-card">
-        <div className="settings__about-head">
-          <div>
-            <span className="settings__about-kicker">Platform support</span>
-            <strong className="settings__about-title">{platformStatus?.platform_label ?? "Checking current platform"}</strong>
-          </div>
-          <span className={`settings__support-pill${platformStatus ? ` settings__support-pill--${platformStatus.support_tier}` : ""}`}>
-            {supportTierLabel(platformStatus?.support_tier)}
-          </span>
-        </div>
-
-        <p className={`form-dim settings__about-copy${insertion.error ? " form-dim--error" : ""}`}>
+      <FormCard
+        title={platformStatus?.platform_label ?? "Checking current platform"}
+        description="Platform support"
+        action={<StatusBadge tone={supportTierTone(platformStatus?.support_tier)} dot>{supportTierLabel(platformStatus?.support_tier)}</StatusBadge>}
+      >
+        <p className={cn("py-3 text-[12px] leading-snug", insertion.error ? "text-[var(--red)]" : "text-fg-muted")}>
           {insertion.error ?? platformStatus?.support_message ?? "WordScript is checking the active insert path for this machine."}
         </p>
 
         {platformStatus?.readiness_message && (
-          <div className={`settings__rule-issue${platformStatus.readiness === "ready" ? "" : " settings__rule-issue--warning"}`} style={{ marginTop: 14 }}>
-            <strong>Insert preflight</strong>
-            <div className="settings__rule-issue-copy">
-              <span>{platformReadinessLabel}</span>
-              <span>{platformStatus.readiness_message}</span>
-            </div>
+          <div className="border-t border-border py-3">
+            <DiagItem
+              title="Insert preflight"
+              tone={platformStatus.readiness === "ready" ? "success" : "warning"}
+              lines={[platformReadinessLabel, platformStatus.readiness_message]}
+            />
           </div>
         )}
 
-        <div className="settings__provider-meta-grid">
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Insert path</span>
-            <span>{insertPathLabel(platformStatus?.insert_strategy)}</span>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Preflight</span>
-            <span>{platformReadinessLabel}</span>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Active driver</span>
-            <span>{insertDriverLabel(platformStatus?.active_driver)}</span>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Fallback recovery</span>
-            <span>{scratchpadEntries === 1 ? "1 stored transcript" : `${scratchpadEntries} stored transcripts`}</span>
-            <code>{insertion.status?.scratchpad_path ?? "Loading recovery store"}</code>
-          </div>
-        </div>
+        <MetaRow label="Insert path" value={insertPathLabel(platformStatus?.insert_strategy)} />
+        <MetaRow label="Preflight" value={platformReadinessLabel} />
+        <MetaRow label="Active driver" value={insertDriverLabel(platformStatus?.active_driver)} />
+        <MetaRow
+          label="Fallback recovery"
+          value={scratchpadEntries === 1 ? "1 stored transcript" : `${scratchpadEntries} stored transcripts`}
+          code={insertion.status?.scratchpad_path ?? "Loading recovery store"}
+          divider={driverChain.length > 0 || platformChecks.length > 0 || platformCaveats.length > 0}
+        />
 
         {driverChain.length > 0 && (
-          <div className="settings__rule-issues" style={{ marginTop: 14 }}>
+          <div className="flex flex-col gap-2 py-3">
             {driverChain.map((item) => (
-              <div
+              <DiagItem
                 key={`driver:${item.role}:${item.driver}`}
-                className={`settings__rule-issue${!item.available ? " settings__rule-issue--warning" : ""}`}
-              >
-                <strong>{item.active ? "Active driver" : item.available ? "Fallback driver" : "Unavailable driver"}</strong>
-                <div className="settings__rule-issue-copy">
-                  <span>{`${item.label} · ${item.role}`}</span>
-                  <span>{item.detail}</span>
-                </div>
-              </div>
+                title={item.active ? "Active driver" : item.available ? "Fallback driver" : "Unavailable driver"}
+                tone={item.active ? "success" : item.available ? "neutral" : "warning"}
+                lines={[`${item.label} · ${item.role}`, item.detail]}
+              />
             ))}
           </div>
         )}
 
         {(platformChecks.length > 0 || platformCaveats.length > 0) && (
-          <div className="settings__rule-issues" style={{ marginTop: 14 }}>
+          <div className="flex flex-col gap-2 border-t border-border py-3">
             {platformChecks.map((item) => (
-              <div key={`check:${item}`} className="settings__rule-issue">
-                <strong>Before relying on this path</strong>
-                <div className="settings__rule-issue-copy">
-                  <span>{item}</span>
-                </div>
-              </div>
+              <DiagItem key={`check:${item}`} title="Before relying on this path" lines={[item]} />
             ))}
             {platformCaveats.map((item) => (
-              <div key={`caveat:${item}`} className="settings__rule-issue settings__rule-issue--warning">
-                <strong>Honest limit</strong>
-                <div className="settings__rule-issue-copy">
-                  <span>{item}</span>
-                </div>
-              </div>
+              <DiagItem key={`caveat:${item}`} title="Honest limit" tone="warning" lines={[item]} />
             ))}
           </div>
         )}
+      </FormCard>
+
+      <div className="flex flex-wrap gap-2 px-1">
+        {projectLinks.map((link) => (
+          <Button key={link.url} size="sm" variant="ghost" onClick={() => void open(link.url)}>
+            <ExternalLink /> {link.label}
+          </Button>
+        ))}
       </div>
 
-      <div className="form-sep" />
-
-      {projectLinks.map((link) => (
-        <button key={link.url} type="button" className="about-link" onClick={() => void open(link.url)}>
-          {link.label}
-        </button>
-      ))}
-
-      {linkError && (
-        <p className="form-dim form-dim--error">{linkError}</p>
-      )}
-    </>
+      {linkError && <p className="px-1 text-[12px] text-[var(--red)]">{linkError}</p>}
+    </div>
   );
 }

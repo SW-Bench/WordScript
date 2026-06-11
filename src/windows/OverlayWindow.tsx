@@ -11,11 +11,14 @@ import "../styles/overlay.css";
 
 const BAR_COUNT = 11;
 const RUNTIME_EVENT_CHANNEL = "wordscript-event";
+// Order the in-overlay mode cycler rotates through. Mirrors the modes exposed in
+// Settings → Modes; prompt_enhance surfaces its sub-mode label via the shared helper.
+const MODE_CYCLE: ProcessingMode[] = ["verbatim", "cleanup", "rewrite", "prompt_enhance", "agent"];
 const OVERLAY_ENTER_MS = 320;
 const OVERLAY_LEAVE_MS = 240;
 const IDLE_WAVEFORM = [4, 5, 6, 8, 10, 12, 10, 8, 6, 5, 4];
 const MIN_BAR_HEIGHT = 4;
-const MAX_BAR_HEIGHT = 30;
+const MAX_BAR_HEIGHT = 26;
 const DRAG_DISTANCE_THRESHOLD = 6;
 const DRAG_CLICK_SUPPRESS_MS = 1000;
 
@@ -119,6 +122,7 @@ export default function OverlayWindow() {
   const [actionFailed, setActionFailed] = useState(false);
   const [editText, setEditText] = useState("");
   const [showEditMode, setShowEditMode] = useState(false);
+  const [modeOverride, setModeOverride] = useState<ProcessingMode | null>(null);
   const pendingPreviewResult = state.pendingResult;
   const previewResult = state.lastResult;
   const showProcessingPreview = Boolean(isProcessing && pendingPreviewResult && !showError);
@@ -591,19 +595,31 @@ export default function OverlayWindow() {
     () => (state.config ? resolveOverlayEnhanceSubMode(state.config) : "enhance"),
     [state.config],
   );
-  const modeLabel = processingMode ? processingModeShortLabel(processingMode, enhanceSubMode) : null;
+  const effectiveMode = modeOverride ?? processingMode;
+  const modeLabel = effectiveMode ? processingModeShortLabel(effectiveMode, enhanceSubMode) : null;
+
+  // Tap-to-cycle through processing modes straight from the overlay. Uses the
+  // native session override so the change applies to the in-flight pass without
+  // permanently rewriting the active profile.
+  const handleCycleMode = () => {
+    if (!effectiveMode) return;
+    const index = MODE_CYCLE.indexOf(effectiveMode);
+    const next = MODE_CYCLE[(index + 1) % MODE_CYCLE.length] ?? MODE_CYCLE[0];
+    setModeOverride(next);
+    void invoke("set_processing_mode_override", { mode: next }).catch(() => {});
+  };
 
   const sideTitle = isRecording
-    ? (paused ? "Resume recording" : (modeLabel ? `${modeLabel} mode · pause recording` : "Pause recording"))
+    ? (paused ? "Resume recording" : "Pause recording")
     : isProcessing
-      ? (modeLabel ? `${modeLabel} mode · processing` : "Processing")
+      ? "Processing"
       : "Open Settings";
-  // The waveform and border already signal recording vs processing, so the side
-  // label surfaces the live processing mode — the actually new piece of information.
+  // The mode now has its own tap-to-cycle control, so the side zone is the calm
+  // pause/settings affordance plus the live timer.
   const sideCaption = isRecording
-    ? (paused ? "Paused" : (modeLabel ?? "Live"))
+    ? (paused ? "Paused" : "Pause")
     : isProcessing
-      ? (modeLabel ?? "Working")
+      ? "Working"
       : showError
         ? "Review"
         : "Settings";
@@ -924,6 +940,20 @@ export default function OverlayWindow() {
             ))}
           </div>
         </div>
+
+        {(isRecording || isProcessing) && modeLabel && (
+          <button
+            type="button"
+            className="pill__mode"
+            onClickCapture={handleInteractiveClickCapture}
+            onClick={handleCycleMode}
+            title={`Mode: ${modeLabel} · tap to cycle`}
+            aria-label={`Processing mode ${modeLabel}, tap to cycle`}
+          >
+            <span className="pill__mode-label">{modeLabel}</span>
+            <span className="pill__mode-hint">Mode</span>
+          </button>
+        )}
 
         <div className="pill__divider" />
         <button

@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vitest/config";
+import { defineConfig, configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
@@ -9,7 +10,12 @@ const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(file
 
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(dirname, "./src"),
+    },
+  },
   // Tauri expects a fixed origin in dev; don't expose to network
   clearScreen: false,
   server: {
@@ -37,7 +43,15 @@ export default defineConfig({
       test: {
         environment: "jsdom",
         setupFiles: ["./vitest.setup.ts"],
-        css: true
+        css: true,
+        // Only run WordScript's own tests: skip nested worktrees and the
+        // third-party donor/vendor reference repos vendored into the tree.
+        exclude: [
+          ...configDefaults.exclude,
+          "**/.kilo/**",
+          "donors/**",
+          "vendor/**",
+        ]
       }
     }, {
       extends: true,

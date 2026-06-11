@@ -1,11 +1,60 @@
-import { memo, useState, useCallback } from "react";
-import { Trash2 } from "lucide-react";
+import { memo, useState, useCallback, type ReactNode } from "react";
+import { ArrowRight, Trash2 } from "lucide-react";
 import { HotkeyRecorder } from "./HotkeyRecorder";
+import { FormCard, FormRow, Select, Toggle } from "../shell";
+import { Button } from "../ui/button";
+import { cn } from "../../lib/utils";
 import type { AppConfig, ProcessingMode, EnhanceSubMode, PromptTarget } from "../../types/ipc";
 
 interface Props {
   config: AppConfig;
   onChange: (p: Partial<AppConfig>) => void;
+}
+
+function Chip({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-md bg-surface-strong px-2 py-0.5 text-[12px] font-medium text-fg-dim">
+      {children}
+    </span>
+  );
+}
+
+function ModeRadioRow({
+  name,
+  value,
+  checked,
+  title,
+  description,
+  onSelect,
+}: {
+  name: string;
+  value: string;
+  checked: boolean;
+  title: ReactNode;
+  description: ReactNode;
+  onSelect: () => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-start gap-3 border-b border-border py-3 last:border-b-0",
+        checked && "cursor-default",
+      )}
+    >
+      <input
+        type="radio"
+        name={name}
+        value={value}
+        checked={checked}
+        onChange={onSelect}
+        className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+      />
+      <span className="min-w-0">
+        <span className="block text-[13px] font-medium text-foreground">{title}</span>
+        <span className="mt-0.5 block text-[12px] leading-snug text-fg-dim">{description}</span>
+      </span>
+    </label>
+  );
 }
 
 const MODE_LABELS: Record<ProcessingMode, string> = {
@@ -114,164 +163,169 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
   const hasMappings = Object.keys(appMappings).length > 0;
 
   return (
-    <>
-      <div className="tab__title">Modes</div>
-
-      <div className="form-section">Default processing mode</div>
-      <div className="settings__rule-card" aria-label="Processing mode selector">
-        <div className="settings__rule-stack">
+    <div className="flex flex-col gap-6">
+      <FormCard title="Default processing mode" description="How dictation is transformed before it is inserted.">
+        <div role="radiogroup" aria-label="Processing mode selector">
           {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode) => (
-            <label key={mode} className="form-check">
-              <input
-                type="radio"
-                name="processing_mode"
-                value={mode}
-                checked={selectedMode === mode}
-                onChange={() => handleSetMode(mode)}
-              />
-              <span className="form-check__label">
-                <strong>{processingModeLabel(mode)}</strong>
-                <span className="form-dim" style={{ display: "block", marginTop: 2 }}>
-                  {MODE_DESCRIPTIONS[mode]}
-                </span>
-              </span>
-            </label>
+            <ModeRadioRow
+              key={mode}
+              name="processing_mode"
+              value={mode}
+              checked={selectedMode === mode}
+              title={processingModeLabel(mode)}
+              description={MODE_DESCRIPTIONS[mode]}
+              onSelect={() => handleSetMode(mode)}
+            />
           ))}
         </div>
-      </div>
+      </FormCard>
 
       {selectedMode === "prompt_enhance" && (
         <>
-          <div className="form-section">Enhance sub-mode</div>
-          <div className="settings__rule-card" aria-label="Enhance sub-mode selector">
-            <div className="settings__rule-stack">
+          <FormCard title="Enhance sub-mode" description="How aggressively raw dictation is restructured into a prompt.">
+            <div role="radiogroup" aria-label="Enhance sub-mode selector">
               {(Object.keys(SUB_MODE_LABELS) as EnhanceSubMode[]).map((sub) => (
-                <label key={sub} className="form-check">
-                  <input
-                    type="radio"
-                    name="enhance_sub_mode"
-                    value={sub}
-                    checked={selectedSubMode === sub}
-                    onChange={() => handleSetSubMode(sub)}
-                  />
-                  <span>
-                    <strong>{sub === "enhance" ? "Enhance" : "Expand"}</strong>
-                    <span className="form-dim" style={{ display: "block", marginTop: 2 }}>
-                      {SUB_MODE_LABELS[sub]}
-                    </span>
-                  </span>
-                </label>
+                <ModeRadioRow
+                  key={sub}
+                  name="enhance_sub_mode"
+                  value={sub}
+                  checked={selectedSubMode === sub}
+                  title={sub === "enhance" ? "Enhance" : "Expand"}
+                  description={SUB_MODE_LABELS[sub]}
+                  onSelect={() => handleSetSubMode(sub)}
+                />
               ))}
             </div>
-          </div>
+          </FormCard>
 
-          <div className="form-section">Prompt target</div>
-          <div className="form-row">
-            <label htmlFor="prompt-target-select">Target platform</label>
-            <select
-              id="prompt-target-select"
-              value={selectedTarget}
-              onChange={(e) => handleSetTarget(e.target.value as PromptTarget)}
-            >
-              {TARGET_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-          <p className="form-dim">
-            Optimize prompt syntax and idiom for the selected AI tool.
-          </p>
+          <FormCard title="Prompt target" description="Optimize prompt syntax and idiom for the selected AI tool.">
+            <FormRow
+              label="Target platform"
+              htmlFor="prompt-target-select"
+              divider={false}
+              control={
+                <Select
+                  id="prompt-target-select"
+                  className="w-[180px]"
+                  value={selectedTarget}
+                  onChange={(e) => handleSetTarget(e.target.value as PromptTarget)}
+                >
+                  {TARGET_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </Select>
+              }
+            />
+          </FormCard>
         </>
       )}
 
-      <div className="form-section">Auto-detection</div>
-      <label className="form-check" style={{ marginBottom: 10 }}>
-        <input
-          type="checkbox"
-          checked={autoDetectEnabled}
-          onChange={(e) => handleToggleAutoDetect(e.target.checked)}
+      <FormCard
+        title="Auto-detection"
+        description="When enabled, WordScript detects the active app and suggests a processing mode you can confirm in the overlay."
+      >
+        <FormRow
+          label="Extend overlay with detected app and mode suggestion"
+          htmlFor="auto-detect-toggle"
+          divider={false}
+          control={
+            <Toggle id="auto-detect-toggle" checked={autoDetectEnabled} onCheckedChange={handleToggleAutoDetect} />
+          }
         />
-        <span>Extend overlay with detected app and mode suggestion</span>
-      </label>
-      <p className="form-dim">
-        When enabled, WordScript detects the active app and suggests a processing mode.
-        You can confirm or ignore the suggestion directly in the overlay.
-      </p>
+      </FormCard>
 
-      <div className="form-section">Per-app mapping</div>
-      <div className="settings__rule-card" aria-label="Per-app mode mappings">
-        {!hasMappings ? (
-          <p className="form-dim">No custom app mappings yet. Add one below or use the overlay to auto-populate.</p>
-        ) : (
-          <div className="settings__rule-stack">
-            {Object.entries(appMappings).map(([category, mode]) => (
-              <div key={category} className="settings__rule-row">
-                <span className="settings__rule-chip">{APP_CATEGORIES.find((c) => c.value === category)?.label ?? category}</span>
-                <span className="settings__rule-arrow">&rarr;</span>
-                <span className="settings__rule-chip">{processingModeLabel(mode)}</span>
-                <button
-                  className="btn btn--cancel settings__rule-remove"
-                  type="button"
-                  onClick={() => handleRemoveMapping(category)}
-                  aria-label={`Remove ${category} mapping`}
+      <FormCard
+        title="Per-app mapping"
+        description="Maps a detected app category to a processing mode when auto-detection is on."
+      >
+        <div aria-label="Per-app mode mappings">
+          {!hasMappings ? (
+            <p className="py-3 text-[12px] text-fg-dim">
+              No custom app mappings yet. Add one below or use the overlay to auto-populate.
+            </p>
+          ) : (
+            <div className="flex flex-col">
+              {Object.entries(appMappings).map(([category, mode]) => (
+                <div
+                  key={category}
+                  className="flex items-center gap-2 border-b border-border py-2.5 last:border-b-0"
                 >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
+                  <Chip>{APP_CATEGORIES.find((c) => c.value === category)?.label ?? category}</Chip>
+                  <ArrowRight className="size-3.5 shrink-0 text-fg-muted" />
+                  <Chip>{processingModeLabel(mode)}</Chip>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    className="ml-auto text-fg-muted hover:text-[var(--red)]"
+                    onClick={() => handleRemoveMapping(category)}
+                    aria-label={`Remove ${category} mapping`}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2 border-t border-border py-3">
+            <Select
+              value={newMappingCategory}
+              onChange={(e) => setNewMappingCategory(e.target.value)}
+              aria-label="App category"
+              className="w-[140px]"
+            >
+              {APP_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={newMappingMode}
+              onChange={(e) => setNewMappingMode(e.target.value as ProcessingMode)}
+              aria-label="Processing mode"
+              className="w-[170px]"
+            >
+              {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((m) => (
+                <option key={m} value={m}>
+                  {processingModeLabel(m)}
+                </option>
+              ))}
+            </Select>
+            <Button size="sm" variant="outline" onClick={handleAddMapping}>
+              Add mapping
+            </Button>
           </div>
-        )}
-        <div className="settings__rule-add">
-          <select
-            value={newMappingCategory}
-            onChange={(e) => setNewMappingCategory(e.target.value)}
-            aria-label="App category"
-          >
-            {APP_CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
-          <select
-            value={newMappingMode}
-            onChange={(e) => setNewMappingMode(e.target.value as ProcessingMode)}
-            aria-label="Processing mode"
-          >
-            {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((m) => (
-              <option key={m} value={m}>{processingModeLabel(m)}</option>
-            ))}
-          </select>
-          <button className="btn btn--cancel" type="button" onClick={handleAddMapping}>
-            Add mapping
-          </button>
         </div>
-      </div>
-      <p className="form-dim">
-        Maps a detected app category to a processing mode when auto-detection is on.
-        You can also add or remove entries manually here.
-      </p>
+      </FormCard>
 
-      <div className="form-section">Hotkeys</div>
-      <div className="form-row">
-        <label>Mode picker</label>
-        <HotkeyRecorder value={modePickerHotkey} onChange={handleModePickerHotkey} />
-      </div>
-      <div className="form-row">
-        <label>Cycle mode</label>
-        <HotkeyRecorder value={cycleModeHotkey} onChange={handleCycleModeHotkey} />
-      </div>
-      {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode) => (
-        <div key={mode} className="form-row">
-          <label>{processingModeLabel(mode)}</label>
-          <HotkeyRecorder
-            value={(config[MODE_HOTKEY_FIELDS[mode]] as string | undefined) ?? ""}
-            onChange={(value) => handlePerModeHotkey(mode, value)}
+      <FormCard
+        title="Hotkeys"
+        description="Global hotkeys for quick mode switching. The picker opens the overlay selector; cycle rotates recent modes; per-mode keys jump directly."
+      >
+        <FormRow
+          label="Mode picker"
+          control={<HotkeyRecorder value={modePickerHotkey} onChange={handleModePickerHotkey} />}
+        />
+        <FormRow
+          label="Cycle mode"
+          control={<HotkeyRecorder value={cycleModeHotkey} onChange={handleCycleModeHotkey} />}
+        />
+        {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode, index, arr) => (
+          <FormRow
+            key={mode}
+            label={processingModeLabel(mode)}
+            divider={index < arr.length - 1}
+            control={
+              <HotkeyRecorder
+                value={(config[MODE_HOTKEY_FIELDS[mode]] as string | undefined) ?? ""}
+                onChange={(value) => handlePerModeHotkey(mode, value)}
+              />
+            }
           />
-        </div>
-      ))}
-      <p className="form-dim">
-        Global hotkeys for quick mode switching. Mode picker opens the overlay selector.
-        Cycle rotates through recently used modes. Per-mode keys jump directly.
-      </p>
-    </>
+        ))}
+      </FormCard>
+    </div>
   );
 });

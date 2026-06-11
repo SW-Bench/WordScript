@@ -1,7 +1,22 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { BadgeCheck, SquarePen } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  BadgeCheck,
+  Copy,
+  Download,
+  FilePlus2,
+  Plus,
+  SquarePen,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { FormCard, FormRow, Select, StatTiles, StatusBadge } from "../shell";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { cn } from "../../lib/utils";
 import type { AppConfig, DictionaryEntry, SnippetEntry, TextProfile } from "../../types/ipc";
 import {
   buildTextProfilesPatch,
@@ -200,6 +215,53 @@ function makeSnippetEntry(): SnippetEntry {
   };
 }
 
+const RULE_TEXTAREA_CLASS =
+  "w-full resize-y rounded-md border border-border bg-surface-strong px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-fg-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40";
+
+function RuleField({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
+      <span className="text-[12px] font-medium text-fg-dim">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function ruleCardClass(isActive: boolean, issues: TextRulesIssue[]) {
+  return cn(
+    "rounded-[10px] border bg-card px-4 py-3.5 shadow-card transition-colors",
+    hasSeverity(issues, "error")
+      ? "border-[var(--red)]"
+      : hasSeverity(issues, "warning")
+        ? "border-[var(--orange)]"
+        : isActive
+          ? "border-brand"
+          : "border-border",
+  );
+}
+
+function RuleInlineIssues({ entryId, issues }: { entryId: string; issues: TextRulesIssue[] }) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-1.5 border-t border-border pt-3">
+      {issues.map((issue) => (
+        <div key={`${entryId}-${issue.code}-${issue.message}`} className="flex items-start gap-2 text-[12px] leading-snug">
+          <StatusBadge tone={issue.severity === "error" ? "error" : "warning"}>{issue.severity}</StatusBadge>
+          <span className="text-fg-dim">{issue.message}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface RuleCardRefRegistrar {
   (ruleId: string, element: HTMLElement | null): void;
 }
@@ -227,67 +289,63 @@ const DictionaryRuleCard = memo(function DictionaryRuleCard({
   onChange,
   onRemove,
 }: DictionaryRuleCardProps) {
-  const cardClassName = `settings__rule-card${isActive ? " settings__rule-card--active" : ""}${hasSeverity(issues, "error") ? " settings__rule-card--error" : hasSeverity(issues, "warning") ? " settings__rule-card--warning" : ""}`;
-
   return (
     <article
       ref={(element) => {
         registerRef(entry.id, element);
       }}
-      className={cardClassName}
+      data-active={isActive || undefined}
+      className={ruleCardClass(isActive, issues)}
     >
-      <div className="settings__rule-card-head">
-        <div className="settings__rule-card-heading">
-          <strong className="settings__rule-card-title">Dictionary term {index + 1}</strong>
-          <span className="settings__rule-meta">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <strong className="text-[13px] font-semibold text-foreground">Dictionary term {index + 1}</strong>
+          <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">
             Runs in order. Later rules see the output of earlier ones.
-          </span>
+          </p>
         </div>
-        <div className="settings__rule-card-buttons">
-          <button className="settings__rule-mini-btn" type="button" onClick={() => onMove(entry.id, -1)} disabled={index === 0}>
-            Move up
-          </button>
-          <button className="settings__rule-mini-btn" type="button" onClick={() => onMove(entry.id, 1)} disabled={index === totalCount - 1}>
-            Move down
-          </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button size="icon-sm" variant="ghost" aria-label="Move up" disabled={index === 0} onClick={() => onMove(entry.id, -1)}>
+            <ArrowUp className="size-3.5" />
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Move down"
+            disabled={index === totalCount - 1}
+            onClick={() => onMove(entry.id, 1)}
+          >
+            <ArrowDown className="size-3.5" />
+          </Button>
         </div>
       </div>
-      <div className="settings__rule-grid">
-        <label className="settings__rule-field">
-          <span>Heard as</span>
-          <input
-            type="text"
+      <div className="grid gap-3 sm:grid-cols-2">
+        <RuleField label="Heard as">
+          <Input
+            aria-label="Heard as"
             value={entry.phrase}
             onChange={(event) => onChange(entry.id, "phrase", event.target.value)}
             placeholder="e.g. word script"
           />
-        </label>
-        <label className="settings__rule-field">
-          <span>Replace with</span>
-          <input
-            type="text"
+        </RuleField>
+        <RuleField label="Replace with">
+          <Input
+            aria-label="Replace with"
             value={entry.replace_with}
             onChange={(event) => onChange(entry.id, "replace_with", event.target.value)}
             placeholder="e.g. WordScript"
           />
-        </label>
+        </RuleField>
       </div>
-      <div className="settings__rule-actions">
-        <span className="settings__rule-meta">Literal whole-phrase match, case-insensitive. Add separate entries for variants.</span>
-        <button className="btn btn--cancel" type="button" onClick={() => onRemove(entry.id)}>
-          Remove
-        </button>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-[11px] leading-snug text-fg-muted">
+          Literal whole-phrase match, case-insensitive. Add separate entries for variants.
+        </span>
+        <Button size="sm" variant="ghost" onClick={() => onRemove(entry.id)}>
+          <Trash2 /> Remove
+        </Button>
       </div>
-      {issues.length > 0 && (
-        <div className="settings__rule-inline-issues">
-          {issues.map((issue) => (
-            <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
-              <strong>{issue.severity}</strong>
-              <span>{issue.message}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <RuleInlineIssues entryId={entry.id} issues={issues} />
     </article>
   );
 });
@@ -315,76 +373,73 @@ const SnippetRuleCard = memo(function SnippetRuleCard({
   onChange,
   onRemove,
 }: SnippetRuleCardProps) {
-  const cardClassName = `settings__rule-card${isActive ? " settings__rule-card--active" : ""}${hasSeverity(issues, "error") ? " settings__rule-card--error" : hasSeverity(issues, "warning") ? " settings__rule-card--warning" : ""}`;
-
   return (
     <article
       ref={(element) => {
         registerRef(entry.id, element);
       }}
-      className={cardClassName}
+      data-active={isActive || undefined}
+      className={ruleCardClass(isActive, issues)}
     >
-      <div className="settings__rule-card-head">
-        <div className="settings__rule-card-heading">
-          <strong className="settings__rule-card-title">Snippet {index + 1}</strong>
-          <span className="settings__rule-meta">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <strong className="text-[13px] font-semibold text-foreground">Snippet {index + 1}</strong>
+          <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">
             Runs after Dictionary. Reorder when triggers overlap or one snippet should win over another.
-          </span>
+          </p>
         </div>
-        <div className="settings__rule-card-buttons">
-          <button className="settings__rule-mini-btn" type="button" onClick={() => onMove(entry.id, -1)} disabled={index === 0}>
-            Move up
-          </button>
-          <button className="settings__rule-mini-btn" type="button" onClick={() => onMove(entry.id, 1)} disabled={index === totalCount - 1}>
-            Move down
-          </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button size="icon-sm" variant="ghost" aria-label="Move up" disabled={index === 0} onClick={() => onMove(entry.id, -1)}>
+            <ArrowUp className="size-3.5" />
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Move down"
+            disabled={index === totalCount - 1}
+            onClick={() => onMove(entry.id, 1)}
+          >
+            <ArrowDown className="size-3.5" />
+          </Button>
         </div>
       </div>
-      <div className="settings__rule-grid settings__rule-grid--three">
-        <label className="settings__rule-field">
-          <span>Label</span>
-          <input
-            type="text"
+      <div className="grid gap-3 sm:grid-cols-2">
+        <RuleField label="Label">
+          <Input
+            aria-label="Label"
             value={entry.label}
             onChange={(event) => onChange(entry.id, "label", event.target.value)}
             placeholder="e.g. Support follow-up"
           />
-        </label>
-        <label className="settings__rule-field">
-          <span>Trigger phrase</span>
-          <input
-            type="text"
+        </RuleField>
+        <RuleField label="Trigger phrase">
+          <Input
+            aria-label="Trigger phrase"
             value={entry.trigger}
             onChange={(event) => onChange(entry.id, "trigger", event.target.value)}
             placeholder="e.g. follow up note"
           />
-        </label>
-        <label className="settings__rule-field settings__rule-field--wide">
-          <span>Expansion</span>
+        </RuleField>
+        <RuleField label="Expansion" className="sm:col-span-2">
           <textarea
+            aria-label="Expansion"
+            className={RULE_TEXTAREA_CLASS}
             value={entry.expansion}
             onChange={(event) => onChange(entry.id, "expansion", event.target.value)}
             placeholder="e.g. Thanks for the update. We will send the next status tomorrow morning."
             rows={4}
           />
-        </label>
+        </RuleField>
       </div>
-      <div className="settings__rule-actions">
-        <span className="settings__rule-meta">Literal trigger phrase match, case-insensitive, in the final transcript.</span>
-        <button className="btn btn--cancel" type="button" onClick={() => onRemove(entry.id)}>
-          Remove
-        </button>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-[11px] leading-snug text-fg-muted">
+          Literal trigger phrase match, case-insensitive, in the final transcript.
+        </span>
+        <Button size="sm" variant="ghost" onClick={() => onRemove(entry.id)}>
+          <Trash2 /> Remove
+        </Button>
       </div>
-      {issues.length > 0 && (
-        <div className="settings__rule-inline-issues">
-          {issues.map((issue) => (
-            <div key={`${entry.id}-${issue.code}-${issue.message}`} className={`settings__rule-inline-issue settings__rule-inline-issue--${issue.severity}`}>
-              <strong>{issue.severity}</strong>
-              <span>{issue.message}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <RuleInlineIssues entryId={entry.id} issues={issues} />
     </article>
   );
 });
@@ -779,679 +834,706 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
   };
 
   return (
-    <>
-      <div className="tab__title">Text Rules</div>
-
-      <div className="settings__rule-toolbar settings__rule-toolbar--top">
-        <div className="settings__rule-toolbar-copy">
-          <strong>Portable personal text rules</strong>
-          <span>These rules run after speech-to-text. Import/export stays local via JSON, and preview uses the same native text-rule pass that runs before insertion.</span>
-        </div>
-        <div className="settings__rule-toolbar-buttons">
-          <button className="btn btn--cancel" type="button" onClick={() => void startImport("merge_imported_wins")} disabled={isBusy}>
-            Import & merge
-          </button>
-          <button className="btn btn--cancel" type="button" onClick={() => void startImport("replace_current")} disabled={isBusy}>
-            Replace from file
-          </button>
-          <button className="btn btn--save" type="button" onClick={() => void exportRules()} disabled={isBusy}>
-            Export rules
-          </button>
-        </div>
-      </div>
+    <div className="flex flex-col gap-6">
+      <FormCard
+        title="Portable personal text rules"
+        description="These rules run after speech-to-text. Import/export stays local via JSON, and preview uses the same native text-rule pass that runs before insertion."
+        bodyClassName="py-4"
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" disabled={isBusy} onClick={() => void startImport("merge_imported_wins")}>
+              <Upload /> Import & merge
+            </Button>
+            <Button size="sm" variant="outline" disabled={isBusy} onClick={() => void startImport("replace_current")}>
+              <FilePlus2 /> Replace from file
+            </Button>
+            <Button size="sm" disabled={isBusy} onClick={() => void exportRules()}>
+              <Download /> Export rules
+            </Button>
+          </div>
+        }
+      >
+        <StatTiles
+          items={[
+            {
+              label: "Active profile",
+              value: activeTextProfile.label,
+              hint: `${activePromptLineCount} context lines, ${activeSttHintLineCount} STT hints and ${totalRuleCount} authored rules${isCuratedTextProfile(activeTextProfile) ? ". Included by WordScript, editable like any other profile." : "."}`,
+            },
+            {
+              label: "Rule order",
+              value: "Dictionary → Snippets",
+              hint: "Literal, case-insensitive matches in authored order. Preview and runtime follow the same pass.",
+            },
+            { label: "Current step", value: activeWorkspaceCopy.title, hint: activeWorkspaceCopy.note },
+          ]}
+        />
+      </FormCard>
 
       {feedback && (
-        <div className={`settings__rule-feedback${feedback.ok ? " settings__rule-feedback--ok" : " settings__rule-feedback--error"}`}>
+        <p
+          className={cn(
+            "rounded-md border px-3 py-2 text-[12px] leading-snug",
+            feedback.ok
+              ? "border-[color-mix(in_srgb,var(--green)_40%,transparent)] bg-[color-mix(in_srgb,var(--green)_10%,transparent)] text-[var(--green)]"
+              : "border-[color-mix(in_srgb,var(--red)_40%,transparent)] bg-[color-mix(in_srgb,var(--red)_10%,transparent)] text-[var(--red)]",
+          )}
+        >
           {feedback.text}
-        </div>
+        </p>
       )}
 
       {pendingImport && (
-        <div className="settings__rule-import-card">
-          <div className="settings__rule-import-head">
-            <div>
-              <strong>Pending import preview</strong>
-              <p>
-                {pendingImport.resolution === "replace_current"
-                  ? "Replace mode overwrites the current prompt, STT hints, dictionary and snippets with the imported file."
-                  : "Merge mode preserves the current prompt and STT hints unless they are empty and lets imported phrase/trigger matches replace existing rules."}
-              </p>
-            </div>
-            <span>{pendingImport.path.split(/[\\/]/).pop() ?? pendingImport.path}</span>
-          </div>
-          <div className="settings__rule-actions">
-            <span className="settings__rule-meta">
-              {pendingImport.payload.analysis.dictionary_count} dictionary entries, {pendingImport.payload.analysis.snippet_count} snippets after {pendingImport.resolution === "replace_current" ? "replace" : "merge"}.
-            </span>
-            <div className="settings__rule-toolbar-buttons">
-              <button className="btn btn--cancel" type="button" onClick={() => setPendingImport(null)}>
-                Discard preview
-              </button>
-              <button className="btn btn--save" type="button" onClick={applyImport} disabled={pendingImport.payload.analysis.blocking}>
-                Apply import
-              </button>
-            </div>
-          </div>
-        </div>
+        <FormCard
+          title="Pending import preview"
+          description={
+            pendingImport.resolution === "replace_current"
+              ? "Replace mode overwrites the current prompt, STT hints, dictionary and snippets with the imported file."
+              : "Merge mode preserves the current prompt and STT hints unless they are empty and lets imported phrase/trigger matches replace existing rules."
+          }
+          action={<StatusBadge tone="info">{pendingImport.path.split(/[\\/]/).pop() ?? pendingImport.path}</StatusBadge>}
+        >
+          <FormRow
+            label={`${pendingImport.payload.analysis.dictionary_count} dictionary entries, ${pendingImport.payload.analysis.snippet_count} snippets after ${pendingImport.resolution === "replace_current" ? "replace" : "merge"}.`}
+            divider={false}
+            control={
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setPendingImport(null)}>
+                  Discard preview
+                </Button>
+                <Button size="sm" disabled={pendingImport.payload.analysis.blocking} onClick={applyImport}>
+                  Apply import
+                </Button>
+              </div>
+            }
+          />
+        </FormCard>
       )}
 
-      <div className="settings__summary-grid settings__summary-grid--three settings__editor-process-summary" aria-label="Text rules process summary">
-        <article className="settings__summary-item">
-          <span>Active profile</span>
-          <strong>{activeTextProfile.label}</strong>
-          <small>{activePromptLineCount} context lines, {activeSttHintLineCount} STT hints and {totalRuleCount} authored rules in this local mode{isCuratedTextProfile(activeTextProfile) ? ". Included by WordScript, editable like any other profile." : "."}</small>
-        </article>
-        <article className="settings__summary-item">
-          <span>Rule order</span>
-          <strong>Dictionary -&gt; Snippets</strong>
-          <small>Literal, case-insensitive matches in authored order. Preview and runtime follow the same pass.</small>
-        </article>
-        <article className="settings__summary-item">
-          <span>Current step</span>
-          <strong>{activeWorkspaceCopy.title}</strong>
-          <small>{activeWorkspaceCopy.note}</small>
-        </article>
-      </div>
-
-      <div className="settings__editor-shell">
-        <div className="settings__editor-setup-grid">
-          <article className="settings__editor-setup-card">
-            <div className="settings__editor-setup-head settings__editor-profile-head">
-              <div className="settings__editor-setup-copy">
-                <span className="settings__template-kicker">Profile setup</span>
-                <strong>Pick the profile you want to shape</strong>
-                <p>Keep switching and renaming here. Everything below edits the active profile only.</p>
-              </div>
-              <div className="settings__editor-setup-indicator" aria-label={`Active profile ${activeTextProfile.label}`}>
-                <div className="settings__editor-profile-badge" aria-hidden="true">
-                  <SquarePen className="settings__editor-profile-icon" size={18} strokeWidth={2} />
-                </div>
-                <div className="settings__editor-profile-button-copy">
-                  <strong>{activeTextProfile.label}</strong>
-                  <span>{isCuratedTextProfile(activeTextProfile) ? "Included profile" : "Active writing mode"}</span>
-                </div>
-                {isCuratedTextProfile(activeTextProfile) ? (
-                  <span className="settings__editor-profile-status">
-                    <BadgeCheck className="settings__editor-profile-status-icon" size={14} strokeWidth={2} />
-                    Included
-                  </span>
-                ) : null}
-              </div>
-            </div>
-            <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-setup-pills">
-              <span className="settings__template-highlight">{activeTextProfile.label}</span>
-              {isCuratedTextProfile(activeTextProfile) && <span className="settings__template-highlight">Included by WordScript</span>}
-              <span className="settings__template-highlight">{activePromptLineCount} context lines</span>
-              <span className="settings__template-highlight">{activeSttHintLineCount} STT hints</span>
-              <span className="settings__template-highlight">{dictionaryEntries.length} terms</span>
-              <span className="settings__template-highlight">{snippetEntries.length} snippets</span>
-            </div>
-            <div className="settings__editor-setup-fields settings__editor-profile-fields">
-              <div className="form-row">
-                <label htmlFor="text-profile-select">Active profile</label>
-                <select
-                  id="text-profile-select"
-                  aria-label="Active profile"
-                  value={activeTextProfile.id}
-                  onChange={(event) => applyProfiles(textProfiles, event.target.value)}
-                >
-                  {textProfiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>{displayTextProfileLabel(profile)}</option>
-                  ))}
-                </select>
-              </div>
-              <label className="settings__rule-field settings__rule-field--wide">
-                <span>Profile label</span>
-                <input
-                  type="text"
-                  value={activeTextProfile.label}
-                  onChange={(event) => updateActiveProfile({ label: event.target.value })}
-                  placeholder="e.g. Support reply"
-                />
-              </label>
-            </div>
-            <div className="settings__editor-setup-actions settings__editor-profile-actions">
-              <button className="btn btn--cancel" type="button" onClick={createProfile}>
-                New profile
-              </button>
-              <button className="btn btn--cancel" type="button" onClick={duplicateProfile}>
-                Duplicate profile
-              </button>
-              <button className="btn btn--cancel" type="button" onClick={deleteActiveProfile} disabled={textProfiles.length <= 1}>
-                Delete profile
-              </button>
-            </div>
-            <p className="settings__editor-setup-note">Each profile carries its own context, optional STT hints, dictionary, snippets and work-mode defaults. Included profiles ship inside this app config on first run, and the first real edit turns them into regular user-owned profiles. Preview, import/export and runtime all follow the same active profile.</p>
-          </article>
-
-          <article className="settings__editor-setup-card settings__editor-setup-card--starter">
-            <div className="settings__editor-setup-head">
-              <div className="settings__editor-setup-copy">
-                <span className="settings__template-kicker">Profile library</span>
-                <strong>Use any profile already loaded in this app</strong>
-                <p>Built-in profiles are saved into the same local profile list as yours. Use, edit, duplicate or delete them like normal profiles.</p>
-              </div>
-            </div>
-            {selectedTemplate ? (
-              <div className="settings__editor-starter-summary">
-                <div className="settings__editor-starter-summary-copy">
-                  <span className="settings__template-kicker">Selected profile</span>
-                  <strong>{selectedTemplate.label}</strong>
-                  <p>{profileLibrarySummary(selectedTemplate)}</p>
-                </div>
-                <div className="settings__template-highlight-row settings__template-highlight-row--compact">
-                  <span className="settings__template-highlight">{profileOriginLabel(selectedTemplate)}</span>
-                  <span className="settings__template-highlight">{selectedTemplatePromptLines} context lines</span>
-                  <span className="settings__template-highlight">{selectedTemplateSttHintLines} STT hints</span>
-                  <span className="settings__template-highlight">{selectedTemplate.dictionary_entries.length} terms</span>
-                  <span className="settings__template-highlight">{selectedTemplate.snippet_entries.length} snippets</span>
-                  <span className="settings__template-highlight">{selectedTemplateWorkModeSummary}</span>
-                </div>
-                <div className="settings__editor-setup-actions settings__editor-setup-actions--starter">
-                  <button className="settings__rule-mini-btn" type="button" onClick={useSelectedProfile}>
-                    Use profile
-                  </button>
-                  <button className="settings__rule-mini-btn" type="button" onClick={duplicateSelectedProfile}>
-                    Duplicate selected
-                  </button>
-                  <button className="settings__rule-mini-btn" type="button" onClick={() => setShowStarterDetails((current) => !current)}>
-                    {showStarterDetails ? "Hide profile details" : "Show profile details"}
-                  </button>
-                </div>
-                {showStarterDetails && (
-                  <div className="settings__editor-starter-detail-list">
-                    <article className="settings__editor-starter-detail-card">
-                      <span className="settings__rule-preview-label">Context focus</span>
-                      <ul className="settings__template-list">
-                        {selectedTemplateContextLines.slice(0, 4).map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
-                      </ul>
-                    </article>
-                    <article className="settings__editor-starter-detail-card">
-                      <span className="settings__rule-preview-label">Optional STT hints</span>
-                      <ul className="settings__template-list">
-                        {selectedTemplateSttHintPreview.slice(0, 4).map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
-                      </ul>
-                    </article>
-                    <article className="settings__editor-starter-detail-card">
-                      <span className="settings__rule-preview-label">Key replacements</span>
-                      <ul className="settings__template-list">
-                        {selectedTemplateDictionaryPreview.slice(0, 3).map((entry) => (
-                          <li key={entry.phrase}>{entry.phrase}{" -> "}{entry.replace_with}</li>
-                        ))}
-                      </ul>
-                    </article>
-                    <article className="settings__editor-starter-detail-card">
-                      <span className="settings__rule-preview-label">Ready snippets</span>
-                      <ul className="settings__template-list">
-                        {selectedTemplateSnippetPreview.slice(0, 3).map((entry) => (
-                          <li key={entry.trigger}>{entry.label}: {entry.trigger}</li>
-                        ))}
-                      </ul>
-                    </article>
-                  </div>
-                )}
-              </div>
+      <FormCard
+        title="Pick the profile you want to shape"
+        description="Keep switching and renaming here. Everything below edits the active profile only."
+        icon={<SquarePen />}
+        action={
+          <StatusBadge tone={isCuratedTextProfile(activeTextProfile) ? "accent" : "neutral"} dot>
+            {isCuratedTextProfile(activeTextProfile) ? (
+              <>
+                <BadgeCheck className="size-3.5" /> Included
+              </>
             ) : (
-              <div className="settings__editor-starter-summary">
-                <div className="settings__editor-starter-summary-copy">
-                  <span className="settings__template-kicker">Profile library</span>
-                  <strong>No profiles available</strong>
-                  <p>Create a profile to start building a local writing mode.</p>
+              "Active"
+            )}
+          </StatusBadge>
+        }
+      >
+        <FormRow
+          label="Active profile"
+          htmlFor="text-profile-select"
+          control={
+            <Select
+              id="text-profile-select"
+              aria-label="Active profile"
+              className="w-[240px]"
+              value={activeTextProfile.id}
+              onChange={(event) => applyProfiles(textProfiles, event.target.value)}
+            >
+              {textProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {displayTextProfileLabel(profile)}
+                </option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Profile label"
+          control={
+            <Input
+              aria-label="Profile label"
+              className="w-[240px]"
+              value={activeTextProfile.label}
+              onChange={(event) => updateActiveProfile({ label: event.target.value })}
+              placeholder="e.g. Support reply"
+            />
+          }
+        />
+        <div className="flex flex-wrap items-center gap-2 border-b border-border py-3">
+          <Button size="sm" variant="outline" onClick={createProfile}>
+            <Plus /> New profile
+          </Button>
+          <Button size="sm" variant="outline" onClick={duplicateProfile}>
+            <Copy /> Duplicate profile
+          </Button>
+          <Button size="sm" variant="ghost" disabled={textProfiles.length <= 1} onClick={deleteActiveProfile}>
+            <Trash2 /> Delete profile
+          </Button>
+        </div>
+        <p className="py-3 text-[12px] leading-snug text-fg-muted">
+          Each profile carries its own context, optional STT hints, dictionary, snippets and work-mode defaults. Included
+          profiles ship inside this app config on first run, and the first real edit turns them into regular user-owned
+          profiles. Preview, import/export and runtime all follow the same active profile.
+        </p>
+      </FormCard>
+
+      <FormCard
+        title="Use any profile already loaded in this app"
+        description="Built-in profiles are saved into the same local profile list as yours. Use, edit, duplicate or delete them like normal profiles."
+        bodyClassName="py-4"
+      >
+        {selectedTemplate ? (
+          <div className="flex flex-col gap-3">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Selected profile</div>
+              <strong className="text-[14px] font-semibold text-foreground">{selectedTemplate.label}</strong>
+              <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">{profileLibrarySummary(selectedTemplate)}</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                profileOriginLabel(selectedTemplate),
+                `${selectedTemplatePromptLines} context lines`,
+                `${selectedTemplateSttHintLines} STT hints`,
+                `${selectedTemplate.dictionary_entries.length} terms`,
+                `${selectedTemplate.snippet_entries.length} snippets`,
+                selectedTemplateWorkModeSummary,
+              ].map((chip) => (
+                <span key={chip} className="rounded-full bg-surface-strong px-2.5 py-0.5 text-[11px] text-fg-dim">
+                  {chip}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={useSelectedProfile}>
+                Use profile
+              </Button>
+              <Button size="sm" variant="ghost" onClick={duplicateSelectedProfile}>
+                Duplicate selected
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowStarterDetails((current) => !current)}>
+                {showStarterDetails ? "Hide profile details" : "Show profile details"}
+              </Button>
+            </div>
+            {showStarterDetails && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  { label: "Context focus", items: selectedTemplateContextLines.slice(0, 4) },
+                  { label: "Optional STT hints", items: selectedTemplateSttHintPreview.slice(0, 4) },
+                ].map((group) => (
+                  <div key={group.label} className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">{group.label}</span>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
+                      {group.items.map((line) => (
+                        <li key={line}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                <div className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Key replacements</span>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
+                    {selectedTemplateDictionaryPreview.slice(0, 3).map((entry) => (
+                      <li key={entry.phrase}>
+                        {entry.phrase}
+                        {" -> "}
+                        {entry.replace_with}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Ready snippets</span>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
+                    {selectedTemplateSnippetPreview.slice(0, 3).map((entry) => (
+                      <li key={entry.trigger}>
+                        {entry.label}: {entry.trigger}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             )}
-            <div className="settings__editor-template-list" role="list" aria-label="Profiles in this app">
-              {profileLibrary.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  className={`settings__template-tile settings__template-tile--compact${selectedTemplate?.id === template.id ? " settings__template-tile--active" : ""}`}
-                  aria-label={`Select ${template.label} profile`}
-                  aria-pressed={selectedTemplate?.id === template.id}
-                  onClick={() => setSelectedTemplateId(template.id)}
-                >
-                  <span className="settings__template-kicker">{isCuratedTextProfile(template) ? template.curation.audience : "User profile"}</span>
-                  <strong>{template.label}</strong>
-                  <div className="settings__rule-chip-row">
-                    <span className="settings__rule-chip">{profileOriginLabel(template)}</span>
-                    <span className="settings__rule-chip">{describeTextProfileWorkMode(template)}</span>
-                    <span className="settings__rule-chip">{template.dictionary_entries.length} terms</span>
-                    <span className="settings__rule-chip">{template.snippet_entries.length} snippets</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </article>
-        </div>
-
-        <article className="settings__editor-workspace-bar">
-          <div className="settings__editor-workspace-copy">
-            <span className="settings__template-kicker">{activeWorkspaceCopy.step}</span>
-            <strong className="settings__editor-workspace-title">{activeWorkspaceCopy.title}</strong>
-            <p>{activeWorkspaceCopy.summary}</p>
           </div>
-          <div className="settings__template-highlight-row settings__template-highlight-row--compact settings__editor-workspace-pills">
-            <span className="settings__template-highlight">{activeTextProfile.label}</span>
-            {isCuratedTextProfile(activeTextProfile) && <span className="settings__template-highlight">Included by WordScript</span>}
-            <span className="settings__template-highlight">{activeWorkspaceCopy.status}</span>
+        ) : (
+          <div>
+            <strong className="text-[14px] font-semibold text-foreground">No profiles available</strong>
+            <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">Create a profile to start building a local writing mode.</p>
           </div>
-        </article>
-
-        <div className="settings__editor-step-list" role="tablist" aria-label="Text rules workspace">
-            <button
-              className={`settings__editor-step-button${activeWorkspacePanel === "context" ? " settings__editor-step-button--active" : ""}`}
-              type="button"
-              role="tab"
-              aria-label="Open context and preview workspace"
-              aria-selected={activeWorkspacePanel === "context"}
-              onClick={() => setActiveWorkspacePanel("context")}
-            >
-              <div className="settings__editor-step-button-head">
-                <span className="settings__editor-step-index" aria-hidden="true">1</span>
-                <div className="settings__editor-step-button-copy">
-                  <strong>Context & Preview</strong>
-                  <span>{activePromptLineCount} context lines · {activeSttHintLineCount} STT hints</span>
+        )}
+        <div className="mt-4 grid gap-2 sm:grid-cols-2" role="list" aria-label="Profiles in this app">
+          {profileLibrary.map((template) => {
+            const selected = selectedTemplate?.id === template.id;
+            return (
+              <button
+                key={template.id}
+                type="button"
+                className={cn(
+                  "flex flex-col gap-1.5 rounded-[10px] border bg-surface px-3 py-2.5 text-left transition-colors hover:border-border-strong",
+                  selected ? "border-brand ring-1 ring-brand/40" : "border-border",
+                )}
+                aria-label={`Select ${template.label} profile`}
+                aria-pressed={selected}
+                onClick={() => setSelectedTemplateId(template.id)}
+              >
+                <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">
+                  {isCuratedTextProfile(template) ? template.curation.audience : "User profile"}
+                </span>
+                <strong className="text-[13px] font-semibold text-foreground">{template.label}</strong>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    profileOriginLabel(template),
+                    describeTextProfileWorkMode(template),
+                    `${template.dictionary_entries.length} terms`,
+                    `${template.snippet_entries.length} snippets`,
+                  ].map((chip) => (
+                    <span key={chip} className="rounded-full bg-surface-strong px-2 py-0.5 text-[10px] text-fg-dim">
+                      {chip}
+                    </span>
+                  ))}
                 </div>
-              </div>
-            </button>
-            <button
-              className={`settings__editor-step-button${activeWorkspacePanel === "dictionary" ? " settings__editor-step-button--active" : ""}`}
-              type="button"
-              role="tab"
-              aria-label="Open dictionary workspace"
-              aria-selected={activeWorkspacePanel === "dictionary"}
-              onClick={() => setActiveWorkspacePanel("dictionary")}
-            >
-              <div className="settings__editor-step-button-head">
-                <span className="settings__editor-step-index" aria-hidden="true">2</span>
-                <div className="settings__editor-step-button-copy">
-                  <strong>Dictionary</strong>
-                  <span>{dictionaryEntries.length} literal replacements</span>
-                </div>
-              </div>
-            </button>
-            <button
-              className={`settings__editor-step-button${activeWorkspacePanel === "snippets" ? " settings__editor-step-button--active" : ""}`}
-              type="button"
-              role="tab"
-              aria-label="Open snippets workspace"
-              aria-selected={activeWorkspacePanel === "snippets"}
-              onClick={() => setActiveWorkspacePanel("snippets")}
-            >
-              <div className="settings__editor-step-button-head">
-                <span className="settings__editor-step-index" aria-hidden="true">3</span>
-                <div className="settings__editor-step-button-copy">
-                  <strong>Snippets</strong>
-                  <span>{snippetEntries.length} reusable expansions</span>
-                </div>
-              </div>
-            </button>
+              </button>
+            );
+          })}
         </div>
+      </FormCard>
+
+      <div className="flex flex-col gap-3">
+        <div className="px-1">
+          <div className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">{activeWorkspaceCopy.step}</div>
+          <strong className="text-[15px] font-semibold text-foreground">{activeWorkspaceCopy.title}</strong>
+          <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">{activeWorkspaceCopy.summary}</p>
+        </div>
+        <div
+          role="tablist"
+          aria-label="Text rules workspace"
+          className="grid grid-cols-3 gap-1 rounded-[10px] border border-border bg-surface p-1"
+        >
+          {(
+            [
+              {
+                id: "context",
+                label: "Context & Preview",
+                aria: "Open context and preview workspace",
+                sub: `${activePromptLineCount} context · ${activeSttHintLineCount} STT hints`,
+              },
+              {
+                id: "dictionary",
+                label: "Dictionary",
+                aria: "Open dictionary workspace",
+                sub: `${dictionaryEntries.length} literal replacements`,
+              },
+              {
+                id: "snippets",
+                label: "Snippets",
+                aria: "Open snippets workspace",
+                sub: `${snippetEntries.length} reusable expansions`,
+              },
+            ] as const
+          ).map((tab) => {
+            const active = activeWorkspacePanel === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-label={tab.aria}
+                aria-selected={active}
+                onClick={() => setActiveWorkspacePanel(tab.id)}
+                className={cn(
+                  "flex flex-col items-start gap-0.5 rounded-[7px] px-3 py-2 text-left transition-colors",
+                  active ? "bg-card shadow-card" : "hover:bg-[rgba(255,255,255,0.04)]",
+                )}
+              >
+                <span className={cn("text-[13px] font-medium", active ? "text-foreground" : "text-fg-dim")}>
+                  {tab.label}
+                </span>
+                <span className="text-[11px] text-fg-muted">{tab.sub}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
         {activeWorkspacePanel === "context" && (
-          <section className="settings__editor-stage">
-            <article className="settings__editor-stage-card settings__editor-stage-card--context">
-              <div className="settings__editor-stage-card-head">
-                <div className="settings__rule-card-heading">
-                  <span className="settings__template-kicker">Context</span>
-                  <strong className="settings__rule-card-title">Transcription context</strong>
-                </div>
-              </div>
-              <p className="form-dim">
-                Add names, acronyms and domain terms the recognizer should bias toward. This text is forwarded as one plain prompt string, so short line-based lists work better than prose.
-              </p>
-              <textarea
-                className="form-textarea settings__editor-context-input"
-                value={activeTextProfile.prompt}
-                aria-label="Transcription context"
-                rows={12}
-                onChange={(event) => updateActiveProfile({ prompt: event.target.value })}
-                placeholder={"WordScript\nGroq\nTauri\nCPAL\ncustomer names\ninternal product terms"}
-              />
-              <label className="settings__rule-field settings__rule-field--wide">
-                <span>Optional STT hints</span>
+          <div className="flex flex-col gap-6">
+            <FormCard
+              title="Transcription context"
+              description="Add names, acronyms and domain terms the recognizer should bias toward. This text is forwarded as one plain prompt string, so short line-based lists work better than prose."
+              bodyClassName="py-4"
+            >
+              <div className="flex flex-col gap-4">
                 <textarea
-                  className="form-textarea settings__editor-context-input"
-                  value={sttHints}
-                  aria-label="Optional STT hints"
-                  rows={5}
-                  onChange={(event) => updateActiveProfile({ stt_hints: event.target.value })}
-                  placeholder={"status update\nhandoff summary\ncustomer follow up"}
+                  className={RULE_TEXTAREA_CLASS}
+                  value={activeTextProfile.prompt}
+                  aria-label="Transcription context"
+                  rows={10}
+                  onChange={(event) => updateActiveProfile({ prompt: event.target.value })}
+                  placeholder={"WordScript\nGroq\nTauri\nCPAL\ncustomer names\ninternal product terms"}
                 />
-              </label>
-              <p className="form-dim">
-                Use this only for a few spoken cues or alternate phrasings you explicitly want in STT bias. These lines go into the transcription request. Snippet triggers do not feed STT automatically anymore.
-              </p>
-              <div className="settings__editor-context-notes">
-                <div className="settings__editor-context-note">
-                  <strong>What belongs here</strong>
-                  <span>Company names, products, acronyms, people, ticket prefixes and phrases the model should recognize reliably.</span>
-                </div>
-                <div className="settings__editor-context-note">
-                  <strong>Good starting size</strong>
-                  <span>Start with 5 to 10 high-value terms. Add more only when preview still misses obvious vocabulary.</span>
-                </div>
-                <div className="settings__editor-context-note">
-                  <strong>What not to put here</strong>
-                  <span>Do not mirror whole snippets or long macros. If you want expansion behavior, keep that in Snippets; STT hints should stay short and intentional.</span>
+                <RuleField label="Optional STT hints">
+                  <textarea
+                    className={RULE_TEXTAREA_CLASS}
+                    value={sttHints}
+                    aria-label="Optional STT hints"
+                    rows={4}
+                    onChange={(event) => updateActiveProfile({ stt_hints: event.target.value })}
+                    placeholder={"status update\nhandoff summary\ncustomer follow up"}
+                  />
+                </RuleField>
+                <p className="text-[12px] leading-snug text-fg-muted">
+                  Use this only for a few spoken cues or alternate phrasings you explicitly want in STT bias. These lines
+                  go into the transcription request. Snippet triggers do not feed STT automatically anymore.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {[
+                    {
+                      title: "What belongs here",
+                      body: "Company names, products, acronyms, people, ticket prefixes and phrases the model should recognize reliably.",
+                    },
+                    {
+                      title: "Good starting size",
+                      body: "Start with 5 to 10 high-value terms. Add more only when preview still misses obvious vocabulary.",
+                    },
+                    {
+                      title: "What not to put here",
+                      body: "Do not mirror whole snippets or long macros. If you want expansion behavior, keep that in Snippets; STT hints should stay short and intentional.",
+                    },
+                  ].map((note) => (
+                    <div key={note.title} className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                      <strong className="text-[12px] font-semibold text-foreground">{note.title}</strong>
+                      <p className="mt-1 text-[12px] leading-snug text-fg-muted">{note.body}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </article>
+            </FormCard>
 
-            <article className="settings__editor-stage-card">
-              <div className="settings__editor-stage-card-head">
-                <div className="settings__rule-card-heading">
-                  <span className="settings__template-kicker">Preview</span>
-                  <strong className="settings__rule-card-title">Rule check and preview</strong>
-                </div>
-              </div>
-              <p className="form-dim">
-                Validation checks for empty fields, duplicates and collisions. Preview runs the literal dictionary-plus-snippet pass on the sample text below, with no microphone capture or semantic guessing.
-              </p>
-              <div className="settings__editor-context-notes" aria-label="Effective transcription bias preview">
-                <div className="settings__editor-context-note">
-                  <strong>Automatic STT vocabulary</strong>
-                  <span>Only these concrete profile lines are forwarded automatically into speech-to-text.</span>
-                  {biasProfileHints.length > 0 ? (
-                    <div className="settings__rule-chip-row">
-                      {biasProfileHints.map((hint) => (
-                        <span key={`profile-hint-${hint}`} className="settings__rule-chip">{hint}</span>
-                      ))}
+            <FormCard
+              title="Rule check and preview"
+              description="Validation checks for empty fields, duplicates and collisions. Preview runs the literal dictionary-plus-snippet pass on the sample text below, with no microphone capture or semantic guessing."
+              bodyClassName="py-4"
+            >
+              <div className="flex flex-col gap-4">
+                <div className="grid gap-3 sm:grid-cols-3" aria-label="Effective transcription bias preview">
+                  {[
+                    {
+                      title: "Automatic STT vocabulary",
+                      body: "Only these concrete profile lines are forwarded automatically into speech-to-text.",
+                      chips: biasProfileHints,
+                      empty: "No concrete context lines are forwarded automatically right now.",
+                    },
+                    {
+                      title: "Preferred spellings",
+                      body: "Dictionary replacements contribute these target spellings as preserve hints.",
+                      chips: biasDictionaryTerms,
+                      empty: "No dictionary spellings are being forwarded yet.",
+                    },
+                    {
+                      title: "Explicit STT hints",
+                      body: "These short cues are forwarded exactly as explicit bias hints.",
+                      chips: biasSttHints,
+                      empty: "No explicit STT hints are currently forwarded.",
+                    },
+                  ].map((note) => (
+                    <div key={note.title} className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                      <strong className="text-[12px] font-semibold text-foreground">{note.title}</strong>
+                      <p className="mt-1 text-[12px] leading-snug text-fg-muted">{note.body}</p>
+                      {note.chips.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {note.chips.map((chip) => (
+                            <span key={chip} className="rounded-full bg-surface-strong px-2 py-0.5 text-[11px] text-fg-dim">
+                              {chip}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-[12px] leading-snug text-fg-muted">{note.empty}</p>
+                      )}
                     </div>
-                  ) : (
-                    <span>No concrete context lines are forwarded automatically right now.</span>
+                  ))}
+                  {(ignoredProfileLines.length > 0 || ignoredSttHintLines.length > 0) && (
+                    <div className="rounded-[10px] border border-border bg-surface px-3 py-2.5 sm:col-span-3">
+                      <strong className="text-[12px] font-semibold text-foreground">Ignored from automatic bias</strong>
+                      <p className="mt-1 text-[12px] leading-snug text-fg-muted">
+                        These lines stay in the profile, but are not forwarded automatically because they are too broad or
+                        too long for the conservative bias path.
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {ignoredProfileLines.map((line) => (
+                          <span key={`ignored-profile-${line}`} className="rounded-full bg-surface-strong px-2 py-0.5 text-[11px] text-fg-dim">
+                            Context ignored: {line}
+                          </span>
+                        ))}
+                        {ignoredSttHintLines.map((line) => (
+                          <span key={`ignored-stt-${line}`} className="rounded-full bg-surface-strong px-2 py-0.5 text-[11px] text-fg-dim">
+                            STT ignored: {line}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-                <div className="settings__editor-context-note">
-                  <strong>Preferred spellings</strong>
-                  <span>Dictionary replacements contribute these target spellings as preserve hints.</span>
-                  {biasDictionaryTerms.length > 0 ? (
-                    <div className="settings__rule-chip-row">
-                      {biasDictionaryTerms.map((term) => (
-                        <span key={`dictionary-term-${term}`} className="settings__rule-chip">{term}</span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span>No dictionary spellings are being forwarded yet.</span>
-                  )}
-                </div>
-                <div className="settings__editor-context-note">
-                  <strong>Explicit STT hints</strong>
-                  <span>These short cues are forwarded exactly as explicit bias hints.</span>
-                  {biasSttHints.length > 0 ? (
-                    <div className="settings__rule-chip-row">
-                      {biasSttHints.map((hint) => (
-                        <span key={`stt-hint-${hint}`} className="settings__rule-chip">{hint}</span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span>No explicit STT hints are currently forwarded.</span>
-                  )}
-                </div>
-                {(ignoredProfileLines.length > 0 || ignoredSttHintLines.length > 0) && (
-                  <div className="settings__editor-context-note">
-                    <strong>Ignored from automatic bias</strong>
-                    <span>These lines stay in the profile, but are not forwarded automatically because they are too broad or too long for the conservative bias path.</span>
-                    <div className="settings__rule-chip-row">
-                      {ignoredProfileLines.map((line) => (
-                        <span key={`ignored-profile-${line}`} className="settings__rule-chip">Context ignored: {line}</span>
-                      ))}
-                      {ignoredSttHintLines.map((line) => (
-                        <span key={`ignored-stt-${line}`} className="settings__rule-chip">STT ignored: {line}</span>
-                      ))}
-                    </div>
+                <RuleField label="Preview sample transcription">
+                  <textarea
+                    className={RULE_TEXTAREA_CLASS}
+                    aria-label="Preview sample transcription"
+                    value={sampleText}
+                    onChange={(event) => setSampleText(event.target.value)}
+                    placeholder="e.g. word script follow up note"
+                    rows={4}
+                  />
+                </RuleField>
+                <p className="text-[12px] leading-snug text-fg-muted">
+                  Type what the recognizer is likely to return, not what you wish it meant. If one spoken idea lands in
+                  several transcript forms, model those forms explicitly.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Resolved output</span>
+                    <strong className="mt-1 block text-[13px] text-foreground">
+                      {previewSource?.preview.output || "No preview yet"}
+                    </strong>
+                    {previewRuleChips.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {previewRuleChips.map((rule) => (
+                          <span
+                            key={rule.key}
+                            title={rule.title}
+                            className="rounded-full bg-surface-strong px-2.5 py-0.5 text-[11px] text-fg-dim"
+                          >
+                            {rule.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-[12px] leading-snug text-fg-muted">
+                        No dictionary or snippet rule matched this preview sample.
+                      </p>
+                    )}
                   </div>
-                )}
-              </div>
-              <label className="settings__rule-field settings__rule-field--wide">
-                <span>Preview sample transcription</span>
-                <textarea
-                  value={sampleText}
-                  onChange={(event) => setSampleText(event.target.value)}
-                  placeholder="e.g. word script follow up note"
-                  rows={4}
-                />
-              </label>
-              <p className="form-dim">Type what the recognizer is likely to return, not what you wish it meant. If one spoken idea lands in several transcript forms, model those forms explicitly.</p>
+                  <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">
+                      Validation diagnostics
+                    </span>
+                    {issueList.length === 0 ? (
+                      <strong className="mt-1 block text-[13px] text-foreground">No blocking rule conflicts right now.</strong>
+                    ) : (
+                      <ul className="mt-2 flex flex-col gap-2">
+                        {issueList.map((entry) => (
+                          <li key={`${entry.code}-${entry.rule_ids.join("-")}-${entry.message}`} className="flex items-start gap-2">
+                            <StatusBadge tone={entry.severity === "error" ? "error" : "warning"}>{entry.severity}</StatusBadge>
+                            <div className="flex min-w-0 flex-col gap-1 text-[12px] leading-snug">
+                              <span className="text-fg-dim">{entry.message}</span>
+                              {entry.rule_ids.length > 0 && (
+                                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                  {entry.rule_ids.map((ruleId) => {
+                                    const currentRule = currentRuleLookup.get(ruleId);
+                                    const previewRule = previewRuleLookup.get(ruleId);
+                                    const rule = previewRule ?? currentRule;
 
-              <div className="settings__editor-preview-split">
-                <article className="settings__rule-preview-card">
-                  <span className="settings__rule-preview-label">Resolved output</span>
-                  <strong>{previewSource?.preview.output || "No preview yet"}</strong>
-                  {previewRuleChips.length > 0 ? (
-                    <div className="settings__rule-chip-row">
-                      {previewRuleChips.map((rule) => (
-                        <span key={rule.key} className="settings__rule-chip" title={rule.title}>{rule.label}</span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="form-dim" style={{ margin: 0 }}>
-                      No dictionary or snippet rule matched this preview sample.
-                    </p>
-                  )}
-                </article>
-                <article className="settings__rule-preview-card">
-                  <span className="settings__rule-preview-label">Validation diagnostics</span>
-                  {issueList.length === 0 ? (
-                    <strong>No blocking rule conflicts right now.</strong>
-                  ) : (
-                    <ul className="settings__rule-issues">
-                      {issueList.map((entry) => (
-                        <li key={`${entry.code}-${entry.rule_ids.join("-")}-${entry.message}`} className={`settings__rule-issue settings__rule-issue--${entry.severity}`}>
-                          <strong>{entry.severity}</strong>
-                          <div className="settings__rule-issue-copy">
-                            <span>{entry.message}</span>
-                            {entry.rule_ids.length > 0 && (
-                              <div className="settings__rule-issue-links">
-                                {entry.rule_ids.map((ruleId) => {
-                                  const currentRule = currentRuleLookup.get(ruleId);
-                                  const previewRule = previewRuleLookup.get(ruleId);
-                                  const rule = previewRule ?? currentRule;
+                                    if (!rule) {
+                                      return (
+                                        <span key={ruleId} className="text-fg-muted">
+                                          Rule {ruleId}
+                                        </span>
+                                      );
+                                    }
 
-                                  if (!rule) {
+                                    if (!currentRule) {
+                                      return (
+                                        <span
+                                          key={ruleId}
+                                          className="text-fg-muted"
+                                          title="This issue comes from the imported preview file."
+                                        >
+                                          {rule.label}
+                                        </span>
+                                      );
+                                    }
+
                                     return (
-                                      <span key={ruleId} className="settings__rule-issue-target">
-                                        Rule {ruleId}
-                                      </span>
-                                    );
-                                  }
-
-                                  if (!currentRule) {
-                                    return (
-                                      <span key={ruleId} className="settings__rule-issue-target" title="This issue comes from the imported preview file.">
+                                      <button
+                                        key={ruleId}
+                                        type="button"
+                                        className="font-medium text-brand-strong underline-offset-2 hover:underline"
+                                        onClick={() => focusRuleCard(ruleId)}
+                                      >
                                         {rule.label}
-                                      </span>
+                                      </button>
                                     );
-                                  }
-
-                                  return (
-                                    <button
-                                      key={ruleId}
-                                      className="settings__rule-link"
-                                      type="button"
-                                      onClick={() => focusRuleCard(ruleId)}
-                                    >
-                                      {rule.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {hasImportedOnlyIssues && (
-                    <p className="form-dim" style={{ margin: 0 }}>
-                      Some diagnostics belong to the imported preview file. Apply that import first if you want those incoming rules to appear as editable cards in this tab.
-                    </p>
-                  )}
-                </article>
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {hasImportedOnlyIssues && (
+                      <p className="mt-2 text-[12px] leading-snug text-fg-muted">
+                        Some diagnostics belong to the imported preview file. Apply that import first if you want those
+                        incoming rules to appear as editable cards in this tab.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
-            </article>
+            </FormCard>
 
-            <div className="settings__editor-inline-note settings__editor-stage-guide">
-              <strong>Literal rule model</strong>
-              <span>Text Rules match transcript phrases, not raw audio and not semantic intent. Dictionary runs first, snippets second. For everyday reliability, add separate rules for common transcript variants instead of expecting fuzzy matching.</span>
+            <div className="rounded-[10px] border border-border bg-surface px-4 py-3">
+              <strong className="text-[13px] font-semibold text-foreground">Literal rule model</strong>
+              <p className="mt-1 text-[12px] leading-snug text-fg-muted">
+                Text Rules match transcript phrases, not raw audio and not semantic intent. Dictionary runs first, snippets
+                second. For everyday reliability, add separate rules for common transcript variants instead of expecting
+                fuzzy matching.
+              </p>
             </div>
 
             {profileHealth && profileHealth.flags.length > 0 && (
-              <article className={`settings__editor-stage-card settings__profile-health-card settings__profile-health-card--${profileHealth.level}`}>
-                <div className="settings__editor-stage-card-head">
-                  <div className="settings__rule-card-heading">
-                    <span className="settings__template-kicker">Profile Health</span>
-                    <strong className="settings__rule-card-title">
-                      <span className={`settings__profile-health-dot settings__profile-health-dot--${profileHealth.level}`} aria-hidden="true" />
-                      {profileHealth.level === "red" ? "Structural conflict detected" : profileHealth.level === "yellow" ? "Potential AI-Cleanup friction" : "No issues found"}
-                    </strong>
-                  </div>
-                </div>
-                <p className="form-dim">
-                  These diagnostics describe how the profile configuration may affect AI-Cleanup behavior systemically — not individual rule correctness. Acknowledge a flag to suppress it without changing anything.
-                </p>
-                <ul className="settings__profile-health-flags">
-                  {profileHealth.flags.map((flag) => {
-                    const isAcknowledged = acknowledgedFlags.has(flag.kind);
-                    return (
-                      <li key={flag.kind} className={`settings__profile-health-flag${isAcknowledged ? " settings__profile-health-flag--acknowledged" : ""}`}>
-                        <div className="settings__profile-health-flag-head">
-                          <span className={`settings__profile-health-severity settings__profile-health-severity--${flag.kind === "form_conflict" ? "red" : "yellow"}`}>
+              <FormCard
+                title={
+                  profileHealth.level === "red"
+                    ? "Structural conflict detected"
+                    : profileHealth.level === "yellow"
+                      ? "Potential AI-Cleanup friction"
+                      : "No issues found"
+                }
+                description="These diagnostics describe how the profile configuration may affect AI-Cleanup behavior systemically — not individual rule correctness. Acknowledge a flag to suppress it without changing anything."
+                action={
+                  <StatusBadge
+                    tone={profileHealth.level === "red" ? "error" : profileHealth.level === "yellow" ? "warning" : "success"}
+                    dot
+                  >
+                    Profile health
+                  </StatusBadge>
+                }
+                bodyClassName="py-2"
+              >
+                {profileHealth.flags.map((flag) => {
+                  const isAcknowledged = acknowledgedFlags.has(flag.kind);
+                  return (
+                    <FormRow
+                      key={flag.kind}
+                      align="start"
+                      label={
+                        <span className="flex items-center gap-2">
+                          <StatusBadge tone={flag.kind === "form_conflict" ? "error" : "warning"}>
                             {flag.kind === "form_conflict" ? "Conflict" : "Warning"}
-                          </span>
-                          <span className="settings__profile-health-flag-title">
-                            {flag.kind === "length_bias" && `Length bias — ${flag.direction === "inflating" ? "expanding" : "compressing"} replacements (${flag.entry_count} entries)`}
-                            {flag.kind === "form_conflict" && "Contradictory style instructions"}
-                            {flag.kind === "cleanup_interference" && "Cleanup-suppressing prompt patterns"}
-                          </span>
-                          <label className="settings__profile-health-ack">
-                            <input
-                              type="checkbox"
-                              checked={isAcknowledged}
-                              onChange={() =>
-                                setAcknowledgedFlags((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(flag.kind)) next.delete(flag.kind);
-                                  else next.add(flag.kind);
-                                  return next;
-                                })
-                              }
-                            />
-                            Acknowledge
-                          </label>
-                        </div>
-                        <p className="settings__profile-health-flag-hint">{flag.hint}</p>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </article>
+                          </StatusBadge>
+                          {flag.kind === "length_bias" &&
+                            `Length bias — ${flag.direction === "inflating" ? "expanding" : "compressing"} replacements (${flag.entry_count} entries)`}
+                          {flag.kind === "form_conflict" && "Contradictory style instructions"}
+                          {flag.kind === "cleanup_interference" && "Cleanup-suppressing prompt patterns"}
+                        </span>
+                      }
+                      hint={flag.hint}
+                      control={
+                        <label className="flex items-center gap-1.5 text-[12px] text-fg-dim">
+                          <input
+                            type="checkbox"
+                            checked={isAcknowledged}
+                            onChange={() =>
+                              setAcknowledgedFlags((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(flag.kind)) next.delete(flag.kind);
+                                else next.add(flag.kind);
+                                return next;
+                              })
+                            }
+                          />
+                          Acknowledge
+                        </label>
+                      }
+                    />
+                  );
+                })}
+              </FormCard>
             )}
-          </section>
+          </div>
         )}
 
         {activeWorkspacePanel === "dictionary" && (
-            <section className="settings__editor-stage settings__editor-stage--stacked">
-              <article className="settings__editor-stage-banner">
-                <div className="settings__editor-stage-banner-head">
-                  <div className="settings__rule-card-heading">
-                    <span className="settings__template-kicker">Dictionary</span>
-                    <strong className="settings__rule-card-title">Personal dictionary</strong>
-                    <p className="settings__rule-meta">Literal replacements for names, brands and recurring mishears that should always resolve the same way.</p>
-                  </div>
-                  <button
-                    className="btn btn--cancel"
-                    type="button"
-                    onClick={() => updateActiveProfile({ dictionary_entries: [...dictionaryEntries, makeDictionaryEntry()] })}
-                  >
-                    Add dictionary term
-                  </button>
+          <FormCard
+            title="Personal dictionary"
+            description="Literal replacements for names, brands and recurring mishears that should always resolve the same way."
+            bodyClassName="py-4"
+            action={
+              <Button
+                size="sm"
+                onClick={() => updateActiveProfile({ dictionary_entries: [...dictionaryEntries, makeDictionaryEntry()] })}
+              >
+                <Plus /> Add dictionary term
+              </Button>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              {dictionaryEntries.length === 0 ? (
+                <div className="rounded-[10px] border border-dashed border-border px-4 py-6 text-center text-[12px] leading-snug text-fg-muted">
+                  No dictionary entries yet. Add the phrases Groq hears wrong and the exact output WordScript should insert
+                  instead.
                 </div>
-                <p className="form-dim">
-                  Add one rule for each phrase the recognizer gets wrong. Matching is literal and case-insensitive, so separate transcript variants need separate entries.
-                </p>
-              </article>
-
-              <div className="settings__rule-stack">
-                {dictionaryEntries.length === 0 ? (
-                  <div className="settings__rule-empty">
-                    No dictionary entries yet. Add the phrases Groq hears wrong and the exact output WordScript should insert instead.
-                  </div>
-                ) : dictionaryEntries.map((entry, index) => {
-                  return (
-                    <DictionaryRuleCard
-                      key={entry.id}
-                      entry={entry}
-                      index={index}
-                      totalCount={dictionaryEntries.length}
-                      isActive={activeRuleId === entry.id}
-                      issues={currentIssueMap.get(entry.id) ?? EMPTY_ISSUES}
-                      registerRef={registerRuleCardRef}
-                      onMove={moveDictionaryEntry}
-                      onChange={updateDictionaryEntry}
-                      onRemove={removeDictionaryEntry}
-                    />
-                  );
-                })}
-              </div>
-            </section>
+              ) : (
+                dictionaryEntries.map((entry, index) => (
+                  <DictionaryRuleCard
+                    key={entry.id}
+                    entry={entry}
+                    index={index}
+                    totalCount={dictionaryEntries.length}
+                    isActive={activeRuleId === entry.id}
+                    issues={currentIssueMap.get(entry.id) ?? EMPTY_ISSUES}
+                    registerRef={registerRuleCardRef}
+                    onMove={moveDictionaryEntry}
+                    onChange={updateDictionaryEntry}
+                    onRemove={removeDictionaryEntry}
+                  />
+                ))
+              )}
+            </div>
+          </FormCard>
         )}
 
         {activeWorkspacePanel === "snippets" && (
-            <section className="settings__editor-stage settings__editor-stage--stacked">
-              <article className="settings__editor-stage-banner">
-                <div className="settings__editor-stage-banner-head">
-                  <div className="settings__rule-card-heading">
-                    <span className="settings__template-kicker">Snippets</span>
-                    <strong className="settings__rule-card-title">Snippets</strong>
-                    <p className="settings__rule-meta">Deliberate spoken macros for repeatable blocks like follow-ups, handoffs, recaps and status notes.</p>
-                  </div>
-                  <button
-                    className="btn btn--cancel"
-                    type="button"
-                    onClick={() => updateActiveProfile({ snippet_entries: [...snippetEntries, makeSnippetEntry()] })}
-                  >
-                    Add snippet
-                  </button>
+          <FormCard
+            title="Snippets"
+            description="Deliberate spoken macros for repeatable blocks like follow-ups, handoffs, recaps and status notes."
+            bodyClassName="py-4"
+            action={
+              <Button
+                size="sm"
+                onClick={() => updateActiveProfile({ snippet_entries: [...snippetEntries, makeSnippetEntry()] })}
+              >
+                <Plus /> Add snippet
+              </Button>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              {snippetEntries.length === 0 ? (
+                <div className="rounded-[10px] border border-dashed border-border px-4 py-6 text-center text-[12px] leading-snug text-fg-muted">
+                  No snippets yet. Add a trigger phrase and the full expansion WordScript should drop into the final
+                  transcript.
                 </div>
-                <p className="form-dim">
-                  Snippets are deliberate spoken macros. Keep triggers short and explicit; if a trigger lands in multiple transcript forms, normalize first in Dictionary or add separate triggers.
-                </p>
-              </article>
-
-              <div className="settings__rule-stack">
-                {snippetEntries.length === 0 ? (
-                  <div className="settings__rule-empty">
-                    No snippets yet. Add a trigger phrase and the full expansion WordScript should drop into the final transcript.
-                  </div>
-                ) : snippetEntries.map((entry, index) => {
-                  return (
-                    <SnippetRuleCard
-                      key={entry.id}
-                      entry={entry}
-                      index={index}
-                      totalCount={snippetEntries.length}
-                      isActive={activeRuleId === entry.id}
-                      issues={currentIssueMap.get(entry.id) ?? EMPTY_ISSUES}
-                      registerRef={registerRuleCardRef}
-                      onMove={moveSnippetEntry}
-                      onChange={updateSnippetEntry}
-                      onRemove={removeSnippetEntry}
-                    />
-                  );
-                })}
-              </div>
-            </section>
+              ) : (
+                snippetEntries.map((entry, index) => (
+                  <SnippetRuleCard
+                    key={entry.id}
+                    entry={entry}
+                    index={index}
+                    totalCount={snippetEntries.length}
+                    isActive={activeRuleId === entry.id}
+                    issues={currentIssueMap.get(entry.id) ?? EMPTY_ISSUES}
+                    registerRef={registerRuleCardRef}
+                    onMove={moveSnippetEntry}
+                    onChange={updateSnippetEntry}
+                    onRemove={removeSnippetEntry}
+                  />
+                ))
+              )}
+            </div>
+          </FormCard>
         )}
 
-        <p className="form-dim settings__editor-footnote">
-          Team-sharing stays outside V1. These rules stay personal and exportable, with ordering and preview meant for daily solo dictation instead of a shared automation system.
-        </p>
-      </div>
-    </>
+      <p className="px-1 text-[12px] leading-snug text-fg-muted">
+        Team-sharing stays outside V1. These rules stay personal and exportable, with ordering and preview meant for daily
+        solo dictation instead of a shared automation system.
+      </p>
+    </div>
   );
 }

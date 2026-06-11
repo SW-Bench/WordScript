@@ -84,11 +84,15 @@ export const RecordingState: Story = {
         <div className="pill__center">
           <Bars heights={[8, 14, 22, 18, 26, 30, 24, 16, 12, 8, 6]} />
         </div>
+        <button type="button" className="pill__mode" title="Mode: Agent · tap to cycle">
+          <span className="pill__mode-label">Agent</span>
+          <span className="pill__mode-hint">Mode</span>
+        </button>
         <div className="pill__divider" />
-        <button type="button" className="pill__side" title="Agent mode · pause recording">
+        <button type="button" className="pill__side" title="Pause recording">
           <span className="pill__side-copy">
             <span className="pill__timer">00:06</span>
-            <span className="pill__side-label">Agent</span>
+            <span className="pill__side-label">Pause</span>
           </span>
         </button>
       </div>
@@ -106,11 +110,15 @@ export const MutedState: Story = {
         <div className="pill__center">
           <Bars heights={[6, 8, 10, 12, 14, 16, 14, 12, 10, 8, 6]} muted />
         </div>
+        <button type="button" className="pill__mode" title="Mode: Agent · tap to cycle">
+          <span className="pill__mode-label">Agent</span>
+          <span className="pill__mode-hint">Mode</span>
+        </button>
         <div className="pill__divider" />
-        <button type="button" className="pill__side" title="Agent mode · pause recording">
+        <button type="button" className="pill__side" title="Pause recording">
           <span className="pill__side-copy">
             <span className="pill__timer">00:06</span>
-            <span className="pill__side-label">Muted</span>
+            <span className="pill__side-label">Pause</span>
           </span>
         </button>
       </div>
@@ -128,6 +136,10 @@ export const PausedState: Story = {
         <div className="pill__center">
           <Bars heights={[4, 5, 6, 8, 10, 12, 10, 8, 6, 5, 4]} />
         </div>
+        <button type="button" className="pill__mode" title="Mode: Agent · tap to cycle">
+          <span className="pill__mode-label">Agent</span>
+          <span className="pill__mode-hint">Mode</span>
+        </button>
         <div className="pill__divider" />
         <button type="button" className="pill__side" title="Resume recording">
           <span className="pill__side-copy">
@@ -154,11 +166,15 @@ export const ProcessingState: Story = {
             ))}
           </div>
         </div>
+        <button type="button" className="pill__mode" title="Mode: Cleanup · tap to cycle">
+          <span className="pill__mode-label">Cleanup</span>
+          <span className="pill__mode-hint">Mode</span>
+        </button>
         <div className="pill__divider" />
-        <button type="button" className="pill__side" title="Cleanup mode · processing">
+        <button type="button" className="pill__side" title="Processing">
           <span className="pill__side-copy">
             <span className="pill__timer">00:06</span>
-            <span className="pill__side-label">Cleanup</span>
+            <span className="pill__side-label">Working</span>
           </span>
         </button>
       </div>
@@ -181,6 +197,51 @@ export const DoneState: Story = {
           <span className="pill__side-copy">
             <span className="pill__timer">Done</span>
             <span className="pill__side-label">Dismiss</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  ),
+};
+
+export const ProcessingPreview: Story = {
+  render: () => (
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--preview-actions">
+        <div className="pill__center pill__center--actions">
+          <div className="pill__action-strip" aria-label="Preview actions">
+            <span className="pill__action-empty">"Ship the release notes by Friday."</span>
+          </div>
+        </div>
+        <div className="pill__divider" />
+        <div className="pill__action-strip" aria-label="Commit or abort">
+          <button type="button" className="pill__action-button pill__action-button--primary">
+            Commit
+          </button>
+          <button type="button" className="pill__action-button">Abort</button>
+        </div>
+      </div>
+    </div>
+  ),
+};
+
+export const ErrorRecovery: Story = {
+  render: () => (
+    <div className="overlay-shell" style={{ position: 'relative' }}>
+      <div className="pill pill--result-actions pill--error">
+        <div className="pill__center pill__center--actions">
+          <div className="pill__action-strip" aria-label="Recovery actions">
+            <button type="button" className="pill__action-button pill__action-button--primary">
+              Restore
+            </button>
+            <button type="button" className="pill__action-button">Copy</button>
+          </div>
+        </div>
+        <div className="pill__divider" />
+        <button type="button" className="pill__side pill__side--action" title="Insert failed">
+          <span className="pill__side-copy">
+            <span className="pill__timer">Failed</span>
+            <span className="pill__side-label">Recover</span>
           </span>
         </button>
       </div>
