@@ -130,7 +130,7 @@ describe("InputTab", () => {
 
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("list_native_input_devices"));
 
-    expect(screen.getByRole("checkbox", { name: /play sound feedback/i })).toBeChecked();
+    expect(screen.getByRole("switch", { name: /play sound feedback/i })).toBeChecked();
     expect(screen.getByText("First dictation preflight")).toBeInTheDocument();
     expect(screen.getByText("Overlay placement")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /overlay placement mode/i })).toHaveValue("preset");

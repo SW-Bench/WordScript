@@ -512,7 +512,7 @@ describe("RebuildLabTab", () => {
       />,
     );
 
-    expect(screen.getByText("Local Runtime Contract")).toBeInTheDocument();
+    expect(screen.getByText("Local runtime contract")).toBeInTheDocument();
     expect(screen.getAllByText("local-preview-base-quality").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Prompt bias profile + terms").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Carry initial prompt").length).toBeGreaterThan(0);

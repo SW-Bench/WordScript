@@ -54,10 +54,14 @@ body.overlay-window.overlay-idle,
 
 .pill {
   width: 248px;
-  height: 44px;
+  height: 40px;
   margin: 0;
   box-sizing: border-box;
-  background: linear-gradient(180deg, rgba(35, 38, 39, 0.985), rgba(17, 19, 20, 0.99));
+  /* Glassmorphism: translucent surface + backdrop blur of whatever is behind
+     the floating overlay window. */
+  background: linear-gradient(180deg, rgba(35, 38, 39, 0.74), rgba(17, 19, 20, 0.82));
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  backdrop-filter: blur(22px) saturate(1.3);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
   display: grid;
@@ -68,6 +72,7 @@ body.overlay-window.overlay-idle,
   opacity: 1;
   cursor: grab;
   box-shadow:
+    var(--shadow-pill, 0 8px 32px rgba(0, 0, 0, 0.25)),
     inset 0 1px 0 rgba(255, 255, 255, 0.09),
     inset 0 -10px 18px rgba(0, 0, 0, 0.18);
   transform-origin: 50% 54%;
@@ -76,6 +81,14 @@ body.overlay-window.overlay-idle,
   will-change: transform, opacity;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
+}
+
+/* Fallback for environments without backdrop-filter (e.g. some Linux/Wayland
+   compositors): use a near-opaque solid surface so the pill stays legible. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pill {
+    background: linear-gradient(180deg, rgba(35, 38, 39, 0.985), rgba(17, 19, 20, 0.99));
+  }
 }
 
 .pill:active {
@@ -107,8 +120,20 @@ body.overlay-window.overlay-idle,
   content: none;
 }
 
+/* Recording: a calm, refined accent. The live waveform already signals that
+   capture is active, so the pill only gets a subtle warm border + a hairline
+   inner ring — no aggressive outer halo, no pulsing. */
+.pill--recording {
+  border-color: rgba(230, 137, 0, 0.30);
+  box-shadow:
+    var(--shadow-pill, 0 8px 32px rgba(0, 0, 0, 0.25)),
+    inset 0 0 0 1px rgba(230, 137, 0, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.18);
+}
+
 .pill--processing {
-  border-color: rgba(244, 177, 57, 0.26);
+  border-color: rgba(230, 137, 0, 0.26);
 }
 
 .pill--muted {
@@ -129,21 +154,18 @@ body.overlay-window.overlay-idle,
 }
 
 .pill--compact {
-  width: 174px;
-  grid-template-columns: 38px minmax(0, 1fr) 6px 46px;
+  width: 150px;
+  grid-template-columns: 32px minmax(0, 1fr) 6px 48px;
 }
 
-/* Recording and processing surface the live processing mode in the side label, so
-   their side zones get a touch more width to keep mode words fully readable while
-   the waveform column stays the same size. Stays well within the 256px host. */
-.pill--compact.pill--recording {
-  width: 192px;
-  grid-template-columns: 38px minmax(0, 1fr) 6px 64px;
-}
-
+/* Recording and processing add a dedicated tap-to-cycle mode column between the
+   waveform and the divider. Width is content-driven but stays inside the 256px
+   host (≤244px after the 4px shell padding on each side). */
+.pill--compact.pill--recording,
 .pill--compact.pill--processing {
-  width: 198px;
-  grid-template-columns: 38px minmax(0, 1fr) 6px 70px;
+  width: max-content;
+  max-width: 244px;
+  grid-template-columns: 32px minmax(34px, 1fr) auto 6px 50px;
 }
 
 .pill--preview-actions {
@@ -317,7 +339,7 @@ body.overlay-window.overlay-idle,
 
 .overlay-preview__status {
   margin: 0;
-  color: rgba(244, 177, 57, 0.86);
+  color: rgba(230, 137, 0, 0.86);
   font-size: 11px;
   font-weight: 600;
   line-height: 1.35;
@@ -369,8 +391,8 @@ body.overlay-window.overlay-idle,
 .pill__mic::after {
   content: "";
   position: absolute;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background:
     radial-gradient(circle at 48% 44%, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.055) 52%, rgba(255, 255, 255, 0.025) 100%);
@@ -390,8 +412,8 @@ body.overlay-window.overlay-idle,
 .pill__mic svg {
   position: relative;
   z-index: 1;
-  width: 22px;
-  height: 28px;
+  width: 20px;
+  height: 25px;
 }
 
 .pill--muted .pill__mic::after {
@@ -411,7 +433,7 @@ body.overlay-window.overlay-idle,
 .pill__bars {
   width: auto;
   max-width: 100%;
-  height: 30px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -421,11 +443,55 @@ body.overlay-window.overlay-idle,
 
 .pill__divider {
   width: 1px;
-  height: 22px;
+  height: 20px;
   align-self: center;
   justify-self: center;
   background: rgba(255, 255, 255, 0.22);
   flex-shrink: 0;
+}
+
+/* ── Mode cycler (tap to rotate processing mode, recording/processing only) ──── */
+.pill__mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  height: 100%;
+  padding: 0 9px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.pill__mode:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pill__mode-label {
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  line-height: 1.05;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+}
+
+.pill__mode-hint {
+  font-size: 6.5px;
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgba(230, 137, 0, 0.82);
+  white-space: nowrap;
+}
+
+.pill--processing .pill__mode-hint {
+  color: rgba(230, 137, 0, 0.7);
 }
 
 .pill__side {
@@ -488,7 +554,7 @@ body.overlay-window.overlay-idle,
 }
 
 .pill--processing .pill__side-label {
-  color: rgba(244, 177, 57, 0.78);
+  color: rgba(230, 137, 0, 0.78);
 }
 
 .pill--error .pill__side-label {
@@ -674,12 +740,12 @@ body.overlay-window.overlay-idle,
 }
 
 .pill__action-button--primary {
-  background: rgba(244, 177, 57, 0.14);
-  color: rgba(244, 177, 57, 0.96);
+  background: rgba(230, 137, 0, 0.14);
+  color: rgba(230, 137, 0, 0.96);
 }
 
 .pill__action-button--primary:hover:enabled {
-  background: rgba(244, 177, 57, 0.22);
+  background: rgba(230, 137, 0, 0.22);
 }
 
 .pill__action-button--primary:disabled {
@@ -708,7 +774,7 @@ body.overlay-window.overlay-idle,
 .pill__edit-success {
   font-size: 11px;
   font-weight: 600;
-  color: rgba(244, 177, 57, 0.88);
+  color: rgba(230, 137, 0, 0.88);
   line-height: 1.25;
   flex: 1;
   min-width: 0;

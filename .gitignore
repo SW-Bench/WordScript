@@ -67,3 +67,6 @@ openwhispr donor-screenshots
 
 # ── Kilo (local agent tooling: config, plans, worktree bookkeeping) ───────
 .kilo/
+
+*storybook.log
+storybook-static

@@ -1,7 +1,21 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { ExternalLink, FileJson, Stethoscope } from "lucide-react";
+import { cn } from "../../lib/utils";
 import { providerErrorActionLabel, useProvider } from "../../hooks/useProvider";
+import {
+  FormCard,
+  FormRow,
+  SegmentControl,
+  Select,
+  StatTiles,
+  StatusBadge,
+  Toggle,
+} from "../shell";
+import type { StatusTone } from "../shell";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import type { AppConfig } from "../../types/ipc";
 import type {
   LocalProviderIssueCode,
@@ -312,6 +326,36 @@ function localRuntimeSetupSteps(localSetup: LocalProviderSetupStatus | null, con
   ];
 }
 
+function MetaRow({
+  label,
+  value,
+  mono,
+  divider = true,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+  divider?: boolean;
+}) {
+  return (
+    <FormRow
+      label={label}
+      divider={divider}
+      control={
+        <span
+          className={cn(
+            "max-w-[300px] truncate text-right text-[12px] text-fg-dim",
+            mono && "font-mono text-[11px]",
+          )}
+          title={typeof value === "string" ? value : undefined}
+        >
+          {value}
+        </span>
+      }
+    />
+  );
+}
+
 export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const [showTypedKey, setShowTypedKey] = useState(false);
   const [pendingKey, setPendingKey] = useState("");
@@ -563,418 +607,546 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
     setStatusMessage("Diagnostics opened.");
   };
 
+  const credentialTone: StatusTone =
+    validationState === "ok"
+      ? "success"
+      : validationState === "stored"
+        ? "accent"
+        : validationState === "error"
+          ? "error"
+          : "warning";
+  const credentialBadge =
+    validationState === "ok"
+      ? "Validated"
+      : validationState === "stored"
+        ? "Stored"
+        : validationState === "error"
+          ? "Failed"
+          : storedKey
+            ? "Ready"
+            : "Setup";
+
   return (
-    <>
-      <div className="tab__title">Provider &amp; Models</div>
+    <div className="flex flex-col gap-6">
+      <StatTiles
+        items={[
+          {
+            label: "Lane",
+            value: providerLabel,
+            hint: providerCapabilities.local
+              ? "Local transcription + local AI cleanup."
+              : "Cloud transcription with local BYOK.",
+          },
+          {
+            label: "Active model",
+            value: activeModel,
+            hint: `${activeMode.replace("_", " ")} transcription mode`,
+          },
+          {
+            label: "Status",
+            value: statusTitle,
+            hint: validationSource,
+            accent: validationState === "ok" || validationState === "stored",
+          },
+        ]}
+      />
 
-      <div className="settings__summary-grid settings__summary-grid--three" aria-label="Provider overview">
-        <article className="settings__summary-item">
-          <span>Lane</span>
-          <strong>{providerLabel}</strong>
-          <small>{providerCapabilities.local ? "Local transcription plus local AI cleanup via whisper-cli and Ollama." : "Cloud transcription with local BYOK."}</small>
-        </article>
-        <article className="settings__summary-item">
-          <span>Active model</span>
-          <strong>{activeModel}</strong>
-          <small>{activeMode.replace("_", " ")} transcription mode</small>
-        </article>
-        <article className="settings__summary-item">
-          <span>Status</span>
-          <strong>{statusTitle}</strong>
-          <small>{validationSource}</small>
-        </article>
-      </div>
-
-      <div className="form-section">{providerRequiresKey ? "Credential status" : "Local runtime status"}</div>
-      <div className="settings__provider-card settings__provider-card--highlight">
-        <div className="provider-status provider-status--stacked">
-          <span className={`provider-status__dot${
-            validationState === "ok"
-              ? " provider-status__dot--ok"
-              : validationState === "stored"
-                ? " provider-status__dot--stored"
-                : ""
-          }`} />
-          <div>
-            <strong>{statusTitle}</strong>
-            <span>{statusCopy}</span>
-          </div>
-        </div>
-        <div className="settings__provider-meta-grid">
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">{providerRequiresKey ? "Storage" : "Setup"}</span>
-            {providerRequiresKey ? (
-              <code>{status?.credential.storage ?? "os_secret_store"}</code>
-            ) : (
-              <span>{previewReady ? "Ready" : "Setup required"}</span>
-            )}
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">{providerRequiresKey ? "Stored preview" : "Runner"}</span>
-            <code>{providerRequiresKey ? status?.credential.key_preview ?? "No stored preview" : localSetup?.resolved_runner ?? "No runner resolved"}</code>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">{providerRequiresKey ? "Last check" : "Model"}</span>
-            <span>{providerRequiresKey ? validationSource : localSetup?.resolved_model ?? "No model resolved"}</span>
-          </div>
-          {!providerRequiresKey && (
-            <div className="settings__provider-meta-item">
-              <span className="settings__provider-meta-label">Issue</span>
-              <span>{validationSource}</span>
-            </div>
-          )}
-          {!providerRequiresKey && (
-            <div className="settings__provider-meta-item">
-              <span className="settings__provider-meta-label">Cleanup endpoint</span>
-              <code>{localSetup?.resolved_chat_base_url ?? "No endpoint resolved"}</code>
-            </div>
-          )}
-          {!providerRequiresKey && (
-            <div className="settings__provider-meta-item">
-              <span className="settings__provider-meta-label">Cleanup model</span>
-              <span>{(localSetup?.resolved_chat_model ?? config.local_correction_model) || "No cleanup model resolved"}</span>
-            </div>
-          )}
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Cleanup</span>
-            <span>{providerCapabilities.chat_completion ? "Available" : "Unavailable"}</span>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Context bias</span>
-            <span>{providerCapabilities.supports_prompt_bias ? "Supported" : "Not supported"}</span>
-          </div>
-          <div className="settings__provider-meta-item">
-            <span className="settings__provider-meta-label">Segments</span>
-            <span>{providerCapabilities.supports_segments ? "Available" : "Unavailable"}</span>
-          </div>
-        </div>
-        <div className="settings__provider-actions settings__provider-actions--compact">
+      <FormCard
+        title={providerRequiresKey ? "Credential status" : "Local runtime status"}
+        description={statusCopy}
+        action={
+          <StatusBadge tone={credentialTone} dot>
+            {credentialBadge}
+          </StatusBadge>
+        }
+      >
+        <MetaRow
+          label={providerRequiresKey ? "Storage" : "Setup"}
+          value={
+            providerRequiresKey
+              ? status?.credential.storage ?? "os_secret_store"
+              : previewReady
+                ? "Ready"
+                : "Setup required"
+          }
+          mono={providerRequiresKey}
+        />
+        <MetaRow
+          label={providerRequiresKey ? "Stored preview" : "Runner"}
+          value={
+            providerRequiresKey
+              ? status?.credential.key_preview ?? "No stored preview"
+              : localSetup?.resolved_runner ?? "No runner resolved"
+          }
+          mono
+        />
+        <MetaRow
+          label={providerRequiresKey ? "Last check" : "Model"}
+          value={providerRequiresKey ? validationSource : localSetup?.resolved_model ?? "No model resolved"}
+        />
+        {!providerRequiresKey && <MetaRow label="Issue" value={validationSource} />}
+        {!providerRequiresKey && (
+          <MetaRow label="Cleanup endpoint" value={localSetup?.resolved_chat_base_url ?? "No endpoint resolved"} mono />
+        )}
+        {!providerRequiresKey && (
+          <MetaRow
+            label="Cleanup model"
+            value={(localSetup?.resolved_chat_model ?? config.local_correction_model) || "No cleanup model resolved"}
+          />
+        )}
+        <MetaRow label="Cleanup" value={providerCapabilities.chat_completion ? "Available" : "Unavailable"} />
+        <MetaRow label="Context bias" value={providerCapabilities.supports_prompt_bias ? "Supported" : "Not supported"} />
+        <MetaRow
+          label="Segments"
+          value={providerCapabilities.supports_segments ? "Available" : "Unavailable"}
+          divider={false}
+        />
+        <div className="flex flex-wrap gap-2 border-t border-border py-3">
           {providerRequiresKey && (
-            <button className="btn btn--cancel" type="button" onClick={() => void handleOpenGroqKeys()}>
-              Open Groq keys
-            </button>
+            <Button size="sm" variant="outline" onClick={() => void handleOpenGroqKeys()}>
+              <ExternalLink /> Groq keys
+            </Button>
           )}
-          <button className="btn btn--cancel" type="button" onClick={() => void handleRevealConfigJson()}>
-            Reveal config JSON
-          </button>
-          <button className="btn btn--cancel" type="button" onClick={handleOpenDiagnostics}>
-            Open diagnostics
-          </button>
+          <Button size="sm" variant="outline" onClick={() => void handleRevealConfigJson()}>
+            <FileJson /> Reveal config
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleOpenDiagnostics}>
+            <Stethoscope /> Diagnostics
+          </Button>
         </div>
-      </div>
+      </FormCard>
 
       {providerRequiresKey ? (
-        <div className="settings__provider-card">
-          <div className="settings__provider-card-header">
-            <strong className="settings__about-title">{storedKey ? "Replace local key" : "Add local key"}</strong>
-            <p className="form-dim settings__provider-card-copy">
-              {hasTypedKey
-                ? "Validate first, save after."
-                : storedKey
-                  ? "Paste only when you want to rotate the stored key."
-                  : "Paste one Groq key and save it locally."}
-            </p>
-          </div>
-          <div className="form-row settings__provider-form-row">
-            <label>{storedKey ? "New key" : "Key"}</label>
-            <div className="settings__provider-input">
-              <input
+        <FormCard
+          title={storedKey ? "Replace local key" : "Add local key"}
+          description={
+            hasTypedKey
+              ? "Validate first, save after."
+              : storedKey
+                ? "Paste only when you want to rotate the stored key."
+                : "Paste one Groq key and save it locally."
+          }
+        >
+          <FormRow label={storedKey ? "New key" : "Key"} htmlFor="groq-key-input" layout="stacked">
+            <div className="flex items-center gap-2">
+              <Input
+                id="groq-key-input"
                 type={showTypedKey ? "text" : "password"}
                 value={pendingKey}
                 onChange={(e) => setPendingKey(e.target.value)}
                 placeholder={storedKey ? "Paste replacement gsk_..." : "Paste gsk_..."}
                 spellCheck={false}
+                autoComplete="off"
+                className="font-mono"
               />
-              <button
-                className="btn btn--cancel settings__provider-inline-btn"
-                type="button"
+              <Button
+                size="sm"
+                variant="outline"
                 disabled={!hasTypedKey}
                 onClick={() => setShowTypedKey((current) => !current)}
               >
                 {showTypedKey ? "Hide" : "Show"}
-              </button>
+              </Button>
             </div>
-          </div>
-          <div className="settings__provider-actions">
-            <button className="btn btn--cancel" type="button" disabled={isLoading || !hasTypedKey} onClick={() => void handleSaveKey()}>
-              {actionSaveLabel}
-            </button>
-            <button className="btn btn--cancel" type="button" disabled={isLoading || (!hasTypedKey && !storedKey)} onClick={() => void handleValidate()}>
-              {actionValidateLabel}
-            </button>
-            <button className="btn btn--cancel" type="button" disabled={isLoading || !storedKey} onClick={() => void handleClear()}>
-              Clear key
-            </button>
-          </div>
-        </div>
+          </FormRow>
+          <FormRow
+            label="Manage key"
+            hint="Keys are stored locally in the OS secret store."
+            divider={false}
+            control={
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button size="sm" disabled={isLoading || !hasTypedKey} onClick={() => void handleSaveKey()}>
+                  {actionSaveLabel}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isLoading || (!hasTypedKey && !storedKey)}
+                  onClick={() => void handleValidate()}
+                >
+                  {actionValidateLabel}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={isLoading || !storedKey} onClick={() => void handleClear()}>
+                  Clear
+                </Button>
+              </div>
+            }
+          />
+        </FormCard>
       ) : (
-        <div className="settings__provider-card">
-          <div className="settings__provider-card-header">
-            <strong className="settings__about-title">Local runtime setup</strong>
-            <p className="form-dim settings__provider-card-copy">
-              Local setup is checked by the native provider contract. WordScript needs a speech runner, one ggml STT model, a local cleanup endpoint and the selected cleanup model before this lane is ready.
-            </p>
-          </div>
-          <div className="settings__preflight settings__local-preflight" aria-label="Local runtime setup checklist">
+        <FormCard
+          title="Local runtime setup"
+          description="WordScript needs a speech runner, one ggml STT model, a local cleanup endpoint and the selected cleanup model before this lane is ready."
+        >
+          <div className="flex flex-col" role="group" aria-label="Local runtime setup checklist">
             {localSetupSteps.map((step) => (
-              <article
+              <FormRow
                 key={step.id}
-                className={`settings__local-preflight-step${step.ready ? " settings__local-preflight-step--ready" : " settings__local-preflight-step--blocked"}`}
-              >
-                <div className="provider-status provider-status--stacked">
-                  <span className={`provider-status__dot${step.ready ? " provider-status__dot--ok" : ""}`} />
-                  <div>
-                    <strong>{step.label}</strong>
-                    <span>{step.state}</span>
+                label={step.label}
+                hint={step.detail}
+                align="start"
+                control={
+                  <div className="flex flex-col items-end gap-1">
+                    <StatusBadge tone={step.ready ? "success" : "warning"} dot>
+                      {step.state}
+                    </StatusBadge>
+                    <span className="text-right text-[11px] text-fg-muted">{step.action}</span>
                   </div>
-                </div>
-                <p>{step.detail}</p>
-                <span className="settings__rule-chip">{step.action}</span>
-              </article>
+                }
+              />
             ))}
           </div>
-          <p className="form-dim">
-            {localSetup?.guidance ?? "This lane uses the same runtime path for capture, insert and diagnostics, but now expects both local STT and local cleanup to be reachable."}
+          <p className="border-t border-border py-3 text-[12px] leading-snug text-fg-dim">
+            {localSetup?.guidance ??
+              "This lane uses the same runtime path for capture, insert and diagnostics, but now expects both local STT and local cleanup to be reachable."}
           </p>
-        </div>
+        </FormCard>
       )}
       {(statusMessage || lastValidation || error || localError) && (
-        <p className={`form-dim${error || localError ? " form-dim--error" : " form-dim--ok"}`}>
+        <p
+          className={cn(
+            "px-1 text-[12px] leading-snug",
+            error || localError ? "text-[var(--red)]" : "text-[var(--green)]",
+          )}
+        >
           {error ?? localError ?? statusMessage ?? (!previewLaneSelected && lastValidation?.ok ? "Groq key validated." : "")}
           {lastError ? ` ${providerErrorActionLabel(lastError.user_action)}` : ""}
         </p>
       )}
 
-      <div className="form-section">Speech-to-text</div>
-      <div className="form-row">
-        <label htmlFor="provider-select">Provider</label>
-        <select id="provider-select" value={selectedProvider} onChange={(e) => handleProviderChange(e.target.value as ProviderId)}>
-          <option value="groq">Groq cloud</option>
-          <option value="local_preview">Local runtime (whisper-cli + Ollama)</option>
-        </select>
-      </div>
-      <div className="form-row">
-        <label htmlFor="profile-select">Profile</label>
-        <select id="profile-select" value={previewLaneSelected ? activeLocalProfileId ?? "" : activeModel}
-          onChange={(e) => handleProfileChange(e.target.value)}>
-          {providerProfiles.map((profile) => (
-            <option key={profile.id} value={previewLaneSelected ? profile.id : profile.model}>{profile.label}</option>
-          ))}
-        </select>
-      </div>
-      <div className="form-row">
-        <label htmlFor="language-select">Language</label>
-        <select
-          id="language-select"
-          value={config.language || "Auto"}
-          onChange={(e) => onChange({ language: e.target.value === "Auto" ? "" : e.target.value })}
-        >
-          {LANGUAGES.map((l) => <option key={l}>{l}</option>)}
-        </select>
-      </div>
-      {previewLaneSelected && providerCapabilities.supports_prompt_bias && (
-        <>
-          <div className="form-row">
-            <label htmlFor="local-prompt-strength-select">Bias strength</label>
-            <select
-              id="local-prompt-strength-select"
-              value={activeLocalPromptStrength}
-              onChange={(e) => {
-                const nextPromptStrength = e.target.value as AppConfig["local_prompt_strength"];
-                const profileId = activeLocalProfileId ?? "local-preview-base-fast";
-                onChange({
-                  local_prompt_strength: nextPromptStrength,
-                  local_profile_prompt_settings: upsertLocalProfilePromptSettings(
-                    config.local_profile_prompt_settings,
-                    profileId,
-                    nextPromptStrength,
-                    activeLocalPromptCarry,
-                  ),
-                });
-              }}
-            >
-              {LOCAL_PROMPT_STRENGTH_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </div>
-          <label className="form-check" style={{ marginBottom: 10 }}>
-            <input
-              type="checkbox"
-              checked={activeLocalPromptCarry}
-              onChange={(e) => {
-                const nextPromptCarry = e.target.checked;
-                const profileId = activeLocalProfileId ?? "local-preview-base-fast";
-                onChange({
-                  local_prompt_carry: nextPromptCarry,
-                  local_profile_prompt_settings: upsertLocalProfilePromptSettings(
-                    config.local_profile_prompt_settings,
-                    profileId,
-                    activeLocalPromptStrength,
-                    nextPromptCarry,
-                  ),
-                });
-              }}
+      <FormCard
+        title="Speech-to-text"
+        description={
+          previewLaneSelected
+            ? "Local runtime runs speech-to-text through whisper-cli; the profile controls latency vs. quality."
+            : "Profile controls speed vs. accuracy. Language can usually stay on Auto."
+        }
+      >
+        <FormRow
+          label="Provider"
+          hint="Cloud BYOK or the fully local lane."
+          control={
+            <SegmentControl
+              aria-label="Provider"
+              value={selectedProvider}
+              onChange={(value) => handleProviderChange(value as ProviderId)}
+              options={[
+                { value: "groq", label: "Groq cloud" },
+                { value: "local_preview", label: "Local" },
+              ]}
             />
-            <span>Carry initial prompt</span>
-          </label>
-          <p className="form-dim">
-            Local prompt bias uses the active Text Rules profile. <strong>Profile + terms</strong> adds dictionary replacements and explicit STT hints to the initial whisper prompt, while carry keeps that bias across decoder windows.
-          </p>
-        </>
-      )}
-      {previewLaneSelected && (
-        <>
-          <div className="form-row">
-            <label htmlFor="local-beam-size-select">Beam size</label>
-            <select
-              id="local-beam-size-select"
-              value={activeLocalBeamSize}
-              onChange={(e) => {
-                const nextBeamSize = Number(e.target.value);
-                const profileId = activeLocalProfileId ?? "local-preview-base-fast";
-                onChange({
-                  local_beam_size: nextBeamSize,
-                  local_profile_decode_settings: upsertLocalProfileDecodeSettings(
-                    config.local_profile_decode_settings,
-                    profileId,
-                    nextBeamSize,
-                    activeLocalBestOf,
-                  ),
-                });
-              }}
-            >
-              {LOCAL_DECODE_OPTIONS.map((value) => (
-                <option key={`beam-${value}`} value={value}>{value}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-row">
-            <label htmlFor="local-best-of-select">Best of</label>
-            <select
-              id="local-best-of-select"
-              value={activeLocalBestOf}
-              onChange={(e) => {
-                const nextBestOf = Number(e.target.value);
-                const profileId = activeLocalProfileId ?? "local-preview-base-fast";
-                onChange({
-                  local_best_of: nextBestOf,
-                  local_profile_decode_settings: upsertLocalProfileDecodeSettings(
-                    config.local_profile_decode_settings,
-                    profileId,
-                    activeLocalBeamSize,
-                    nextBestOf,
-                  ),
-                });
-              }}
-            >
-              {LOCAL_DECODE_OPTIONS.map((value) => (
-                <option key={`best-of-${value}`} value={value}>{value}</option>
-              ))}
-            </select>
-          </div>
-          <p className="form-dim">
-            Fast and quality profiles now set decoder defaults, not hidden behavior. Lower beam and best-of values reduce search work, while higher values trade more latency for a broader local decode pass.
-          </p>
-        </>
-      )}
-      <p className="form-dim">
-        {previewLaneSelected
-          ? "Local runtime keeps the same pipeline for capture, transform and insert, but runs speech-to-text through whisper-cli and cleanup through a local Ollama model. Language can usually stay on Auto, and the selected local profile controls latency vs. quality explicitly."
-          : "Profile controls speed vs. accuracy. Language can usually stay on Auto."}
-      </p>
-
-      <div className="form-section">AI cleanup</div>
-      <label className="form-check" style={{ marginBottom: 10 }}>
-        <input type="checkbox" checked={cleanupEnabled}
-          onChange={(e) => onChange({ post_process: e.target.checked })} />
-        <span>AI cleanup</span>
-      </label>
-      <p className="form-dim" style={{ margin: "0 0 10px 26px" }}>
-        {previewLaneSelected
-          ? "Runs locally after speech-to-text and falls back to the original transcript if the rewrite looks unsafe or the local cleanup model is unavailable."
-          : cleanupSummary(config)}
-      </p>
-      {cleanupEnabled && (
-        <>
-          <label className="form-check" style={{ marginBottom: 8, marginLeft: 16 }}>
-            <input type="checkbox" checked={config.filter_fillers} disabled={!config.post_process}
-              onChange={(e) => onChange({ filter_fillers: e.target.checked })} />
-            <span>Remove fillers</span>
-          </label>
-          <label className="form-check" style={{ marginBottom: 10, marginLeft: 16 }}>
-            <input type="checkbox" checked={config.professionalize} disabled={!config.post_process}
-              onChange={(e) => onChange({ professionalize: e.target.checked })} />
-            <span>Rewrite phrasing</span>
-          </label>
-          <div className="form-row">
-            <label htmlFor="correction-model-select">Model</label>
-            <select id="correction-model-select" value={previewLaneSelected ? config.local_correction_model : config.correction_model}
-              onChange={(e) => onChange(previewLaneSelected
-                ? { local_correction_model: e.target.value }
-                : { correction_model: e.target.value })}>
-              {(previewLaneSelected ? localCleanupModels : CORRECTION_MODELS).map((m) => <option key={m}>{m}</option>)}
-            </select>
-          </div>
-          <p className="form-dim">
-            {previewLaneSelected
-              ? "Uses a local Ollama chat model for cleanup. Keep the chosen model installed locally so the native lane stays fully offline and sustainable."
-              : "Runs after speech-to-text and can fall back to the original transcript if the rewrite looks unsafe."}
-          </p>
-        </>
-      )}
-
-      <div className="form-section">AI agent mode</div>
-      <label className="form-check" style={{ marginBottom: 10 }}>
-        <input
-          type="checkbox"
-          checked={config.agent_mode_enabled}
-          onChange={(e) => onChange({ agent_mode_enabled: e.target.checked })}
+          }
         />
-        <span>Agent mode</span>
-      </label>
-      <p className="form-dim" style={{ margin: "0 0 10px 26px" }}>
-        {config.agent_mode_enabled
-          ? "When an instruction is detected (e.g. \"Hey WordScript, write an email to Felix...\"), WordScript executes it via AI instead of just transcribing."
-          : "Off. All recordings are transcribed as-is and passed through the normal cleanup pipeline."}
-      </p>
-      {config.agent_mode_enabled && (
-        <>
-          <div className="form-row">
-            <label htmlFor="agent-name-input">Agent name</label>
-            <input
-              id="agent-name-input"
-              type="text"
-              value={config.agent_name}
-              placeholder="WordScript"
-              onChange={(e) => onChange({ agent_name: e.target.value })}
-            />
-          </div>
-          <p className="form-dim">
-            The name you use when addressing the agent in speech. The app listens for this name as a strong intent signal.
-          </p>
-          <div className="form-row">
-            <label htmlFor="agent-model-select">Model</label>
-            <select
-              id="agent-model-select"
-              value={previewLaneSelected ? config.local_agent_model : config.agent_model}
-              onChange={(e) => onChange(previewLaneSelected
-                ? { local_agent_model: e.target.value }
-                : { agent_model: e.target.value })}
+        <FormRow
+          label="Profile"
+          htmlFor="profile-select"
+          control={
+            <Select
+              id="profile-select"
+              className="w-[280px]"
+              value={previewLaneSelected ? activeLocalProfileId ?? "" : activeModel}
+              onChange={(e) => handleProfileChange(e.target.value)}
             >
-              {(previewLaneSelected
-                ? localAgentModelOptions(config, localSetup?.available_chat_models)
-                : AGENT_MODEL_OPTIONS
-              ).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-          </div>
-          <p className="form-dim">
-            {previewLaneSelected
-              ? "Local Ollama model used for both intent classification and instruction execution. Requires the same local chat endpoint as AI cleanup."
-              : "Groq model used for intent classification and instruction execution. A larger model gives better instruction-following quality."}
-          </p>
-        </>
-      )}
-    </>
+              {providerProfiles.map((profile) => (
+                <option key={profile.id} value={previewLaneSelected ? profile.id : profile.model}>
+                  {profile.label}
+                </option>
+              ))}
+            </Select>
+          }
+        />
+        <FormRow
+          label="Language"
+          htmlFor="language-select"
+          control={
+            <Select
+              id="language-select"
+              className="w-[160px]"
+              value={config.language || "Auto"}
+              onChange={(e) => onChange({ language: e.target.value === "Auto" ? "" : e.target.value })}
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l}>{l}</option>
+              ))}
+            </Select>
+          }
+        />
+        {previewLaneSelected && providerCapabilities.supports_prompt_bias && (
+          <>
+            <FormRow
+              label="Bias strength"
+              hint="Uses the active Text Rules profile to bias the initial whisper prompt."
+              htmlFor="local-prompt-strength-select"
+              control={
+                <Select
+                  id="local-prompt-strength-select"
+                  className="w-[200px]"
+                  value={activeLocalPromptStrength}
+                  onChange={(e) => {
+                    const nextPromptStrength = e.target.value as AppConfig["local_prompt_strength"];
+                    const profileId = activeLocalProfileId ?? "local-preview-base-fast";
+                    onChange({
+                      local_prompt_strength: nextPromptStrength,
+                      local_profile_prompt_settings: upsertLocalProfilePromptSettings(
+                        config.local_profile_prompt_settings,
+                        profileId,
+                        nextPromptStrength,
+                        activeLocalPromptCarry,
+                      ),
+                    });
+                  }}
+                >
+                  {LOCAL_PROMPT_STRENGTH_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              }
+            />
+            <FormRow
+              label="Carry initial prompt"
+              hint="Keeps the bias across decoder windows."
+              htmlFor="local-prompt-carry"
+              control={
+                <Toggle
+                  id="local-prompt-carry"
+                  checked={activeLocalPromptCarry}
+                  onCheckedChange={(nextPromptCarry) => {
+                    const profileId = activeLocalProfileId ?? "local-preview-base-fast";
+                    onChange({
+                      local_prompt_carry: nextPromptCarry,
+                      local_profile_prompt_settings: upsertLocalProfilePromptSettings(
+                        config.local_profile_prompt_settings,
+                        profileId,
+                        activeLocalPromptStrength,
+                        nextPromptCarry,
+                      ),
+                    });
+                  }}
+                />
+              }
+            />
+          </>
+        )}
+        {previewLaneSelected && (
+          <>
+            <FormRow
+              label="Beam size"
+              hint="Higher values trade latency for a broader local decode pass."
+              htmlFor="local-beam-size-select"
+              control={
+                <Select
+                  id="local-beam-size-select"
+                  className="w-[100px]"
+                  value={activeLocalBeamSize}
+                  onChange={(e) => {
+                    const nextBeamSize = Number(e.target.value);
+                    const profileId = activeLocalProfileId ?? "local-preview-base-fast";
+                    onChange({
+                      local_beam_size: nextBeamSize,
+                      local_profile_decode_settings: upsertLocalProfileDecodeSettings(
+                        config.local_profile_decode_settings,
+                        profileId,
+                        nextBeamSize,
+                        activeLocalBestOf,
+                      ),
+                    });
+                  }}
+                >
+                  {LOCAL_DECODE_OPTIONS.map((value) => (
+                    <option key={`beam-${value}`} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </Select>
+              }
+            />
+            <FormRow
+              label="Best of"
+              htmlFor="local-best-of-select"
+              control={
+                <Select
+                  id="local-best-of-select"
+                  className="w-[100px]"
+                  value={activeLocalBestOf}
+                  onChange={(e) => {
+                    const nextBestOf = Number(e.target.value);
+                    const profileId = activeLocalProfileId ?? "local-preview-base-fast";
+                    onChange({
+                      local_best_of: nextBestOf,
+                      local_profile_decode_settings: upsertLocalProfileDecodeSettings(
+                        config.local_profile_decode_settings,
+                        profileId,
+                        activeLocalBeamSize,
+                        nextBestOf,
+                      ),
+                    });
+                  }}
+                >
+                  {LOCAL_DECODE_OPTIONS.map((value) => (
+                    <option key={`best-of-${value}`} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </Select>
+              }
+            />
+          </>
+        )}
+      </FormCard>
+
+      <FormCard
+        title="AI cleanup"
+        description={
+          previewLaneSelected
+            ? "Runs locally after speech-to-text and falls back to the original transcript if the rewrite looks unsafe."
+            : cleanupSummary(config)
+        }
+      >
+        <FormRow
+          label="AI cleanup"
+          hint="Tidy punctuation, grammar and phrasing after transcription."
+          htmlFor="ai-cleanup-toggle"
+          control={
+            <Toggle
+              id="ai-cleanup-toggle"
+              checked={cleanupEnabled}
+              onCheckedChange={(checked) => onChange({ post_process: checked })}
+            />
+          }
+        />
+        {cleanupEnabled && (
+          <>
+            <FormRow
+              label="Remove fillers"
+              hint="Strip ums, uhs and false starts."
+              htmlFor="filter-fillers-toggle"
+              control={
+                <Toggle
+                  id="filter-fillers-toggle"
+                  checked={config.filter_fillers}
+                  disabled={!config.post_process}
+                  onCheckedChange={(checked) => onChange({ filter_fillers: checked })}
+                />
+              }
+            />
+            <FormRow
+              label="Rewrite phrasing"
+              hint="Allow broader rewrites beyond simple fixes."
+              htmlFor="professionalize-toggle"
+              control={
+                <Toggle
+                  id="professionalize-toggle"
+                  checked={config.professionalize}
+                  disabled={!config.post_process}
+                  onCheckedChange={(checked) => onChange({ professionalize: checked })}
+                />
+              }
+            />
+            <FormRow
+              label="Model"
+              hint={
+                previewLaneSelected
+                  ? "Local Ollama chat model. Keep it installed to stay offline."
+                  : "Runs after speech-to-text and can fall back to the original transcript."
+              }
+              htmlFor="correction-model-select"
+              control={
+                <Select
+                  id="correction-model-select"
+                  className="w-[260px]"
+                  value={previewLaneSelected ? config.local_correction_model : config.correction_model}
+                  onChange={(e) =>
+                    onChange(
+                      previewLaneSelected
+                        ? { local_correction_model: e.target.value }
+                        : { correction_model: e.target.value },
+                    )
+                  }
+                >
+                  {(previewLaneSelected ? localCleanupModels : CORRECTION_MODELS).map((m) => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </Select>
+              }
+            />
+          </>
+        )}
+      </FormCard>
+
+      <FormCard
+        title="AI agent mode"
+        description={
+          config.agent_mode_enabled
+            ? "When an instruction is detected, WordScript executes it via AI instead of just transcribing."
+            : "Off. All recordings are transcribed as-is and passed through the normal cleanup pipeline."
+        }
+      >
+        <FormRow
+          label="Agent mode"
+          hint={'Detects spoken instructions like "Hey WordScript, write an email…".'}
+          htmlFor="agent-mode-toggle"
+          control={
+            <Toggle
+              id="agent-mode-toggle"
+              checked={config.agent_mode_enabled}
+              onCheckedChange={(checked) => onChange({ agent_mode_enabled: checked })}
+            />
+          }
+        />
+        {config.agent_mode_enabled && (
+          <>
+            <FormRow
+              label="Agent name"
+              hint="The name you use when addressing the agent in speech."
+              htmlFor="agent-name-input"
+              control={
+                <Input
+                  id="agent-name-input"
+                  type="text"
+                  className="w-[200px]"
+                  value={config.agent_name}
+                  placeholder="WordScript"
+                  onChange={(e) => onChange({ agent_name: e.target.value })}
+                />
+              }
+            />
+            <FormRow
+              label="Model"
+              hint={
+                previewLaneSelected
+                  ? "Local Ollama model for intent + execution. Requires the local chat endpoint."
+                  : "Groq model for intent classification and instruction execution."
+              }
+              htmlFor="agent-model-select"
+              control={
+                <Select
+                  id="agent-model-select"
+                  className="w-[300px]"
+                  value={previewLaneSelected ? config.local_agent_model : config.agent_model}
+                  onChange={(e) =>
+                    onChange(
+                      previewLaneSelected
+                        ? { local_agent_model: e.target.value }
+                        : { agent_model: e.target.value },
+                    )
+                  }
+                >
+                  {(previewLaneSelected
+                    ? localAgentModelOptions(config, localSetup?.available_chat_models)
+                    : AGENT_MODEL_OPTIONS
+                  ).map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </Select>
+              }
+            />
+          </>
+        )}
+      </FormCard>
+    </div>
   );
 }

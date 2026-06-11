@@ -10,7 +10,9 @@ Aktueller Produktstand, implementierte Kernfunktionen, Insertion/Recovery-Modell
 - aktiver Produktpfad: Tauri/React UI plus nativer Rust-Core
 - heute benutzbare Version: Dev-Version aus dem Repo via `npm run tauri dev`
 - aktive Fenster: Overlay, Settings und das Diagnostics-Pop-out
-- aktive Settings-Tabs: Provider & Models, Input, Modes, Text Rules, About, Diagnostics
+- UI-Stand: Auf `feat/ui-overhaul-v2` ist die Settings-Flaeche eine native-macOS-inspirierte **WordScript Shell** (gruppierte 200px-Sidebar, shadcn/ui + Tailwind v4 auf den v2-Tokens, native Titelleiste auf jedem OS, `useTransition`-Crossfade).
+- aktive Areas: WORKSPACE (Home, History, Profiles) · ENGINE (Speech & AI, Modes, Capture) · SYSTEM (Permissions & Recovery, Diagnostics, About); Home/History/Permissions sind neu im Form-Kit gebaut, deaktivierte PREVIEW-Items (Chat, Upload, Notes, Workspace, Account) zeigen ehrliche "coming later"-States.
+- Folgeschritt: die grossen Legacy-Tabs (Speech & AI, Modes, Capture, Profiles, Diagnostics) sind optisch an die neue Grouped-Form-Sprache angeglichen, aber noch nicht voll auf das Form-Kit + Sub-Tabs migriert; einige Inhalte ueberschneiden sich uebergangsweise mit den neuen Areas (Details in `docs/UI_UX_OVERHAUL_PLAN.md`).
 
 ## Heute implementierte Kernfunktionen
 

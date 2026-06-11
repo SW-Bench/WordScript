@@ -1,34 +1,173 @@
-/* ── Design tokens ──────────────────────────────────────────────────────────── */
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ── Design tokens v2 ───────────────────────────────────────────────────────── */
+/* Quellen: UI-UX-Pro-Max "Operation orange on dark", macOS HIG, Tauri v2 APIs  */
+
 :root {
-  --bg: #0f1418;
-  --bg-elevated: #161d23;
-  --surface: rgba(22, 29, 35, 0.92);
-  --surface-strong: #1b242c;
+  /* ── Backgrounds ── */
+  --bg: #0a0d11;
+  --bg-elevated: #141a20;
+  --sidebar: rgba(13, 17, 22, 0.94);
+
+  /* ── Surfaces (Elevation durch Background, nicht Shadow) ── */
+  /* Cards sit a clear step above the window so grouped forms read as native
+     macOS "inset" groups (System Settings idiom): card is visibly lighter than
+     the window background + a hairline ring + a soft drop shadow (darwin-ui). */
+  --surface: rgba(30, 39, 48, 0.92);
+  --surface-elevated: #1e2730;
+  --surface-strong: #28333d;
   --surface-soft: rgba(245, 206, 123, 0.08);
-  --sidebar: rgba(13, 18, 23, 0.88);
-  --fg: #f3efe4;
-  --fg-dim: #92a0ad;
-  --fg-muted: #667380;
-  --accent: #f3ce7b;
-  --accent-strong: #ffd56c;
-  --accent-soft: rgba(243, 206, 123, 0.16);
-  --voice: #87e6d7;
-  --voice-soft: rgba(244, 177, 57, 0.18);
-  --btn-bg: #202a33;
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.18);
+
+  /* ── Foregrounds ── */
+  --fg: #f4f1ea;
+  --fg-dim: #a4b1bd;
+  --fg-muted: #707e8b;
+
+  /* ── SW-labs Orange Accent ── */
+  --accent: #e68900;
+  --accent-hover: #ff9800;
+  --accent-strong: #f5a623;
+  --accent-soft: rgba(230, 137, 0, 0.15);
+  --accent-muted: #2c1e16;
+
+  /* ── Semantic ── */
   --green: #81d6ae;
   --red: #ff7a6b;
-  --orange: #efb36a;
+  --orange: #e68900;
+  --voice: #87e6d7;
+  --voice-soft: rgba(230, 137, 0, 0.18);
+
+  /* ── Buttons ── */
+  --btn-bg: #202a33;
+  --btn-primary-bg: var(--accent);
+  --btn-primary-fg: #0f1418;
+
+  /* ── Borders (hairlines: low-alpha 1px, macOS style) ── */
+  --border: rgba(255, 255, 255, 0.13);
+  --border-strong: rgba(255, 255, 255, 0.20);
+
+  /* ── Shadows (macOS card elevation = hairline ring + soft drop, darwin-ui) ── */
+  --shadow-pill: 0 8px 32px rgba(0, 0, 0, 0.25);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.4);
+  --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.36);
   --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.2);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.30), 0 6px 16px -6px rgba(0, 0, 0, 0.45);
+
+  /* ── Radius ── */
+  --radius-card: 10px;
+  --radius-button: 8px;
+  --radius-toggle: 8px;
+  --radius-badge: 4px;
+  --radius-pill: 20px;
   --radius-lg: 24px;
   --radius-md: 16px;
   --radius-sm: 10px;
 
+  /* ── Spacing (4pt Grid) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* ── Typography ── */
   --font-display: "Aptos Display", "SF Pro Display", "Segoe UI Variable Display", "Noto Sans", sans-serif;
   --font: "Aptos", "SF Pro Text", "Segoe UI Variable", "Noto Sans", sans-serif;
   --font-mono: "IBM Plex Mono", "Cascadia Code", "SF Mono", "Consolas", monospace;
+
+  --text-display-lg: 28px;
+  --text-display: 24px;
+  --text-title: 18px;
+  --text-body-lg: 15px;
+  --text-body: 13px;
+  --text-body-sm: 12px;
+  --text-label: 11px;
+  --text-caption: 10px;
+}
+
+/* ── shadcn/ui semantic tokens (bridged to WordScript v2 tokens) ─────────────── */
+/* WordScript ships dark-only; semantic names map onto the brand palette above.   */
+:root {
+  --radius: 8px;
+
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--surface-elevated);
+  --card-foreground: var(--fg);
+  --popover: var(--surface-strong);
+  --popover-foreground: var(--fg);
+  --primary: var(--accent);
+  --primary-foreground: var(--btn-primary-fg);
+  --secondary: var(--btn-bg);
+  --secondary-foreground: var(--fg);
+  --muted: var(--surface-strong);
+  --muted-foreground: var(--fg-dim);
+  /* shadcn "accent" = subtle hover surface, NOT the brand accent (that is --primary) */
+  --accent-surface: rgba(255, 255, 255, 0.06);
+  --accent-surface-foreground: var(--fg);
+  --destructive: var(--red);
+  --destructive-foreground: #0f1418;
+  --input: var(--border);
+  --ring: var(--accent);
+}
+
+/* ── Tailwind v4 theme bridge (inline = resolve via the vars above at runtime) ── */
+@theme inline {
+  /* Brand + surface palette -> utilities like bg-surface-elevated, text-fg-dim */
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-sidebar: var(--sidebar);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-strong: var(--surface-strong);
+  --color-fg: var(--fg);
+  --color-fg-dim: var(--fg-dim);
+  --color-fg-muted: var(--fg-muted);
+  --color-brand: var(--accent);
+  --color-brand-hover: var(--accent-hover);
+  --color-brand-strong: var(--accent-strong);
+  --color-brand-soft: var(--accent-soft);
+  --color-green: var(--green);
+  --color-red: var(--red);
+  --color-voice: var(--voice);
+  --color-border-subtle: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  /* shadcn semantic mapping */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent-surface);
+  --color-accent-foreground: var(--accent-surface-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font);
+  --font-mono: var(--font-mono);
+
+  --shadow-card: var(--shadow-card);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────────── */
@@ -46,6 +185,8 @@ body {
   height: 100%;
   background: transparent;
   font-family: var(--font);
+  font-size: var(--text-body);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--fg);
@@ -57,11 +198,19 @@ body {
   height: 100%;
 }
 
+/* ── Main Window Background ── */
+/* Calm, flat-ish surface (macOS System Settings) with only a whisper of brand
+   warmth at the very top so it never reads as a busy "glow". */
 body:not(.overlay-window) {
+  background-color: var(--bg);
   background-image:
-    radial-gradient(circle at top left, rgba(243, 206, 123, 0.14), transparent 28%),
-    radial-gradient(circle at 80% 20%, rgba(244, 177, 57, 0.12), transparent 24%),
-    linear-gradient(180deg, #0f1418 0%, #0b1014 100%);
+    radial-gradient(120% 55% at 50% -12%, rgba(230, 137, 0, 0.04), transparent 60%),
+    linear-gradient(180deg, #0b0f13 0%, #090c10 100%);
+}
+
+/* ── Overlay Window (transparent fuer Glassmorphism) ── */
+body.overlay-window {
+  background: transparent !important;
 }
 
 /* ── Scrollbar ──────────────────────────────────────────────────────────────── */
@@ -69,3 +218,142 @@ body:not(.overlay-window) {
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+/* ── Reduced Motion ─────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Selection ──────────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+/* ── Focus States ───────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Utility Classes (Basis) ────────────────────────────────────────────────── */
+.ws-card {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+  transition: border-color 150ms ease-out;
+}
+
+.ws-card:hover {
+  border-color: var(--border-strong);
+}
+
+.ws-card-title {
+  font-size: var(--text-label);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  margin-bottom: var(--space-4);
+}
+
+.ws-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  font-size: var(--text-label);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: background 100ms ease-out, color 100ms ease-out;
+  position: relative;
+}
+
+.ws-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--fg);
+}
+
+.ws-sidebar-item.active {
+  color: var(--fg);
+}
+
+.ws-sidebar-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.ws-sidebar-item.preview {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.ws-pill {
+  background: rgba(13, 18, 23, 0.72);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-pill);
+  box-shadow:
+    var(--shadow-pill),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.ws-btn-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  border: none;
+  border-radius: var(--radius-button);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms ease-out, transform 50ms ease-out;
+}
+
+.ws-btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.ws-btn-primary:active {
+  transform: scale(0.97);
+}
+
+.ws-btn-secondary {
+  background: var(--btn-bg);
+  color: var(--fg);
+  border: none;
+  border-radius: var(--radius-button);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 100ms ease-out, transform 50ms ease-out;
+}
+
+.ws-btn-secondary:hover {
+  background: var(--surface-strong);
+}
+
+.ws-btn-secondary:active {
+  transform: scale(0.97);
+}

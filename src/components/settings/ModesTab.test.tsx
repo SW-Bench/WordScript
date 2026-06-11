@@ -100,8 +100,7 @@ describe("ModesTab", () => {
 
     const appMappingSection = screen.getByLabelText("Per-app mode mappings");
     expect(appMappingSection).toBeInTheDocument();
-    const chips = appMappingSection.querySelectorAll(".settings__rule-chip");
-    const chipTexts = Array.from(chips).map((c) => c.textContent);
+    const chipTexts = Array.from(appMappingSection.querySelectorAll("span")).map((c) => c.textContent);
     expect(chipTexts).toContain("IDE");
     expect(chipTexts).toContain("Browser");
     expect(chipTexts).toContain("Prompt Enhance");

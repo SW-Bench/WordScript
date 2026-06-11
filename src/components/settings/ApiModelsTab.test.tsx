@@ -245,13 +245,13 @@ describe("ApiModelsTab", () => {
     expect(screen.getByText("Storage")).toBeInTheDocument();
     expect(screen.getByText("Last check")).toBeInTheDocument();
     expect(screen.getAllByText("Not checked in this session").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /open groq keys/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /reveal config json/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open diagnostics/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /groq keys/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reveal config/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /diagnostics/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /save locally/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /validate stored key/i })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /reveal config json/i }));
+    fireEvent.click(screen.getByRole("button", { name: /reveal config/i }));
 
     await waitFor(() => expect(revealItemInDirMock).toHaveBeenCalledWith("/tmp/wordscript/config.json"));
   });
@@ -259,9 +259,9 @@ describe("ApiModelsTab", () => {
   it("reduces AI cleanup copy to one master switch and short dependent options", () => {
     render(<ApiModelsTab config={createAppConfig()} onChange={vi.fn()} onOpenDiagnostics={vi.fn()} />);
 
-    expect(screen.getByRole("checkbox", { name: /^ai cleanup$/i })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /remove fillers/i })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /rewrite phrasing/i })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /^ai cleanup$/i })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /remove fillers/i })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /rewrite phrasing/i })).toBeInTheDocument();
     expect(screen.getByText(/fixes errors and removes fillers while staying close to the original phrasing/i)).toBeInTheDocument();
     expect(screen.getByText(/runs after speech-to-text and can fall back to the original transcript/i)).toBeInTheDocument();
   });
@@ -275,8 +275,8 @@ describe("ApiModelsTab", () => {
       />,
     );
 
-    expect(screen.queryByRole("checkbox", { name: /remove fillers/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /rewrite phrasing/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /remove fillers/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /rewrite phrasing/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Model")).not.toBeInTheDocument();
   });
 
@@ -308,18 +308,18 @@ describe("ApiModelsTab", () => {
     expect(screen.getByText("Start local AI runtime")).toBeInTheDocument();
     expect(screen.getByText("Pull cleanup model")).toBeInTheDocument();
     expect(screen.getAllByText(/wordscript_local_whisper_cli/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole("combobox", { name: /provider/i })).toHaveValue("local_preview");
+    expect(screen.getByRole("tab", { name: /local/i, selected: true })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /profile/i })).toHaveValue("local-preview-base-fast");
     expect(screen.getByText(/fast transcription mode/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /bias strength/i })).toHaveValue("profile");
-    expect(screen.getByRole("checkbox", { name: /carry initial prompt/i })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: /carry initial prompt/i })).not.toBeChecked();
     expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("1");
     expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("1");
     expect(screen.getByRole("combobox", { name: /^model$/i })).toHaveValue("llama3.2:latest");
     expect(screen.getByText(/^supported$/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /open groq keys/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /groq keys/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save locally/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /^ai cleanup$/i })).toBeEnabled();
+    expect(screen.getByRole("switch", { name: /^ai cleanup$/i })).toBeEnabled();
   });
 
   it("renders discovered local models from the native provider status", () => {
@@ -402,7 +402,7 @@ describe("ApiModelsTab", () => {
     expect(screen.getByRole("option", { name: /local preview large-v3-q5_0 quality profile \(discovered\)/i })).toBeInTheDocument();
     expect(screen.getByText(/quality transcription mode/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /bias strength/i })).toHaveValue("profile_and_terms");
-    expect(screen.getByRole("checkbox", { name: /carry initial prompt/i })).toBeChecked();
+    expect(screen.getByRole("switch", { name: /carry initial prompt/i })).toBeChecked();
     expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("5");
     expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("5");
     expect(screen.getByRole("combobox", { name: /^model$/i })).toHaveValue("qwen2.5:7b-instruct");
