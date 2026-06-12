@@ -3,6 +3,7 @@ import { ArrowRight, History, Mic, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormCard, FormRow, StatusBadge } from "@/components/shell";
 import type { StatusTone } from "@/components/shell";
+import { cn } from "@/lib/utils";
 import { useTranscriptionHistory } from "@/hooks/useTranscriptionHistory";
 import { useNativeInsertion } from "@/hooks/useNativeInsertion";
 import { resolveActiveTextProfile } from "@/lib/textProfiles";
@@ -42,50 +43,68 @@ export function HomeArea({
   const lastTranscript = insertion.status?.last_transcript;
 
   return (
-    <div className="flex flex-col gap-6">
-      <FormCard title="Runtime status" description="What WordScript can do right now.">
-        <FormRow
-          label="Transcription"
-          hint={readiness.title}
-          control={
+    <div className="flex flex-col gap-8">
+      <section
+        className={cn(
+          "relative overflow-hidden rounded-[16px] border border-border bg-card px-6 py-5 shadow-card",
+          readiness.ok ? "" : "border-[var(--orange)]/30",
+        )}
+      >
+        <div className="flex items-center gap-5">
+          <div
+            className={cn(
+              "flex size-12 shrink-0 items-center justify-center rounded-[14px]",
+              readiness.ok
+                ? "bg-[color-mix(in_srgb,var(--green)_18%,transparent)]"
+                : "bg-[color-mix(in_srgb,var(--orange)_18%,transparent)]",
+            )}
+            aria-hidden
+          >
+            <StatusBadge tone={readiness.ok ? "success" : "warning"} dot>
+              {readiness.ok ? "Ready" : "Setup"}
+            </StatusBadge>
+          </div>
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <StatusBadge tone={readiness.ok ? "success" : "warning"} dot>
-                {readiness.label}
-              </StatusBadge>
-              {!providerReady && (
-                <Button size="sm" variant="outline" onClick={() => onNavigate("speech")}>
-                  Fix
-                </Button>
-              )}
+              <h2 className="truncate text-[18px] font-semibold leading-tight tracking-[-0.01em]">
+                {readiness.ok ? "Ready to dictate" : "Almost there"}
+              </h2>
+              <span className="rounded-full bg-surface-strong px-2 py-0.5 text-[11px] font-medium text-fg-dim">
+                {laneLabel}
+              </span>
             </div>
-          }
-        />
+            <p className="mt-1 truncate text-[12.5px] leading-snug text-fg-muted">
+              {readiness.title}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {!readiness.ok && (
+              <Button size="sm" onClick={() => onNavigate("speech")}>
+                Set up
+              </Button>
+            )}
+            <Button size="sm" variant={readiness.ok ? "secondary" : "outline"} onClick={() => onNavigate("capture")}>
+              <Mic className="size-3.5" /> Capture
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <FormCard title="Insert path">
         <FormRow
-          label="Insert path"
+          label={insertReady ? "Direct paste available" : "Recovery only"}
           hint={platform?.readiness_message ?? "Checking the native insert chain…"}
-          control={
-            <div className="flex items-center gap-2">
-              <StatusBadge tone={insertReady ? "success" : "warning"} dot>
-                {platform ? (insertReady ? "Ready" : "Recovery only") : "Checking"}
-              </StatusBadge>
-              {platform && !insertReady && (
-                <Button size="sm" variant="outline" onClick={() => onNavigate("permissions")}>
-                  Review
-                </Button>
-              )}
-            </div>
-          }
-        />
-        <FormRow
-          label="Active profile"
-          hint="Dictionary, snippets and context bias for your dictation."
           divider={false}
           control={
             <div className="flex items-center gap-2">
-              <StatusBadge tone="accent">{profile.label}</StatusBadge>
-              <Button size="sm" variant="ghost" onClick={() => onNavigate("profiles")}>
-                Open
-              </Button>
+              <StatusBadge tone={insertReady ? "success" : "warning"} dot>
+                {platform ? (insertReady ? "Ready" : "Fallback") : "Checking"}
+              </StatusBadge>
+              {platform && !insertReady && (
+                <Button size="sm" variant="ghost" onClick={() => onNavigate("permissions")}>
+                  Review
+                </Button>
+              )}
             </div>
           }
         />
@@ -93,7 +112,6 @@ export function HomeArea({
 
       <FormCard
         title="Recent dictations"
-        description="The last few captures from this machine."
         action={
           <Button size="sm" variant="ghost" onClick={() => onNavigate("history")}>
             <History className="size-3.5" /> View all
@@ -101,7 +119,7 @@ export function HomeArea({
         }
       >
         {recent.length === 0 ? (
-          <div className="py-6 text-center text-[12px] text-fg-muted">
+          <div className="py-8 text-center text-[12.5px] text-fg-muted">
             No dictations yet. Trigger your shortcut to make the first one.
           </div>
         ) : (
@@ -120,12 +138,18 @@ export function HomeArea({
               return (
                 <li
                   key={entry.id}
-                  className="flex items-start gap-3 border-b border-border py-2.5 last:border-b-0"
+                  className="flex items-start gap-3 border-b border-border py-3 last:border-b-0 first:pt-1"
                 >
-                  <StatusBadge tone={tone} dot>
-                    {entry.status}
-                  </StatusBadge>
-                  <p className="min-w-0 flex-1 text-[12px] leading-snug text-fg-dim">
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "mt-1.5 size-1.5 shrink-0 rounded-full",
+                      tone === "success" && "bg-[var(--green)]",
+                      tone === "error" && "bg-[var(--red)]",
+                      tone === "neutral" && "bg-fg-muted",
+                    )}
+                  />
+                  <p className="min-w-0 flex-1 text-[13px] leading-snug text-fg-dim">
                     {truncate(text, 110)}
                   </p>
                   <span className="shrink-0 text-[11px] tabular-nums text-fg-muted">
@@ -143,8 +167,8 @@ export function HomeArea({
           label="Restore last transcript"
           hint={
             lastTranscript
-              ? `Re-deliver the last captured text (${truncate(lastTranscript.text, 48)}).`
-              : "Nothing buffered in the recovery scratchpad yet."
+              ? `Re-deliver “${truncate(lastTranscript.text, 48)}”.`
+              : "Nothing buffered yet."
           }
           control={
             <Button
@@ -158,12 +182,12 @@ export function HomeArea({
           }
         />
         <FormRow
-          label="Capture & shortcuts"
-          hint="Review your hotkey, microphone and delivery setup."
+          label="Shortcuts & microphone"
+          hint="Hotkey, microphone and delivery."
           divider={false}
           control={
             <Button size="sm" variant="ghost" onClick={() => onNavigate("capture")}>
-              <Mic className="size-3.5" /> Open <ArrowRight className="size-3.5" />
+              Open <ArrowRight className="size-3.5" />
             </Button>
           }
         />

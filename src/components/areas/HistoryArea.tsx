@@ -68,7 +68,7 @@ export function HistoryArea({ isActive, config, onChange }: HistoryAreaProps) {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <FormCard
         title="Filters"
         action={

@@ -341,15 +341,15 @@ export default function SettingsWindow() {
           activeId={active}
           onSelect={navigate}
           header={
-            <div className="flex items-center gap-2.5 px-5 pb-3.5 pt-4">
+            <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
               <span
                 aria-hidden
-                className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-gradient-to-b from-brand to-brand-strong text-[14px] font-bold text-[#1a1206] shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
+                className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-gradient-to-b from-brand to-brand-strong text-[15px] font-bold text-[#1a1206] shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
               >
                 W
               </span>
               <div className="flex min-w-0 flex-col">
-                <span className="truncate text-[14px] font-semibold leading-tight text-foreground">
+                <span className="truncate text-[15px] font-semibold leading-tight text-foreground">
                   WordScript
                 </span>
                 <span className="text-[11px] leading-tight text-fg-muted">v{APP_VERSION}</span>
@@ -363,20 +363,26 @@ export default function SettingsWindow() {
 
         <main className="flex min-w-0 flex-1 flex-col">
           {/* Toolbar header (sits under the native title bar) */}
-          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-6 py-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <activeArea.icon className="size-5 shrink-0 text-fg-dim" strokeWidth={1.75} />
+          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-7 py-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-strong text-fg-dim">
+                <activeArea.icon className="size-[18px]" strokeWidth={1.75} />
+              </div>
               <div className="min-w-0">
-                <h1 className="truncate text-[15px] font-semibold leading-tight">{activeArea.label}</h1>
-                <p className="truncate text-[12px] text-fg-muted">{activeArea.eyebrow}</p>
+                <h1 className="truncate text-[17px] font-semibold leading-tight tracking-[-0.01em]">
+                  {activeArea.label}
+                </h1>
+                <p className="truncate text-[12px] leading-tight text-fg-muted">
+                  {activeArea.eyebrow}
+                </p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <StatusBadge tone={readiness.ok ? "success" : "warning"} dot>
-                {readiness.label}
-              </StatusBadge>
               <StatusBadge tone={isDirty ? "warning" : "neutral"}>
                 {isDirty ? "Unsaved" : "Synced"}
+              </StatusBadge>
+              <StatusBadge tone={readiness.ok ? "success" : "warning"} dot>
+                {readiness.label}
               </StatusBadge>
               {active === "diagnostics" && (
                 <Button size="sm" variant="outline" onClick={() => void handleOpenDiagnosticsWindow()}>
@@ -388,8 +394,8 @@ export default function SettingsWindow() {
 
           {/* Scrollable content area (relative so an Inspector slide-over can anchor here) */}
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <div className="h-full overflow-y-auto px-8 py-8">
-              <div className="mx-auto max-w-[760px]">
+            <div className="h-full overflow-y-auto px-10 py-10">
+              <div className="mx-auto flex max-w-[780px] flex-col gap-8">
                 <div key={active} className="animate-in fade-in-50 duration-150">
                   {renderArea()}
                 </div>
@@ -398,7 +404,7 @@ export default function SettingsWindow() {
           </div>
 
           {/* Footer save bar */}
-          <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-border px-6 py-3">
+          <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-border px-7 py-3.5">
             <span
               className={
                 status
@@ -412,17 +418,17 @@ export default function SettingsWindow() {
             >
               {status?.msg ??
                 (textRulesAnalysis?.blocking
-                  ? "Fix blocking text-rule issues before saving this window."
+                  ? "Fix blocking text-rule issues before saving."
                   : isDirty
-                    ? "Changes stay local to this window until you save them into the runtime config."
-                    : "This window is in sync with the persisted runtime config.")}
+                    ? "Unsaved changes — they stay local until you save."
+                    : "In sync with the persisted runtime config.")}
             </span>
             <div className="flex items-center gap-2">
               <Button variant="ghost" onClick={handleCancel}>
                 Cancel
               </Button>
               <Button onClick={handleSave} disabled={Boolean(textRulesAnalysis?.blocking)}>
-                Save Changes
+                Save changes
               </Button>
             </div>
           </footer>

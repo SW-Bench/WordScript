@@ -268,7 +268,7 @@ export function AboutTab({ isActive }: AboutTabProps) {
   const releaseCheckLabel = isCheckingRelease ? "Checking GitHub" : releaseStatusLabel(releaseStatus?.status);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <div className="px-1">
         <p className="text-[15px] font-semibold text-[var(--fg)]">WordScript {APP_VERSION}</p>
         <p className="mt-0.5 text-[12px] text-[var(--fg-muted)]">Lightweight speech-to-text for your desktop.</p>

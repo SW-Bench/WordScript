@@ -818,7 +818,7 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <FormCard
         title="Runtime checks"
         description="Run a full capture-to-insert check, inspect the current native state and confirm which fallback path the runtime will use right now."

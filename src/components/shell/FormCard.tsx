@@ -30,19 +30,19 @@ export function FormCard({
 }: FormCardProps) {
   const hasHeader = Boolean(title || description || action);
   return (
-    <section className="flex flex-col gap-2.5">
+    <section className="flex flex-col gap-3.5">
       {hasHeader && (
-        <div className="flex items-end justify-between gap-3 px-1">
+        <div className="flex items-center justify-between gap-3 px-1">
           <div className="flex min-w-0 items-center gap-2">
             {icon && <span className="text-fg-muted [&_svg]:size-4">{icon}</span>}
             <div className="min-w-0">
               {title && (
-                <h3 className="text-[13px] font-semibold leading-tight text-foreground">
+                <h3 className="truncate text-[13px] font-semibold leading-tight tracking-[-0.005em] text-foreground">
                   {title}
                 </h3>
               )}
               {description && (
-                <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">
+                <p className="mt-0.5 truncate text-[12px] leading-snug text-fg-muted">
                   {description}
                 </p>
               )}
@@ -53,7 +53,7 @@ export function FormCard({
       )}
       <div
         className={cn(
-          "rounded-[10px] border border-border bg-card px-5 shadow-card",
+          "rounded-[12px] border border-border bg-card px-5 py-1 shadow-card",
           bodyClassName,
           className,
         )}

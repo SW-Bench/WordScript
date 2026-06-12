@@ -16,9 +16,9 @@ const RUNTIME_EVENT_CHANNEL = "wordscript-event";
 const MODE_CYCLE: ProcessingMode[] = ["verbatim", "cleanup", "rewrite", "prompt_enhance", "agent"];
 const OVERLAY_ENTER_MS = 320;
 const OVERLAY_LEAVE_MS = 240;
-const IDLE_WAVEFORM = [4, 5, 6, 8, 10, 12, 10, 8, 6, 5, 4];
-const MIN_BAR_HEIGHT = 4;
-const MAX_BAR_HEIGHT = 26;
+const IDLE_WAVEFORM = [5, 7, 9, 12, 16, 20, 16, 12, 9, 7, 5];
+const MIN_BAR_HEIGHT = 5;
+const MAX_BAR_HEIGHT = 32;
 const DRAG_DISTANCE_THRESHOLD = 6;
 const DRAG_CLICK_SUPPRESS_MS = 1000;
 
@@ -623,7 +623,6 @@ export default function OverlayWindow() {
       : showError
         ? "Review"
         : "Settings";
-
   const handleSideAction = () => {
     if (isRecording) {
       void togglePause();
@@ -951,7 +950,6 @@ export default function OverlayWindow() {
             aria-label={`Processing mode ${modeLabel}, tap to cycle`}
           >
             <span className="pill__mode-label">{modeLabel}</span>
-            <span className="pill__mode-hint">Mode</span>
           </button>
         )}
 

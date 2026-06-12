@@ -163,7 +163,7 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
   const hasMappings = Object.keys(appMappings).length > 0;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <FormCard title="Default processing mode" description="How dictation is transformed before it is inserted.">
         <div role="radiogroup" aria-label="Processing mode selector">
           {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode) => (

@@ -18,7 +18,7 @@ export function PermissionsArea() {
   const scratchpadCount = insertion.status?.scratchpad_entries.length ?? 0;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <FormCard
         title="Insert readiness"
         description="Whether WordScript can place transcribed text into the focused app."

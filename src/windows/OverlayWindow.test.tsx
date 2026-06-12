@@ -966,6 +966,6 @@ describe("OverlayWindow", () => {
     const heights = Array.from(container.querySelectorAll(".bar"))
       .map((bar) => Number.parseFloat((bar as HTMLElement).style.height || "0"));
 
-    expect(Math.max(...heights)).toBeLessThanOrEqual(12);
+    expect(Math.max(...heights)).toBeLessThanOrEqual(20);
   });
 });

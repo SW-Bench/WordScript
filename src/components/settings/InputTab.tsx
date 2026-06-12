@@ -370,7 +370,7 @@ export function InputTab({ config, onChange }: Props) {
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <StatTiles
         items={[
           { label: "Trigger", value: activationLabel, hint: config.hotkey || "Start / stop shortcut not set" },

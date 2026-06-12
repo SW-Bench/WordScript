@@ -877,7 +877,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <FormCard
         title="Portable personal text rules"
         description="These rules run after speech-to-text. Import/export stays local via JSON, and preview uses the same native text-rule pass that runs before insertion."
@@ -1202,7 +1202,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
       </div>
 
         {activeWorkspacePanel === "context" && (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-8">
             <FormCard
               title="Transcription context"
               description="Add names, acronyms and domain terms the recognizer should bias toward. This text is forwarded as one plain prompt string, so short line-based lists work better than prose."
@@ -1580,7 +1580,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
         )}
 
         {activeWorkspacePanel === "bias_policy" && (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-8">
             <FormCard
               title="Bias mode"
               description="Choose how strict the transcription prompt-bias is. The preview below shows exactly what each provider will receive."

@@ -34,12 +34,14 @@ export function StatTiles({ items, columns = 3, className }: StatTilesProps) {
       {items.map((item, index) => (
         <div
           key={index}
-          className="min-w-0 rounded-[10px] border border-border bg-card px-4 py-3.5 shadow-card"
+          className="min-w-0 rounded-[12px] border border-border bg-card px-4 py-3.5 shadow-card"
         >
-          <div className="text-[11px] font-medium text-fg-muted">{item.label}</div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">
+            {item.label}
+          </div>
           <div
             className={cn(
-              "mt-1 truncate text-[14px] font-semibold",
+              "mt-1.5 truncate text-[15px] font-semibold leading-tight tracking-[-0.005em]",
               item.accent ? "text-brand-strong" : "text-foreground",
             )}
             title={typeof item.value === "string" ? item.value : undefined}
@@ -47,7 +49,7 @@ export function StatTiles({ items, columns = 3, className }: StatTilesProps) {
             {item.value}
           </div>
           {item.hint && (
-            <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-fg-muted">
+            <div className="mt-1 line-clamp-2 text-[11.5px] leading-snug text-fg-muted">
               {item.hint}
             </div>
           )}

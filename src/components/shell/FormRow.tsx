@@ -45,13 +45,13 @@ export function FormRow({
     return (
       <div
         className={cn(
-          "py-3",
+          "py-4",
           divider && "border-b border-border last:border-b-0",
           className,
         )}
       >
         {(label || hint) && (
-          <div className="mb-2">
+          <div className="mb-2.5">
             {label && (
               <label
                 htmlFor={htmlFor}
@@ -71,7 +71,7 @@ export function FormRow({
   return (
     <div
       className={cn(
-        "flex min-h-[48px] gap-4 py-3",
+        "flex min-h-[52px] gap-4 py-3.5",
         align === "start" ? "items-start" : "items-center",
         divider && "border-b border-border last:border-b-0",
         className,
@@ -82,7 +82,7 @@ export function FormRow({
           {label && (
             <label
               htmlFor={htmlFor}
-              className="block text-[13px] font-medium text-foreground"
+              className="block text-[13px] font-medium leading-tight text-foreground"
             >
               {label}
             </label>

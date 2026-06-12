@@ -46,7 +46,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full w-[240px] shrink-0 flex-col border-r border-[var(--hairline)] bg-[var(--surface-1)]",
+        "flex h-full w-[232px] shrink-0 flex-col border-r border-[var(--hairline)] bg-[var(--surface-1)]",
         className,
       )}
     >
@@ -54,11 +54,11 @@ export function Sidebar({
 
       <nav
         aria-label="WordScript sections"
-        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 py-2"
+        className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-3 pb-3 pt-2"
       >
         {groups.map((group) => (
           <section key={group.label} aria-label={group.label}>
-            <h2 className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--fg-muted)]">
+            <h2 className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--fg-muted)]">
               {group.label}
             </h2>
             <ul className="flex flex-col gap-0.5">
@@ -76,7 +76,7 @@ export function Sidebar({
         ))}
       </nav>
 
-      {footer && <div className="shrink-0 border-t border-[var(--hairline)] m-2">{footer}</div>}
+      {footer && <div className="shrink-0 border-t border-[var(--hairline)] mx-2 mb-2 mt-1">{footer}</div>}
     </aside>
   );
 }
@@ -99,7 +99,7 @@ function SidebarButton({
       aria-disabled={item.preview || undefined}
       onClick={() => !item.preview && onSelect(item.id)}
       className={cn(
-        "group relative flex items-center gap-2 rounded-[var(--radius-control)] px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40",
+        "group relative flex items-center gap-2.5 rounded-[var(--radius-control)] px-2.5 py-2 text-left text-[12.5px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40",
         item.preview
           ? "opacity-40 cursor-not-allowed text-[var(--fg-dim)]"
           : active

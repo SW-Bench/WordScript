@@ -29,22 +29,30 @@ export function ProfileSwitcher({ config, onChange, onEdit }: ProfileSwitcherPro
   };
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-2.5 p-3.5">
+      <div className="flex items-center gap-2.5">
         <div
           aria-hidden
           className="flex size-7 shrink-0 items-center justify-center rounded-md bg-brand-soft text-[11px] font-semibold text-brand-strong"
         >
           {textProfileInitials(active)}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-fg-muted">
-            Active profile
+            Profile
           </div>
-          <div className="truncate text-[12px] font-medium text-foreground">
+          <div className="truncate text-[12.5px] font-medium leading-tight text-foreground">
             {active.label}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="Edit profiles"
+          className="shrink-0 rounded-md p-1 text-fg-muted transition-colors hover:bg-[var(--surface-2)] hover:text-foreground"
+        >
+          <ChevronRight className="size-3.5" />
+        </button>
       </div>
       <Select
         value={active.id}
@@ -58,14 +66,6 @@ export function ProfileSwitcher({ config, onChange, onEdit }: ProfileSwitcherPro
           </option>
         ))}
       </Select>
-      <button
-        type="button"
-        onClick={onEdit}
-        className="inline-flex items-center gap-0.5 text-left text-[11px] text-fg-dim transition-colors hover:text-foreground"
-      >
-        Edit profiles
-        <ChevronRight className="size-3" />
-      </button>
     </div>
   );
 }
