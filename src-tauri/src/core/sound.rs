@@ -2,13 +2,13 @@ use std::{
     f32::consts::PI,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex, OnceLock,
+        OnceLock,
     },
     thread,
     time::Duration,
 };
 
-use rodio::{buffer::SamplesBuffer, OutputStream, OutputStreamBuilder};
+use rodio::{buffer::SamplesBuffer, OutputStreamBuilder};
 
 use super::config::AppConfig;
 
@@ -31,10 +31,6 @@ struct SoundLibrary {
     stop: Vec<f32>,
     abort: Vec<f32>,
     error: Vec<f32>,
-}
-
-struct PersistentSoundOutput {
-    stream: OutputStream,
 }
 
 impl SoundLibrary {
@@ -99,16 +95,15 @@ pub fn schedule_startup_if_enabled() {
 
 pub fn play(cue: SoundCue) {
     let samples = sound_library().samples(cue).to_vec();
-    let output = sound_output();
-    let mut output = match output.lock() {
-        Ok(output) => output,
-        Err(error) => {
-            eprintln!("WordScript sound output lock poisoned: {error}");
-            return;
-        }
-    };
 
-    if output.is_none() {
+    // Open a fresh output stream for every cue instead of keeping a persistent
+    // stream alive for the whole application lifetime. Long-lived ALSA/cpal
+    // streams can segfault or freeze when the audio server/device state changes
+    // (PulseAudio/PipeWire suspend, JACK disconnect, Bluetooth headset sleep,
+    // etc.). A short-lived stream per cue is slightly more work but far more
+    // resilient.
+    thread::spawn(move || {
+        let sample_count = samples.len();
         let mut stream = match OutputStreamBuilder::open_default_stream() {
             Ok(stream) => stream,
             Err(error) => {
@@ -117,15 +112,14 @@ pub fn play(cue: SoundCue) {
             }
         };
         stream.log_on_drop(false);
-        *output = Some(PersistentSoundOutput { stream });
-    }
-
-    if let Some(output) = output.as_mut() {
-        output
-            .stream
+        stream
             .mixer()
             .add(SamplesBuffer::new(1, SAMPLE_RATE, samples));
-    }
+
+        // Keep the stream alive until the cue has finished playing.
+        let duration = Duration::from_secs_f32(sample_count as f32 / SAMPLE_RATE as f32);
+        thread::sleep(duration + Duration::from_millis(150));
+    });
 }
 
 pub fn set_enabled(enabled: bool) {
@@ -140,11 +134,6 @@ fn sounds_enabled() -> &'static AtomicBool {
 fn sound_library() -> &'static SoundLibrary {
     static LIBRARY: OnceLock<SoundLibrary> = OnceLock::new();
     LIBRARY.get_or_init(SoundLibrary::new)
-}
-
-fn sound_output() -> &'static Mutex<Option<PersistentSoundOutput>> {
-    static OUTPUT: OnceLock<Mutex<Option<PersistentSoundOutput>>> = OnceLock::new();
-    OUTPUT.get_or_init(|| Mutex::new(None))
 }
 
 fn tone(freq_hz: f32, duration_ms: u64, volume: f32) -> Vec<f32> {

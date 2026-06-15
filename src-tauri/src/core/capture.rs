@@ -1,7 +1,10 @@
 use std::{
     collections::HashSet,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -162,6 +165,7 @@ pub enum NativeCaptureMonitorState {
 pub enum NativeCaptureStopReason {
     MaxDuration,
     SilenceTimeout,
+    StreamError,
 }
 
 impl NativeCaptureStopReason {
@@ -169,6 +173,7 @@ impl NativeCaptureStopReason {
         match self {
             Self::MaxDuration => "Max recording duration reached.",
             Self::SilenceTimeout => "Recording stopped after silence timeout.",
+            Self::StreamError => "Audio stream failed; capture stopped.",
         }
     }
 }
@@ -188,6 +193,7 @@ struct ActiveCapture {
     sample_format: String,
     stream: Stream,
     shared: Arc<Mutex<SharedCaptureData>>,
+    stream_error: Arc<AtomicBool>,
 }
 
 struct SharedCaptureData {
@@ -200,6 +206,7 @@ struct SharedCaptureData {
     accumulated_paused: Duration,
     has_voice_activity: bool,
     samples: Vec<i16>,
+    max_samples: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -454,6 +461,13 @@ pub fn start_native_capture<R: Runtime + 'static>(
     let sample_format = supported_config.sample_format();
     let stream_config = supported_config.config();
 
+    let max_recording_seconds = config.max_recording_seconds.max(1);
+    let max_samples = (max_recording_seconds as usize)
+        .saturating_mul(stream_config.sample_rate.0 as usize)
+        .saturating_mul(stream_config.channels.max(1) as usize);
+
+    let stream_error = Arc::new(AtomicBool::new(false));
+
     let shared = Arc::new(Mutex::new(SharedCaptureData {
         started_at: Instant::now(),
         last_voice_at: Instant::now(),
@@ -464,6 +478,7 @@ pub fn start_native_capture<R: Runtime + 'static>(
         accumulated_paused: Duration::ZERO,
         has_voice_activity: false,
         samples: Vec::new(),
+        max_samples,
     }));
 
     let stream = build_stream(
@@ -472,6 +487,7 @@ pub fn start_native_capture<R: Runtime + 'static>(
         &stream_config,
         sample_format,
         shared.clone(),
+        stream_error.clone(),
     )?;
     stream
         .play()
@@ -488,6 +504,7 @@ pub fn start_native_capture<R: Runtime + 'static>(
         sample_format: sample_format_label(sample_format).to_string(),
         stream,
         shared,
+        stream_error,
     });
 
     Ok(state.status())
@@ -504,7 +521,9 @@ pub fn stop_native_capture<R: Runtime>(
         .active
         .take()
         .ok_or_else(|| "No native audio capture is active.".to_string())?;
-    let _ = active.stream.pause();
+    if !active.stream_error.load(Ordering::Relaxed) {
+        let _ = active.stream.pause();
+    }
 
     let (has_voice_activity, samples) = active
         .shared
@@ -553,7 +572,9 @@ pub fn abort_native_capture<R: Runtime>(app: &AppHandle<R>) -> Result<(), String
     let Some(active) = state.active.take() else {
         return Ok(());
     };
-    let _ = active.stream.pause();
+    if !active.stream_error.load(Ordering::Relaxed) {
+        let _ = active.stream.pause();
+    }
     let _ = app.emit(
         "wordscript-event",
         serde_json::json!({ "event": "muted", "muted": false }),
@@ -579,6 +600,10 @@ pub fn monitor_native_capture<R: Runtime>(
 
     if active.id != capture_id {
         return Ok(NativeCaptureMonitorState::Finished);
+    }
+
+    if active.stream_error.load(Ordering::Relaxed) {
+        return Ok(NativeCaptureMonitorState::Stop(NativeCaptureStopReason::StreamError));
     }
 
     let shared = active.shared.lock().map_err(|error| error.to_string())?;
@@ -615,9 +640,11 @@ fn build_stream<R: Runtime + 'static>(
     config: &StreamConfig,
     sample_format: SampleFormat,
     shared: Arc<Mutex<SharedCaptureData>>,
+    stream_error: Arc<AtomicBool>,
 ) -> Result<Stream, String> {
     let error_app = app.clone();
     let error_callback = move |error| {
+        stream_error.store(true, Ordering::Relaxed);
         let message = format!("Native capture stream error: {error}");
         let _ = error_app.emit(
             "wordscript-event",
@@ -726,7 +753,7 @@ fn process_samples<R: Runtime>(
         for sample in &normalized_samples {
             peak = peak.max(sample.abs());
             rms += sample.powi(2);
-            if !paused {
+            if !paused && shared.samples.len() < shared.max_samples {
                 shared.samples.push(f32_to_i16(*sample));
             }
         }
@@ -1036,6 +1063,7 @@ mod tests {
             accumulated_paused: Duration::ZERO,
             has_voice_activity: true,
             samples: vec![],
+            max_samples: 0,
         }));
 
         let reason = capture_stop_reason(
@@ -1062,6 +1090,7 @@ mod tests {
             accumulated_paused: Duration::ZERO,
             has_voice_activity: true,
             samples: vec![],
+            max_samples: 0,
         }));
 
         let reason = capture_stop_reason(
@@ -1088,6 +1117,7 @@ mod tests {
             accumulated_paused: Duration::ZERO,
             has_voice_activity: true,
             samples: vec![],
+            max_samples: 0,
         };
 
         let reason = capture_stop_reason(

@@ -123,6 +123,27 @@ Diagnostische History- und Hint-Listen sollen als isolierte, stabile Teilbaeume 
 - Content: Card-basiertes Layout, `border-radius: 12px`, `padding: 20px`, `gap: 16px`.
 - Elevation durch Background (`--surface`, `--surface-elevated`), nicht durch Shadow.
 
+### Hintergrund-Layer (v2.1)
+
+Seit dem Home-Screen-Refactor gibt es drei explizite Layer-Aliase in
+`src/styles/globals.css`, die auf dem bestehenden Brand-Palette aufsetzen:
+
+| Token              | Alias-Ziel               | Verwendung                        |
+|--------------------|--------------------------|-----------------------------------|
+| `--bg-base`        | `var(--bg)`              | tiefster Layer (Fenster)          |
+| `--bg-surface`     | `var(--surface-elevated)`| Cards, Listen, Dialoge            |
+| `--bg-elevated`    | `var(--surface-strong)`  | Hover/Active, Hero-Prominenz      |
+
+Zusaetzlich wurde `--surface-elevated` von `#1e2730` auf `#1c2127` retuned,
+ damit Cards sich klarer vom Fensterhintergrund abheben.
+
+Cards verwenden `--bg-surface`, Status-/Hero-Betonung `--bg-elevated`.
+Sichtbarkeit der drei Layer wird im Home-Bereich gezielt ueber staerkere
+Hairline-Borders (`border-border-strong` auf `--bg-surface`-Cards) erreicht,
+ohne die globalen Surface-Tokens weiter aufzuhellen.
+Neue UI-Komponenten sollten diese Layer-Namen statt roher `--bg` / `--surface-*`
+-Werte nutzen, damit die Hierarchie im Code greifbar bleibt.
+
 ## Typografie
 
 Font-Tokens in `src/styles/globals.css`:
@@ -135,7 +156,7 @@ Type Scale:
 
 | Token | Groesse | Weight | Verwendung |
 |-------|---------|--------|------------|
-| `--text-display-lg` | 28px | 600 | Bereichs-Titel |
+| `--text-display-lg` | 28px | 600 | Bereichs-Titel, Hero-Headline |
 | `--text-display` | 24px | 600 | Modale Titel |
 | `--text-title` | 18px | 600 | Card-Ueberschriften (gross) |
 | `--text-body-lg` | 15px | 400 | Wichtiger Body-Text |
@@ -143,6 +164,18 @@ Type Scale:
 | `--text-body-sm` | 12px | 400 | Sekundaere Info |
 | `--text-label` | 11px | 500 | uppercase, tracking 0.05em | Card-Sektions-Titel, Sidebar-Labels |
 | `--text-caption` | 10px | 500 | uppercase, tracking 0.08em | Status-Badges |
+
+**Home-Screen Type-Scale (5-Stufen-Ausfuehrung):**
+Fuer den Home-Bereich wird auf eine reduzierte 5-Stufen-Skala gemappt, statt
+jede freie Groesse zu erfinden:
+
+| Stufe | Groesse | Tailwind | Verwendung |
+|-------|---------|----------|------------|
+| Hero | 28px | `text-[28px]` | "Ready to dictate" |
+| Section header | 20px | `text-xl` | "Recent dictations" |
+| Label / upper | 12px | `text-xs` uppercase | Eyebrows, Badges, Time |
+| Body | 14px | `text-sm` | Beschreibungen, Listen-Text |
+| Large body | 16px | `text-base` | Wichtige Unterzeilen (optional) |
 
 Regeln:
 
@@ -174,6 +207,22 @@ Aktive Farb-Tokens in `src/styles/globals.css` (v2):
 | `--border-strong` | `rgba(255, 255, 255, 0.14)` | Hover-Borders |
 | `--green` | `#81d6ae` | Erfolg, positive Runtime |
 | `--red` | `#ff7a6b` | Fehler, blockierende Probleme |
+| `--orange` | `#e68900` | Warn-/Recovery-Status (z.B. Fallback-Bereitschaft) |
+
+### Status-Dot System
+
+Der `StatusDot` in `src/components/shell/StatusDot.tsx` ist die einzige
+Quelle fuer kleine Statuspunkte. Er verwendet exakt die obigen Semantik-Farben
+und kommt ohne eigenen Hintergrund-Tint aus:
+
+| Tone    | Farbe              | Verwendung                   |
+|---------|--------------------|------------------------------|
+| success | `var(--green)`     | Bereit, abgeschlossen, aktiv |
+| warning | `var(--orange)`    | Fallback, Setup nötig, Pause |
+| error   | `var(--red)`       | Fehler, blockierend          |
+| neutral | `var(--fg-muted)`  | Inaktiv, leer, abwarten      |
+
+Keine inline `size-1.5 rounded-full`-Punkte in Listen, Karten oder Hero.
 
 Regeln:
 

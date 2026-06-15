@@ -15,9 +15,17 @@
      macOS "inset" groups (System Settings idiom): card is visibly lighter than
      the window background + a hairline ring + a soft drop shadow (darwin-ui). */
   --surface: rgba(30, 39, 48, 0.92);
-  --surface-elevated: #1e2730;
+  --surface-elevated: #1c2127;
   --surface-strong: #28333d;
   --surface-soft: rgba(245, 206, 123, 0.08);
+
+  /* ── Background layers (Home / Shell v2 design system) ── */
+  /* 3 explicit layers, aliased onto existing palette: base = window,
+     surface = cards, elevated = hover/active. Use these names in new UI work
+     instead of raw --bg / --surface-* values. */
+  --bg-base: var(--bg);
+  --bg-surface: var(--surface-elevated);
+  --bg-elevated: var(--surface-strong);
 
   /* ── Foregrounds ── */
   --fg: #f4f1ea;
@@ -137,6 +145,8 @@
 @theme inline {
   /* Brand + surface palette -> utilities like bg-surface-elevated, text-fg-dim */
   --color-bg: var(--bg);
+  --color-bg-base: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
   --color-bg-elevated: var(--bg-elevated);
   --color-sidebar: var(--sidebar);
   --color-surface: var(--surface);

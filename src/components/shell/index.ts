@@ -8,6 +8,8 @@ export { SegmentControl } from "./SegmentControl";
 export type { SegmentOption } from "./SegmentControl";
 export { StatusBadge } from "./StatusBadge";
 export type { StatusTone } from "./StatusBadge";
+export { StatusDot } from "./StatusDot";
+export type { StatusDotTone } from "./StatusDot";
 export { Stepper } from "./Stepper";
 export { Select } from "./Select";
 export { Toggle } from "./Toggle";

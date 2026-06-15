@@ -53,6 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Home screen refactored to enforce the active design system: 3 explicit background layers (`--bg-base` / `--bg-surface` / `--bg-elevated`), 5-step type scale (12 / 14 / 16 / 20 / 28 px), 4-point spacing (20 px card padding, 32 px between sections), and a single `StatusDot` primitive. "Ready to dictate" is now a real hero, "Recent dictations" is a clean list, and "Quick actions" are distinct action rows. SW-labs orange is reserved for the primary Capture button.
+- `--surface-elevated` retuned from `#1e2730` to `#1c2127` so cards visibly separate from the window background across the whole shell.
+- Shell-Layout-Overflow behoben: Header, Content-Wrapper und Footer in `SettingsWindow` erhalten `min-w-0`, sodass Status-Pills und Cancel/Save-Buttons bei schmalen Fenstern nicht mehr am rechten Rand abgeschnitten werden.
+- Home-Cards nutzen jetzt `border-border-strong`, damit die drei Background-Layer (Base / Surface / Elevated) im Home-Bereich klar lesbar sind.
+- HomeHero: redundantes "Overview"-Eyebrow-Kicker entfernt.
+- Home-Recent-Dictation-Rows enger gesetzt (44 px Mindesthoehe, 12 px vertikales Padding).
+
 - replaced Windows `RegisterHotKey` with `WH_KEYBOARD_LL` low-level keyboard hook so system-reserved key combos including `Win+*` and `Ctrl+Win+*` work reliably; the hook runs on a dedicated thread with injected-event filtering, modifier tracking and `VK_F24` dummy injection to prevent the Start menu from opening after Win-key combos
 - reduced Linux X11 hotkey polling interval from 50 ms to 1 ms for noticeably lower latency
 - added a macOS CGEventTap fallback path for regular hotkeys that `RegisterEventHotKey` cannot grab (system-reserved combos like `Cmd+Space`); the tap requires macOS Accessibility permission
@@ -163,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Linux dev crash after a while: the native audio path no longer keeps a persistent `rodio` output stream for the whole session; every sound cue opens a fresh short-lived stream and drops it after playback. The cpal capture stream now sets a `stream_error` flag on its error callback, the monitor stops the capture cleanly with a new `StreamError` reason, and `stop`/`abort` skip `pause()` on a dead stream. A hard `max_samples` cap was added to the capture buffer as a safety net. This removes the previous crash surface when ALSA/PulseAudio/PipeWire/JACK state changes during a long dev run.
 - Linux hotkeys, overlay behavior, timeout handling, clipboard restore and diagnostics reflect the current native runtime path
 - the native pipeline no longer completes the same session twice when insertion succeeds, and failed insertion now finishes the session on the pipeline owner instead of inside the insert adapter
 - provider config values now normalize to a supported runtime provider, and post-correction uses the same provider dispatch layer as transcription

@@ -363,7 +363,7 @@ export default function SettingsWindow() {
 
         <main className="flex min-w-0 flex-1 flex-col">
           {/* Toolbar header (sits under the native title bar) */}
-          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-7 py-4">
+          <header className="flex min-w-0 shrink-0 items-center justify-between gap-4 border-b border-border px-7 py-4">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-strong text-fg-dim">
                 <activeArea.icon className="size-[18px]" strokeWidth={1.75} />
@@ -393,9 +393,9 @@ export default function SettingsWindow() {
           </header>
 
           {/* Scrollable content area (relative so an Inspector slide-over can anchor here) */}
-          <div className="relative min-h-0 flex-1 overflow-hidden">
-            <div className="h-full overflow-y-auto px-10 py-10">
-              <div className="mx-auto flex max-w-[780px] flex-col gap-8">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+            <div className="h-full overflow-y-auto overflow-x-hidden">
+              <div className="mx-auto flex max-w-[780px] flex-col gap-8 px-10 py-10">
                 <div key={active} className="animate-in fade-in-50 duration-150">
                   {renderArea()}
                 </div>
@@ -404,25 +404,27 @@ export default function SettingsWindow() {
           </div>
 
           {/* Footer save bar */}
-          <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-border px-7 py-3.5">
-            <span
-              className={
-                status
-                  ? status.ok
-                    ? "text-[12px] text-[var(--green)]"
-                    : "text-[12px] text-[var(--red)]"
-                  : textRulesAnalysis?.blocking
-                    ? "text-[12px] text-[var(--red)]"
-                    : "text-[12px] text-fg-muted"
-              }
-            >
-              {status?.msg ??
-                (textRulesAnalysis?.blocking
-                  ? "Fix blocking text-rule issues before saving."
-                  : isDirty
-                    ? "Unsaved changes — they stay local until you save."
-                    : "In sync with the persisted runtime config.")}
-            </span>
+          <footer className="flex min-w-0 shrink-0 items-center justify-between gap-4 border-t border-border px-7 py-3.5">
+            <div className="min-w-0">
+              <span
+                className={`block truncate text-[12px] ${
+                  status
+                    ? status.ok
+                      ? "text-[var(--green)]"
+                      : "text-[var(--red)]"
+                    : textRulesAnalysis?.blocking
+                      ? "text-[var(--red)]"
+                      : "text-fg-muted"
+                }`}
+              >
+                {status?.msg ??
+                  (textRulesAnalysis?.blocking
+                    ? "Fix blocking text-rule issues before saving."
+                    : isDirty
+                      ? "Unsaved changes — they stay local until you save."
+                      : "In sync with the persisted runtime config.")}
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <Button variant="ghost" onClick={handleCancel}>
                 Cancel

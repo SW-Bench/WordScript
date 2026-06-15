@@ -335,6 +335,7 @@ pub fn store_restore_token(token: &str) -> Result<(), PortalError> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn clear_persisted_restore_token() {
     let _ = std::fs::remove_file(portal_token_path());
 }
