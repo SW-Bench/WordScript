@@ -53,7 +53,7 @@ export function FormCard({
       )}
       <div
         className={cn(
-          "rounded-[12px] border border-border bg-card px-5 py-1 shadow-card",
+          "rounded-lg border border-border bg-card px-5 py-1 shadow-card",
           bodyClassName,
           className,
         )}

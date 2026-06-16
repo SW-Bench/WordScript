@@ -156,7 +156,7 @@ function DiagItem({
   lines: ReactNode[];
 }) {
   return (
-    <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+    <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
       <StatusBadge tone={tone} dot>
         {title}
       </StatusBadge>
@@ -513,7 +513,7 @@ interface HistoryEntryCardProps {
 
 const HistoryEntryCard = memo(function HistoryEntryCard({ entry, isLoading, onRetry, onRemove }: HistoryEntryCardProps) {
   return (
-    <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+    <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <strong className="text-[13px] font-semibold text-foreground">
@@ -639,7 +639,7 @@ const RuntimeRuleHintList = memo(function RuntimeRuleHintList({ hints }: Runtime
         </p>
       </div>
       {hints.map((hint, index) => (
-        <div key={`${hint.entry}-${index}`} className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+        <div key={`${hint.entry}-${index}`} className="rounded-lg border border-border bg-surface px-3.5 py-3">
           <strong className="text-[12px] font-semibold text-foreground">{describeCorrectionOutcome(hint.corrected)}</strong>
           <p className="mt-0.5 font-mono text-[11px] leading-snug text-fg-muted">{hint.entry}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1074,11 +1074,11 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
       >
         <div className="flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+            <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
               <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Transcript</span>
               <p className="mt-1 text-[13px] leading-snug text-foreground">{previewTranscript}</p>
             </div>
-            <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+            <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
               <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Insert plan</span>
               <div className="mt-2 flex flex-col gap-2">
                 <DiagItem title="Target" lines={[previewTargetLabel]} />

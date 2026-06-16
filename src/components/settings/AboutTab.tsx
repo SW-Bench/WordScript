@@ -185,7 +185,7 @@ function DiagItem({
   lines: ReactNode[];
 }) {
   return (
-    <div className="rounded-[10px] border border-[var(--hairline)] bg-[var(--surface-1)] px-3.5 py-3">
+    <div className="rounded-lg border border-[var(--hairline)] bg-[var(--surface-1)] px-3.5 py-3">
       <Badge variant={tone === "default" ? "secondary" : tone} dot>
         {title}
       </Badge>
@@ -326,7 +326,7 @@ export function AboutTab({ isActive }: AboutTabProps) {
             <strong className="text-[12px] font-semibold text-[var(--fg)]">Target build lanes</strong>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
               {(releaseStatus?.build_targets ?? []).map((target) => (
-                <div key={`${target.platform}:${target.artifact}`} className="rounded-[10px] border border-[var(--hairline)] bg-[var(--surface-1)] px-3 py-2.5">
+                <div key={`${target.platform}:${target.artifact}`} className="rounded-lg border border-[var(--hairline)] bg-[var(--surface-1)] px-3 py-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <strong className="text-[12px] font-semibold text-[var(--fg)]">{target.platform}</strong>
                     <span className="text-[11px] text-[var(--fg-muted)]">{buildStateLabel(target.state)}</span>

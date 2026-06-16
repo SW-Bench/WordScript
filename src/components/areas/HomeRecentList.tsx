@@ -14,18 +14,15 @@ export function HomeRecentList({ entries, onNavigate }: HomeRecentListProps) {
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3 px-1">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-[0.05em] text-fg-muted">
-            Workspace
-          </span>
-          <h2 className="text-xl font-semibold leading-tight tracking-[-0.005em]">Recent dictations</h2>
+        <div>
+          <h2 className="text-lg font-semibold leading-tight tracking-[-0.005em]">Recent dictations</h2>
         </div>
         <Button size="sm" variant="ghost" onClick={() => onNavigate("history")}>
           <History className="size-3.5" /> View all
         </Button>
       </div>
 
-      <div className="rounded-[16px] border border-border-strong bg-bg-surface p-5">
+      <div className="rounded-lg border border-border-strong bg-bg-surface p-5">
         {entries.length === 0 ? (
           <div className="py-12 text-center text-sm text-fg-muted">
             No dictations yet. Trigger your shortcut to make the first one.

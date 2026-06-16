@@ -344,7 +344,7 @@ export default function SettingsWindow() {
             <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
               <span
                 aria-hidden
-                className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-gradient-to-b from-brand to-brand-strong text-[15px] font-bold text-[#1a1206] shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
+                className="flex size-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-brand to-brand-strong text-[15px] font-bold text-[#1a1206] shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
               >
                 W
               </span>
@@ -363,9 +363,9 @@ export default function SettingsWindow() {
 
         <main className="flex min-w-0 flex-1 flex-col">
           {/* Toolbar header (sits under the native title bar) */}
-          <header className="flex min-w-0 shrink-0 items-center justify-between gap-4 border-b border-border px-7 py-4">
+          <header className="flex min-w-0 shrink-0 items-center justify-between gap-4 border-b border-border px-6 py-4">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-surface-strong text-fg-dim">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-surface-strong text-fg-dim">
                 <activeArea.icon className="size-[18px]" strokeWidth={1.75} />
               </div>
               <div className="min-w-0">
@@ -395,7 +395,7 @@ export default function SettingsWindow() {
           {/* Scrollable content area (relative so an Inspector slide-over can anchor here) */}
           <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
             <div className="h-full overflow-y-auto overflow-x-hidden">
-              <div className="mx-auto flex max-w-[780px] flex-col gap-8 px-10 py-10">
+              <div className="flex w-full flex-col gap-8 px-8 py-6 pb-12">
                 <div key={active} className="animate-in fade-in-50 duration-150">
                   {renderArea()}
                 </div>
@@ -404,7 +404,7 @@ export default function SettingsWindow() {
           </div>
 
           {/* Footer save bar */}
-          <footer className="flex min-w-0 shrink-0 items-center justify-between gap-4 border-t border-border px-7 py-3.5">
+          <footer className="flex min-w-0 shrink-0 items-center justify-between gap-4 border-t border-border px-6 py-4">
             <div className="min-w-0">
               <span
                 className={`block truncate text-[12px] ${

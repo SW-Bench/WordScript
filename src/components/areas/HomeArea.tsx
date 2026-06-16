@@ -47,11 +47,8 @@ export function HomeArea({
       <HomeHero readiness={readiness} laneLabel={laneLabel} onNavigate={onNavigate} />
 
       <section className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1 px-1">
-          <span className="text-xs font-medium uppercase tracking-[0.05em] text-fg-muted">
-            Insert path
-          </span>
-          <h2 className="text-xl font-semibold leading-tight tracking-[-0.005em]">Delivery status</h2>
+        <div className="px-1">
+          <h2 className="text-lg font-semibold leading-tight tracking-[-0.005em]">Delivery status</h2>
         </div>
         <FormCard className="border-border-strong" bodyClassName="px-5">
           <FormRow

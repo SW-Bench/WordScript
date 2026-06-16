@@ -16,7 +16,7 @@ interface HomeHeroProps {
 
 export function HomeHero({ readiness, laneLabel, onNavigate }: HomeHeroProps) {
   return (
-    <section className="relative overflow-hidden rounded-[16px] border border-border-strong bg-bg-elevated px-6 py-6">
+    <section className="relative overflow-hidden rounded-lg border border-border-strong bg-bg-elevated px-6 py-6">
       <div className="flex flex-col gap-5">
         {/* top row: lane + status */}
         <div className="flex items-center justify-between gap-3">

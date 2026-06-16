@@ -237,7 +237,7 @@ function RuleField({
 
 function ruleCardClass(isActive: boolean, issues: TextRulesIssue[]) {
   return cn(
-    "rounded-[10px] border bg-card px-4 py-3.5 shadow-card transition-colors",
+    "rounded-lg border bg-card px-4 py-3.5 shadow-card transition-colors",
     hasSeverity(issues, "error")
       ? "border-[var(--red)]"
       : hasSeverity(issues, "warning")
@@ -1061,7 +1061,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                   { label: "Context focus", items: selectedTemplateContextLines.slice(0, 4) },
                   { label: "Optional STT hints", items: selectedTemplateSttHintPreview.slice(0, 4) },
                 ].map((group) => (
-                  <div key={group.label} className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                  <div key={group.label} className="rounded-lg border border-border bg-surface px-3 py-2.5">
                     <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">{group.label}</span>
                     <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
                       {group.items.map((line) => (
@@ -1070,7 +1070,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                     </ul>
                   </div>
                 ))}
-                <div className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
                   <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Key replacements</span>
                   <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
                     {selectedTemplateDictionaryPreview.slice(0, 3).map((entry) => (
@@ -1082,7 +1082,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                     ))}
                   </ul>
                 </div>
-                <div className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
                   <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Ready snippets</span>
                   <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
                     {selectedTemplateSnippetPreview.slice(0, 3).map((entry) => (
@@ -1109,7 +1109,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                 key={template.id}
                 type="button"
                 className={cn(
-                  "flex flex-col gap-1.5 rounded-[10px] border bg-surface px-3 py-2.5 text-left transition-colors hover:border-border-strong",
+                  "flex flex-col gap-1.5 rounded-lg border bg-surface px-3 py-2.5 text-left transition-colors hover:border-border-strong",
                   selected ? "border-brand ring-1 ring-brand/40" : "border-border",
                 )}
                 aria-label={`Select ${template.label} profile`}
@@ -1147,7 +1147,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
         <div
           role="tablist"
           aria-label="Text rules workspace"
-          className="grid grid-cols-4 gap-1 rounded-[10px] border border-border bg-surface p-1"
+          className="grid grid-cols-4 gap-1 rounded-lg border border-border bg-surface p-1"
         >
           {(
             [
@@ -1246,7 +1246,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                       body: "Do not mirror whole snippets or long macros. If you want expansion behavior, keep that in Snippets; STT hints should stay short and intentional.",
                     },
                   ].map((note) => (
-                    <div key={note.title} className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                    <div key={note.title} className="rounded-lg border border-border bg-surface px-3 py-2.5">
                       <strong className="text-[12px] font-semibold text-foreground">{note.title}</strong>
                       <p className="mt-1 text-[12px] leading-snug text-fg-muted">{note.body}</p>
                     </div>
@@ -1282,7 +1282,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                       empty: "No explicit STT hints are currently forwarded.",
                     },
                   ].map((note) => (
-                    <div key={note.title} className="rounded-[10px] border border-border bg-surface px-3 py-2.5">
+                    <div key={note.title} className="rounded-lg border border-border bg-surface px-3 py-2.5">
                       <strong className="text-[12px] font-semibold text-foreground">{note.title}</strong>
                       <p className="mt-1 text-[12px] leading-snug text-fg-muted">{note.body}</p>
                       {note.chips.length > 0 ? (
@@ -1299,7 +1299,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                     </div>
                   ))}
                   {(ignoredProfileLines.length > 0 || ignoredSttHintLines.length > 0) && (
-                    <div className="rounded-[10px] border border-border bg-surface px-3 py-2.5 sm:col-span-3">
+                    <div className="rounded-lg border border-border bg-surface px-3 py-2.5 sm:col-span-3">
                       <strong className="text-[12px] font-semibold text-foreground">Ignored from automatic bias</strong>
                       <p className="mt-1 text-[12px] leading-snug text-fg-muted">
                         These lines stay in the profile, but are not forwarded automatically because they are too broad or
@@ -1335,7 +1335,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                   several transcript forms, model those forms explicitly.
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+                  <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
                     <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Resolved output</span>
                     <strong className="mt-1 block text-[13px] text-foreground">
                       {previewSource?.preview.output || "No preview yet"}
@@ -1358,7 +1358,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                       </p>
                     )}
                   </div>
-                  <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+                  <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
                     <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">
                       Validation diagnostics
                     </span>
@@ -1427,7 +1427,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
               </div>
             </FormCard>
 
-            <div className="rounded-[10px] border border-border bg-surface px-4 py-3">
+            <div className="rounded-lg border border-border bg-surface px-4 py-3">
               <strong className="text-[13px] font-semibold text-foreground">Literal rule model</strong>
               <p className="mt-1 text-[12px] leading-snug text-fg-muted">
                 Text Rules match transcript phrases, not raw audio and not semantic intent. Dictionary runs first, snippets
@@ -1515,7 +1515,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
           >
             <div className="flex flex-col gap-3">
               {dictionaryEntries.length === 0 ? (
-                <div className="rounded-[10px] border border-dashed border-border px-4 py-6 text-center text-[12px] leading-snug text-fg-muted">
+                <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-[12px] leading-snug text-fg-muted">
                   No dictionary entries yet. Add the phrases Groq hears wrong and the exact output WordScript should insert
                   instead.
                 </div>
@@ -1555,7 +1555,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
           >
             <div className="flex flex-col gap-3">
               {snippetEntries.length === 0 ? (
-                <div className="rounded-[10px] border border-dashed border-border px-4 py-6 text-center text-[12px] leading-snug text-fg-muted">
+                <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-[12px] leading-snug text-fg-muted">
                   No snippets yet. Add a trigger phrase and the full expansion WordScript should drop into the final
                   transcript.
                 </div>
@@ -1687,7 +1687,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
               bodyClassName="py-4"
             >
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+                <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
                   <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">
                     Cloud sees (Groq / Whisper)
                   </span>
@@ -1695,7 +1695,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                     {biasPreview?.cloud_prompt_preview ?? "(empty)"}
                   </pre>
                 </div>
-                <div className="rounded-[10px] border border-border bg-surface px-3.5 py-3">
+                <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
                   <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">
                     Local sees (whisper-cli)
                   </span>
@@ -1727,7 +1727,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                     return (
                       <div
                         key={flag.kind}
-                        className="flex items-start justify-between gap-3 rounded-[10px] border border-border bg-surface px-3.5 py-2.5"
+                        className="flex items-start justify-between gap-3 rounded-lg border border-border bg-surface px-3.5 py-2.5"
                       >
                         <div className="min-w-0">
                           <strong className="text-[12px] font-semibold text-foreground">{flag.kind}</strong>

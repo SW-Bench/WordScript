@@ -46,7 +46,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full w-[232px] shrink-0 flex-col border-r border-[var(--hairline)] bg-[var(--surface-1)]",
+        "flex h-full w-[232px] shrink-0 flex-col border-r border-[var(--hairline-strong)] bg-[var(--sidebar-bg)]",
         className,
       )}
     >
@@ -58,7 +58,7 @@ export function Sidebar({
       >
         {groups.map((group) => (
           <section key={group.label} aria-label={group.label}>
-            <h2 className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--fg-muted)]">
+            <h2 className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--fg-muted)]">
               {group.label}
             </h2>
             <ul className="flex flex-col gap-0.5">
@@ -76,7 +76,7 @@ export function Sidebar({
         ))}
       </nav>
 
-      {footer && <div className="shrink-0 border-t border-[var(--hairline)] mx-2 mb-2 mt-1">{footer}</div>}
+      {footer && <div className="shrink-0 border-t border-[var(--hairline-strong)] mx-2 mb-2 mt-1">{footer}</div>}
     </aside>
   );
 }
@@ -99,7 +99,7 @@ function SidebarButton({
       aria-disabled={item.preview || undefined}
       onClick={() => !item.preview && onSelect(item.id)}
       className={cn(
-        "group relative flex items-center gap-2.5 rounded-[var(--radius-control)] px-2.5 py-2 text-left text-[12.5px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40",
+        "group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40",
         item.preview
           ? "opacity-40 cursor-not-allowed text-[var(--fg-dim)]"
           : active
@@ -110,9 +110,9 @@ function SidebarButton({
       {active && !item.preview && (
         <span
           aria-hidden
-          className="absolute inset-0 rounded-[var(--radius-control)] material"
+          className="absolute inset-0 rounded-md material"
           style={{
-            background: "var(--surface-2)",
+            background: "var(--accent-soft)",
             border: "1px solid var(--hairline-strong)",
           }}
         />

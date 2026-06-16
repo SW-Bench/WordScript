@@ -9,6 +9,8 @@
   --bg: #0a0d11;
   --bg-elevated: #141a20;
   --sidebar: rgba(13, 17, 22, 0.94);
+  /* Sidebar surface: eine Nuance dunkler als der Content-Bereich */
+  --sidebar-bg: color-mix(in srgb, var(--bg) 80%, black);
 
   /* ── Surfaces (Elevation durch Background, nicht Shadow) ── */
   /* Cards sit a clear step above the window so grouped forms read as native
