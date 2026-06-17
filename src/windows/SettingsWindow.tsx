@@ -21,7 +21,6 @@ import {
 import { useProvider } from "../hooks/useProvider";
 import { useRuntime } from "../hooks/useRuntime";
 import { getHotkeyValidationMessage, normalizeManualHotkey } from "../lib/hotkeys";
-import { APP_VERSION } from "../lib/appMeta";
 import type { AppConfig } from "../types/ipc";
 import type { ProviderId } from "../types/providers";
 import type { ProfileHealthLevel, TextRulesAnalysis } from "../types/textRules";
@@ -38,6 +37,7 @@ import { Sidebar, ProfileSwitcher, StatusBadge } from "../components/shell";
 import type { SidebarGroup } from "../components/shell";
 import { Button } from "../components/ui/button";
 import { TooltipProvider } from "../components/ui/tooltip";
+import wordmarkLogo from "../../assets/wordscript_wordmark+logo.png";
 
 type AreaId =
   | "home"
@@ -341,19 +341,8 @@ export default function SettingsWindow() {
           activeId={active}
           onSelect={navigate}
           header={
-            <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
-              <span
-                aria-hidden
-                className="flex size-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-brand to-brand-strong text-[15px] font-bold text-[#1a1206] shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
-              >
-                W
-              </span>
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate text-[15px] font-semibold leading-tight text-foreground">
-                  WordScript
-                </span>
-                <span className="text-[11px] leading-tight text-fg-muted">v{APP_VERSION}</span>
-              </div>
+            <div className="flex items-center px-5 pb-4 pt-5">
+              <img src={wordmarkLogo} alt="WordScript" className="h-8 w-auto" />
             </div>
           }
           footer={

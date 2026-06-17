@@ -46,7 +46,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full w-[232px] shrink-0 flex-col border-r border-[var(--hairline-strong)] bg-[var(--sidebar-bg)]",
+        "flex h-full w-[232px] shrink-0 flex-col border-r border-[var(--hairline-strong)] bg-[var(--sidebar-bg)] pl-4",
         className,
       )}
     >
