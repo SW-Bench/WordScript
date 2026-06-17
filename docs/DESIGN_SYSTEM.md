@@ -144,6 +144,27 @@ ohne die globalen Surface-Tokens weiter aufzuhellen.
 Neue UI-Komponenten sollten diese Layer-Namen statt roher `--bg` / `--surface-*`
 -Werte nutzen, damit die Hierarchie im Code greifbar bleibt.
 
+### Gotcha: CSS-Reset muss in `@layer base` liegen
+
+`src/styles/globals.css` nutzt Tailwind v4 (`@import "tailwindcss"`), das
+intern `@layer theme, base, components, utilities;` deklariert. Der
+universelle Reset (`*, *::before, *::after { box-sizing; margin: 0; padding: 0; }`)
+muss deshalb explizit in `@layer base { ... }` gewrappt sein.
+
+Ungelayerte CSS-Regeln gewinnen in der Cascade-Layers-Spec **immer** gegen
+gelayerte Regeln, unabhaengig von Selektor-Spezifitaet oder Reihenfolge im
+File. Stand vor diesem Fix lag der Reset als plain CSS ausserhalb jedes
+`@layer`-Blocks — dadurch hat `padding: 0` jede Tailwind-Padding-Utility
+(`px-*`, `py-*`, `pt-*`, ...) und jede Margin-Utility app-weit überschrieben,
+ohne dass das im JSX/TSX sichtbar war. Sidebar-`pl-4`, Nav-`px-3` und
+Content-`px-8` standen korrekt im Code, sind aber visuell wirkungslos
+geblieben, bis der Reset gelayert wurde (siehe `src/styles/globals.css`,
+Abschnitt "Reset").
+
+Regel fuer neue globale Resets/Overrides in `globals.css`: immer in
+`@layer base` (oder `components`) schreiben, nie als unlayered Top-Level-CSS,
+sonst sticht es lautlos jede Tailwind-Utility.
+
 ## Typografie
 
 Font-Tokens in `src/styles/globals.css`:

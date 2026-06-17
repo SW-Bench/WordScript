@@ -200,12 +200,18 @@
 }
 
 /* ── Reset ──────────────────────────────────────────────────────────────────── */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* Layered (@layer base) so Tailwind utility classes (px-*, pt-*, margin
+   utilities, ...) keep winning the cascade — unlayered rules always beat
+   layered rules regardless of specificity, which silently killed every
+   padding/margin utility in the app when this lived outside a layer. */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 html,

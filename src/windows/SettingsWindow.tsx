@@ -342,7 +342,7 @@ export default function SettingsWindow() {
           onSelect={navigate}
           header={
             <div className="flex items-center px-5 pb-4 pt-5">
-              <img src={wordmarkLogo} alt="WordScript" className="h-8 w-auto" />
+              <img src={wordmarkLogo} alt="WordScript" className="h-10 w-auto" />
             </div>
           }
           footer={

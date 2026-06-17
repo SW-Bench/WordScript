@@ -198,6 +198,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - compact and action-state overlays now share the same remembered top-left drag position, so dragging either surface updates the single location used the next time any overlay state appears
 - the standard live overlay now uses state-specific right-side sizing and padding, so recording, `working`, and action states no longer inherit the same cramped timer/status spacing
 - the live waveform now falls back to a calmer idle silhouette for near-room-noise input and drives much taller bars once actual speech is present, instead of overreacting while quiet and underreacting while speaking
+- the universal CSS reset in `src/styles/globals.css` now lives inside `@layer base` instead of as unlayered top-level CSS; unlayered rules always beat Tailwind's layered utilities regardless of specificity, so `padding: 0` on `*` was silently nulling every Tailwind padding/margin utility app-wide (sidebar outer padding, nav item padding, content-card horizontal padding) even though the correct classes were present in JSX
+- the Settings sidebar header now renders the combined wordmark+logo asset as a single image at `h-10` instead of a separate icon glyph plus "WordScript" text label
 
 ### Security
 
