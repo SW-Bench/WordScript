@@ -1,0 +1,760 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   WordScript · OverlayPill (Phase 1 — isolated visual layer)
+
+   No backdrop-filter / blur: a transparent overlay window can't see the desktop
+   behind it, and native vibrancy is unsupported on Linux. We fake glass with a
+   solid semi-transparent fill + a hairline top highlight. Intentional — do not
+   add blur.
+
+   Capsule geometry: compact pills use border-radius 999px; the edit-mode tall
+   pill uses 14px. Width is adaptive (max-content) — every state sizes only to
+   its own content.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.ov-scope {
+  /* ── Design tokens ─────────────────────────────────────────────────────── */
+  --ov-surface: rgba(27, 27, 29, 0.90);
+  --ov-surface-strong: rgba(20, 20, 22, 0.94);
+  --ov-border: rgba(255, 255, 255, 0.09);
+  --ov-border-strong: rgba(255, 255, 255, 0.16);
+  --ov-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --ov-accent: #e8912a;
+  --ov-accent-soft: rgba(232, 145, 42, 0.16);
+  --ov-accent-border: rgba(232, 145, 42, 0.34);
+  --ov-accent-border-soft: rgba(232, 145, 42, 0.26);
+  --ov-text: #e9e9ec;
+  --ov-text-dim: #9a9a9e;
+  --ov-red: #ff7a6b;
+  --ov-red-soft: rgba(255, 122, 107, 0.22);
+  --ov-red-border: rgba(255, 122, 107, 0.34);
+
+  --ov-radius-compact: 999px;
+  --ov-radius-tall: 14px;
+
+  --ov-shadow: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.28);
+  --ov-shadow-recording: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.28);
+
+  --ov-font: "Aptos", "SF Pro Text", "Segoe UI Variable", "Noto Sans", sans-serif;
+  --ov-font-display: "Aptos Display", "SF Pro Display", "Segoe UI Variable Display", "Noto Sans", sans-serif;
+
+  font-family: var(--ov-font);
+  color: var(--ov-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Pill root ─────────────────────────────────────────────────────────────── */
+
+.ov-scope .pill {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: max-content;
+  height: 40px;
+  padding: 0 4px 0 2px;
+  background: var(--ov-surface);
+  border: 1px solid var(--ov-border);
+  border-radius: var(--ov-radius-compact);
+  box-shadow: var(--ov-highlight), var(--ov-shadow);
+  color: var(--ov-text);
+  user-select: none;
+  position: relative;
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out, transform 160ms ease-out;
+  will-change: transform, opacity;
+}
+
+.ov-scope .pill:focus-visible {
+  outline: 2px solid var(--ov-accent);
+  outline-offset: 2px;
+}
+
+/* Neutralise legacy overlay.css width/max-width caps that leak into the gallery
+   in Vite dev (overlay.css is loaded eagerly via the OverlayWindow import).
+   These compound selectors are specificity 0,3,0 so they beat the old
+   .pill--compact.pill--recording { max-width: 296px } (0,2,0) which otherwise
+   hard-caps every recording/processing pill and clips its children. */
+.ov-scope .pill.pill--compact,
+.ov-scope .pill.pill--recording,
+.ov-scope .pill.pill--processing,
+.ov-scope .pill.pill--muted,
+.ov-scope .pill.pill--paused,
+.ov-scope .pill.pill--preview-actions,
+.ov-scope .pill.pill--result-actions,
+.ov-scope .pill.pill--edit-mode,
+.ov-scope .pill.pill--error {
+  max-width: none;
+}
+
+/* Recording: warm hairline + soft inner ring. The live waveform already
+   signals capture, so the surface stays calm — no aggressive halo or pulse. */
+.ov-scope .pill--recording {
+  border-color: var(--ov-accent-border);
+  box-shadow:
+    var(--ov-highlight),
+    inset 0 0 0 1px var(--ov-accent-soft),
+    var(--ov-shadow-recording);
+}
+
+/* Processing: slightly weaker accent border. */
+.ov-scope .pill--processing {
+  border-color: var(--ov-accent-border-soft);
+}
+
+.ov-scope .pill--muted {
+  border-color: var(--ov-red-border);
+}
+
+.ov-scope .pill--paused {
+  border-color: var(--ov-border-strong);
+}
+
+.ov-scope .pill--error {
+  transform: translateY(-2px);
+  border-color: var(--ov-red-border);
+  box-shadow:
+    var(--ov-highlight),
+    0 0 24px rgba(255, 122, 107, 0.20),
+    0 10px 30px rgba(0, 0, 0, 0.42);
+}
+
+/* Motion classes (Phase 2 will toggle these from the Rust side). Gallery
+   keeps them inert; the keyframes are defined for completeness. */
+.ov-scope .pill--entering { animation: overlay-panel-in 320ms cubic-bezier(0.2, 0.9, 0.24, 1) both; }
+.ov-scope .pill--open { transform: translateZ(0) scale(1); }
+.ov-scope .pill--leaving { animation: overlay-panel-out 240ms ease-in both; }
+
+/* ── Mic zone ──────────────────────────────────────────────────────────────── */
+
+.ov-scope .pill__mic {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-left: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ov-text);
+  cursor: pointer;
+  position: relative;
+  transition: background 140ms ease-out;
+}
+
+.ov-scope .pill__mic::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 48% 42%, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.03) 55%, transparent 80%);
+  box-shadow: var(--ov-highlight);
+  transition: transform 140ms ease;
+}
+
+.ov-scope .pill__mic:hover:not(:disabled)::after { transform: scale(1.06); }
+.ov-scope .pill__mic:disabled { cursor: default; opacity: 0.92; }
+.ov-scope .pill__mic svg { position: relative; z-index: 1; }
+
+.ov-scope .pill--recording .pill__mic { color: var(--ov-accent); }
+.ov-scope .pill--muted .pill__mic { color: var(--ov-red); }
+.ov-scope .pill--error .pill__mic::after {
+  box-shadow: 0 0 22px rgba(255, 122, 107, 0.30), var(--ov-highlight);
+}
+
+/* ── Waveform bars ─────────────────────────────────────────────────────────── */
+
+.ov-scope .pill__bars {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 6px;
+}
+
+.ov-scope .bar {
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.10);
+  flex-shrink: 0;
+  transition: height 60ms linear, opacity 120ms ease-out, background 140ms ease-out;
+}
+
+.ov-scope .pill--recording .bar { animation: none; } /* JS-driven heights win */
+
+.ov-scope .bar--muted {
+  background: var(--ov-red);
+  box-shadow: 0 0 8px rgba(255, 122, 107, 0.30);
+}
+
+/* Muted: slow breathe pulse on the bars. */
+.ov-scope .pill--muted .bar {
+  animation: ov-breathe 2.2s ease-in-out infinite;
+}
+.ov-scope .pill--muted .bar:nth-child(1)  { animation-delay: 0.00s; }
+.ov-scope .pill--muted .bar:nth-child(2)  { animation-delay: 0.08s; }
+.ov-scope .pill--muted .bar:nth-child(3)  { animation-delay: 0.16s; }
+.ov-scope .pill--muted .bar:nth-child(4)  { animation-delay: 0.24s; }
+.ov-scope .pill--muted .bar:nth-child(5)  { animation-delay: 0.32s; }
+.ov-scope .pill--muted .bar:nth-child(6)  { animation-delay: 0.40s; }
+.ov-scope .pill--muted .bar:nth-child(7)  { animation-delay: 0.32s; }
+.ov-scope .pill--muted .bar:nth-child(8)  { animation-delay: 0.24s; }
+.ov-scope .pill--muted .bar:nth-child(9)  { animation-delay: 0.16s; }
+.ov-scope .pill--muted .bar:nth-child(10) { animation-delay: 0.08s; }
+.ov-scope .pill--muted .bar:nth-child(11) { animation-delay: 0.00s; }
+
+/* Paused: dim the bars and freeze. */
+.ov-scope .pill--paused .bar {
+  opacity: 0.32;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+/* Processing: shimmer sweep across the bars. */
+.ov-scope .pill--processing .bar {
+  animation: ov-shimmer 1.4s ease-in-out infinite;
+}
+.ov-scope .pill--processing .bar:nth-child(1)  { animation-delay: 0.00s; }
+.ov-scope .pill--processing .bar:nth-child(2)  { animation-delay: 0.07s; }
+.ov-scope .pill--processing .bar:nth-child(3)  { animation-delay: 0.14s; }
+.ov-scope .pill--processing .bar:nth-child(4)  { animation-delay: 0.21s; }
+.ov-scope .pill--processing .bar:nth-child(5)  { animation-delay: 0.28s; }
+.ov-scope .pill--processing .bar:nth-child(6)  { animation-delay: 0.35s; }
+.ov-scope .pill--processing .bar:nth-child(7)  { animation-delay: 0.42s; }
+.ov-scope .pill--processing .bar:nth-child(8)  { animation-delay: 0.49s; }
+.ov-scope .pill--processing .bar:nth-child(9)  { animation-delay: 0.56s; }
+.ov-scope .pill--processing .bar:nth-child(10) { animation-delay: 0.63s; }
+.ov-scope .pill--processing .bar:nth-child(11) { animation-delay: 0.70s; }
+
+@keyframes ov-shimmer {
+  0%, 100% { transform: scaleY(0.62); background: rgba(255, 255, 255, 0.46); }
+  50%      { transform: scaleY(1.08); background: rgba(255, 255, 255, 0.96); }
+}
+
+@keyframes ov-breathe {
+  0%, 100% { transform: scaleY(0.72); }
+  50%      { transform: scaleY(0.92); }
+}
+
+/* ── Mode cycler chip ──────────────────────────────────────────────────────── */
+
+.ov-scope .pill__mode {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border: none;
+  border-radius: var(--ov-radius-compact);
+  background: transparent;
+  color: var(--ov-text);
+  cursor: pointer;
+  transition: background 140ms ease-out;
+  position: relative;
+}
+
+.ov-scope .pill__mode:hover { background: rgba(255, 255, 255, 0.05); }
+
+.ov-scope .pill__mode-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ov-accent);
+  box-shadow: 0 0 6px rgba(232, 145, 42, 0.6);
+}
+
+.ov-scope .pill__mode-label {
+  font-family: var(--ov-font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--ov-text);
+  white-space: nowrap;
+}
+
+/* ── Divider ───────────────────────────────────────────────────────────────── */
+
+.ov-scope .pill__divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ── Side zone (timer + affordance / dismiss) ──────────────────────────────── */
+
+.ov-scope .pill__side {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 30px;
+  padding: 0 12px 0 8px;
+  border: none;
+  border-radius: var(--ov-radius-compact);
+  background: transparent;
+  color: var(--ov-text);
+  cursor: pointer;
+  transition: background 140ms ease-out, color 140ms ease-out;
+}
+
+.ov-scope .pill__side:hover { background: rgba(255, 255, 255, 0.05); }
+
+.ov-scope .pill__timer {
+  font-family: var(--ov-font-display);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--ov-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov-scope .pill__side-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ov-text-dim);
+  white-space: nowrap;
+}
+
+.ov-scope .pill--processing .pill__side-label { color: var(--ov-accent); }
+.ov-scope .pill--paused .pill__timer { animation: ov-timer-blink 1s steps(1, end) infinite; }
+.ov-scope .pill--paused .pill__side-label { color: rgba(255, 255, 255, 0.62); }
+.ov-scope .pill--error .pill__side-label { color: var(--ov-red); }
+
+@keyframes ov-timer-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0.28; }
+}
+
+/* ── Preview text (processing-preview / result-actions) ─────────────────────── */
+
+.ov-scope .pill__preview-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 280px;
+  padding: 0 8px 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ov-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Inline action group ───────────────────────────────────────────────────── */
+
+.ov-scope .pill__action-group {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 2px;
+}
+
+.ov-scope .pill__action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--ov-radius-compact);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ov-text);
+  font-family: var(--ov-font);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease-out, transform 80ms ease-out, opacity 140ms ease-out;
+}
+
+.ov-scope .pill__action:hover:not(:disabled) { background: rgba(255, 255, 255, 0.13); }
+.ov-scope .pill__action:active:not(:disabled) { transform: scale(0.96); }
+
+.ov-scope .pill__action:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+.ov-scope .pill__action--primary {
+  background: var(--ov-accent-soft);
+  color: var(--ov-accent);
+}
+.ov-scope .pill__action--primary:hover:not(:disabled) { background: rgba(232, 145, 42, 0.24); }
+
+.ov-scope .pill__action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ov-scope .pill__action-label { white-space: nowrap; }
+
+/* ── Edit-mode (tall capsule) ──────────────────────────────────────────────── */
+
+.ov-scope .pill--edit-mode {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: 380px;
+  height: auto;
+  min-height: 150px;
+  padding: 0;
+  border-radius: var(--ov-radius-tall);
+  overflow: visible;
+}
+
+.ov-scope .pill__edit-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ov-scope .pill__edit-textarea {
+  flex: 1 1 auto;
+  min-height: 80px;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: 1px solid var(--ov-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ov-text);
+  font-family: var(--ov-font);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 9px 11px;
+  outline: none;
+  transition: border-color 140ms ease-out, background 140ms ease-out;
+}
+
+.ov-scope .pill__edit-textarea:focus {
+  border-color: var(--ov-border-strong);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ov-scope .pill__edit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Resize handle — bottom-right corner affordance (Phase 2 wires real resize). */
+.ov-scope .pill__resize-handle {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 11px;
+  height: 11px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, transparent 40%, rgba(255, 255, 255, 0.28) 42%, rgba(255, 255, 255, 0.28) 52%, transparent 54%, transparent 64%, rgba(255, 255, 255, 0.28) 66%, rgba(255, 255, 255, 0.28) 76%, transparent 78%);
+  cursor: nwse-resize;
+  opacity: 0.7;
+  transition: opacity 140ms ease-out;
+}
+.ov-scope .pill__resize-handle:hover { opacity: 1; }
+
+/* ── Error pill ────────────────────────────────────────────────────────────── */
+
+.ov-scope .pill__error-icon {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-left: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ov-red);
+}
+
+.ov-scope .pill__error-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 260px;
+  padding: 0 12px 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ov-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Enter / leave keyframes ───────────────────────────────────────────────── */
+
+@keyframes overlay-panel-in {
+  0%   { opacity: 0; transform: translateY(4px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes overlay-panel-out {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(3px) scale(0.98); }
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .ov-scope .pill,
+  .ov-scope .bar,
+  .ov-scope .pill__timer,
+  .ov-scope .pill--entering,
+  .ov-scope .pill--leaving {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   OverlayGallery — layout chrome (Phase 1 dev gallery only, not shipped UI)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.ov-scope.og-shell {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  font-family: var(--ov-font);
+  color: var(--ov-text);
+}
+
+/* Neutral, desktop-like backdrop so the fake-glass fill of each pill reads
+   correctly. No blur layering — just a calm dark gradient + faint grid. */
+.ov-scope .og-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(120% 70% at 18% -8%, rgba(232, 145, 42, 0.06), transparent 55%),
+    radial-gradient(90% 60% at 92% 12%, rgba(120, 140, 170, 0.05), transparent 50%),
+    linear-gradient(180deg, #14171b 0%, #0d0f12 60%, #0a0c0f 100%);
+}
+.ov-scope .og-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(100% 80% at 50% 30%, #000 30%, transparent 85%);
+}
+
+.ov-scope .og-main {
+  position: relative;
+  z-index: 1;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 48px 32px 64px;
+}
+
+.ov-scope .og-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-bottom: 36px;
+}
+
+.ov-scope .og-eyebrow {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ov-accent);
+  margin-bottom: 10px;
+}
+
+.ov-scope .og-title {
+  margin: 0;
+  font-family: var(--ov-font-display);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--ov-text);
+}
+
+.ov-scope .og-lede {
+  margin: 10px 0 0;
+  max-width: 52ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ov-text-dim);
+}
+
+.ov-scope .og-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--ov-border);
+  border-radius: 12px;
+}
+
+.ov-scope .og-control {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.ov-scope .og-control__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ov-text-dim);
+}
+
+.ov-scope .og-control__value {
+  font-family: var(--ov-font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ov-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-scope .og-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+  cursor: pointer;
+}
+.ov-scope .og-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ov-accent);
+  box-shadow: 0 0 0 4px rgba(232, 145, 42, 0.18);
+  cursor: pointer;
+}
+.ov-scope .og-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: var(--ov-accent);
+  box-shadow: 0 0 0 4px rgba(232, 145, 42, 0.18);
+  cursor: pointer;
+}
+
+.ov-scope .og-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+  gap: 16px;
+}
+
+.ov-scope .og-card--wide {
+  grid-column: 1 / -1;
+}
+
+.ov-scope .og-card {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--ov-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ov-scope .og-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--ov-border);
+}
+
+.ov-scope .og-card__index {
+  flex: 0 0 auto;
+  font-family: var(--ov-font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ov-accent);
+  background: var(--ov-accent-soft);
+  border-radius: 6px;
+  padding: 4px 7px;
+  line-height: 1;
+}
+
+.ov-scope .og-card__meta { min-width: 0; }
+
+.ov-scope .og-card__title {
+  margin: 1px 0 0;
+  font-family: var(--ov-font-display);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ov-text);
+}
+
+.ov-scope .og-card__hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ov-text-dim);
+}
+
+.ov-scope .og-card__stage {
+  flex: 1 1 auto;
+  /* Column direction puts the pill's WIDTH on the cross-axis, so width:
+     max-content is honoured directly (no flex-basis resolution conflict).
+     align-items centers horizontally, justify-content centers vertically. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 28px 16px;
+  min-height: 110px;
+  /* A subtly lighter stage so the capsule's solid fill contrasts cleanly. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.012), rgba(0, 0, 0, 0.10));
+}
+
+.ov-scope .og-footer {
+  margin-top: 36px;
+  font-size: 12px;
+  color: var(--ov-text-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ov-scope .og-footer code {
+  font-family: var(--ov-font-display);
+  font-size: 12px;
+  color: var(--ov-text);
+}
+.ov-scope .og-footer__sep { opacity: 0.5; }

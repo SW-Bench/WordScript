@@ -10,7 +10,9 @@
   <body>
     <div id="root"></div>
     <script>
-      if (window.location.hash.startsWith("#/overlay") || window.location.hash === "") {
+      // Exact match only: "#/overlay-gallery" must NOT inherit the transparent,
+      // hidden overlay-window shell, otherwise it renders as a blank page.
+      if (window.location.hash === "#/overlay" || window.location.hash === "") {
         document.documentElement.classList.add("overlay-window", "overlay-idle");
         document.body.classList.add("overlay-window", "overlay-idle");
         document.getElementById("root")?.classList.add("overlay-window", "overlay-idle");
