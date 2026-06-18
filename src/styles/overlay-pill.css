@@ -277,84 +277,17 @@
   white-space: nowrap;
 }
 
-/* ── Divider ───────────────────────────────────────────────────────────────── */
+/* ── Divider ──────────────────────────────────────────────────────────────── */
 
 .ov-scope .pill__divider {
   flex: 0 0 auto;
   width: 1px;
   height: 20px;
   margin: 0 2px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.10);
 }
 
-/* ── Side zone (timer + affordance / dismiss) ──────────────────────────────── */
-
-.ov-scope .pill__side {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: auto;
-  height: 30px;
-  padding: 0 12px 0 8px;
-  border: none;
-  border-radius: var(--ov-radius-compact);
-  background: transparent;
-  color: var(--ov-text);
-  cursor: pointer;
-  transition: background 140ms ease-out, color 140ms ease-out;
-}
-
-.ov-scope .pill__side:hover { background: rgba(255, 255, 255, 0.05); }
-
-.ov-scope .pill__timer {
-  font-family: var(--ov-font-display);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  color: var(--ov-text);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.ov-scope .pill__side-label {
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ov-text-dim);
-  white-space: nowrap;
-}
-
-.ov-scope .pill--processing .pill__side-label { color: var(--ov-accent); }
-.ov-scope .pill--paused .pill__timer { animation: ov-timer-blink 1s steps(1, end) infinite; }
-.ov-scope .pill--paused .pill__side-label { color: rgba(255, 255, 255, 0.62); }
-.ov-scope .pill--error .pill__side-label { color: var(--ov-red); }
-
-@keyframes ov-timer-blink {
-  0%, 49%   { opacity: 1; }
-  50%, 100% { opacity: 0.28; }
-}
-
-/* ── Preview text (processing-preview / result-actions) ─────────────────────── */
-
-.ov-scope .pill__preview-text {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 280px;
-  padding: 0 8px 0 10px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.3;
-  color: var(--ov-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ── Inline action group (icon-only buttons) ───────────────────────────────── */
+/* ─ Inline action group (icon-only buttons) ──────────────────────────────── */
 
 .ov-scope .pill__action-group {
   flex: 0 0 auto;

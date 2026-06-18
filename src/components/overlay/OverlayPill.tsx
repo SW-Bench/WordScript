@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import "../../styles/overlay-pill.css";
 
-/* ── Public types ─────────────────────────────────────────────────────────── */
+/* ── Public types ────────────────────────────────────────────────────────── */
 
 export type OverlayProcessingMode =
   | "verbatim"
@@ -90,12 +90,6 @@ function modeShortLabel(mode: OverlayProcessingMode): string {
   }
 }
 
-function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60).toString().padStart(2, "0");
-  const s = (seconds % 60).toString().padStart(2, "0");
-  return `${m}:${s}`;
-}
-
 function levelToBars(level: number): number[] {
   const clamped = Math.min(1, Math.max(0, level));
   if (clamped < 0.018) return [...IDLE_BARS];
@@ -138,14 +132,11 @@ function RecordingPill({ state }: { state: Extract<OverlayPillState, { kind: "re
       <Bars heights={levelToBars(state.level)} muted={state.muted} />
       <ModeChip mode={state.mode} onClick={state.onCycleMode} />
       <span className="pill__divider" aria-hidden="true" />
-      <SideButton
+      <IconAction
         icon={state.paused
-          ? <Play size={14} strokeWidth={2.25} />
-          : <Pause size={14} strokeWidth={2.25} />}
-        timer={formatElapsed(state.elapsedSec)}
-        label={state.paused ? "Paused" : "Pause"}
-        ariaLabel={state.paused ? "Resume recording" : "Pause recording"}
-        pressed={state.paused}
+          ? <Play size={16} strokeWidth={2.25} />
+          : <Pause size={16} strokeWidth={2.25} />}
+        label={state.paused ? "Resume" : "Pause"}
         onClick={state.onPauseToggle}
       />
     </div>
@@ -159,7 +150,7 @@ function ProcessingPill({ state }: { state: Extract<OverlayPillState, { kind: "p
     return (
       <div className="pill pill--preview-actions pill--processing">
         <MicButton muted={false} disabled />
-        <PreviewText text={state.preview.text} />
+        <PreviewText text={state.preview.text} preliminary />
         <PreviewActions
           clipboardOnly={state.preview.clipboardOnly}
           pending={state.pending}
@@ -167,12 +158,10 @@ function ProcessingPill({ state }: { state: Extract<OverlayPillState, { kind: "p
           onAbort={state.onAbort}
         />
         <span className="pill__divider" aria-hidden="true" />
-        <SideButton
-          timer={formatElapsed(state.elapsedSec)}
+        <IconAction
+          icon={<Loader2 size={16} strokeWidth={2.25} className="pill__spinner" />}
           label="Working"
-          ariaLabel="Processing"
-          onClick={undefined}
-          staticAffordance
+          disabled
         />
       </div>
     );
@@ -184,12 +173,10 @@ function ProcessingPill({ state }: { state: Extract<OverlayPillState, { kind: "p
       <Bars heights={IDLE_BARS} muted={false} />
       <ModeChip mode={state.mode} onClick={state.onCycleMode} />
       <span className="pill__divider" aria-hidden="true" />
-      <SideButton
-        timer={formatElapsed(state.elapsedSec)}
+      <IconAction
+        icon={<Loader2 size={16} strokeWidth={2.25} className="pill__spinner" />}
         label="Working"
-        ariaLabel="Processing"
-        onClick={undefined}
-        staticAffordance
+        disabled
       />
     </div>
   );
@@ -208,12 +195,9 @@ function ResultActionsPill({ state }: { state: Extract<OverlayPillState, { kind:
         onEdit={state.onEdit}
         onInsert={state.onInsert}
       />
-      <span className="pill__divider" aria-hidden="true" />
-      <SideButton
-        icon={<X size={14} strokeWidth={2.25} />}
-        timer="Done"
+      <IconAction
+        icon={<X size={16} strokeWidth={2.25} />}
         label="Dismiss"
-        ariaLabel="Dismiss result actions"
         onClick={state.onDismiss}
       />
     </div>
@@ -316,45 +300,11 @@ function ModeChip({ mode, onClick }: { mode: OverlayProcessingMode; onClick?: ()
   );
 }
 
-function PreviewText({ text }: { text: string }) {
+function PreviewText({ text, preliminary }: { text: string; preliminary?: boolean }) {
   return (
-    <span className="pill__preview-text" title={text}>
+    <span className={`pill__preview-text${preliminary ? " pill__preview-text--preliminary" : ""}`} title={text}>
       {text}
     </span>
-  );
-}
-
-function SideButton({
-  icon,
-  timer,
-  label,
-  ariaLabel,
-  pressed,
-  onClick,
-  staticAffordance,
-}: {
-  icon?: ReactNode;
-  timer: string;
-  label: string;
-  ariaLabel: string;
-  pressed?: boolean;
-  onClick?: () => void;
-  staticAffordance?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className="pill__side"
-      onClick={onClick}
-      aria-pressed={pressed}
-      aria-label={ariaLabel}
-      title={ariaLabel}
-      disabled={staticAffordance && !onClick}
-    >
-      {icon}
-      <span className="pill__timer">{timer}</span>
-      <span className="pill__side-label">{label}</span>
-    </button>
   );
 }
 
