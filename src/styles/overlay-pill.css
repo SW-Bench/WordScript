@@ -52,7 +52,7 @@
   gap: 2px;
   width: max-content;
   height: 40px;
-  padding: 0 4px 0 2px;
+  padding: 0 3px 0 2px;
   background: var(--ov-surface);
   border: 1px solid var(--ov-border);
   border-radius: var(--ov-radius-compact);
@@ -354,56 +354,66 @@
   text-overflow: ellipsis;
 }
 
-/* ── Inline action group ───────────────────────────────────────────────────── */
+/* ── Inline action group (icon-only buttons) ───────────────────────────────── */
 
 .ov-scope .pill__action-group {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   padding: 0 2px;
 }
 
+/* Icon-only action button: 28 px hit target, 16 px glyph. No label — the
+   human word lives in title + aria-label only. Primary (Insert/Confirm) uses
+   an accent-filled background so it reads as the default action. */
 .ov-scope .pill__action {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  width: 28px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0;
   border: none;
   border-radius: var(--ov-radius-compact);
   background: rgba(255, 255, 255, 0.07);
   color: var(--ov-text);
-  font-family: var(--ov-font);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  line-height: 1;
   cursor: pointer;
   transition: background 140ms ease-out, transform 80ms ease-out, opacity 140ms ease-out;
 }
 
-.ov-scope .pill__action:hover:not(:disabled) { background: rgba(255, 255, 255, 0.13); }
-.ov-scope .pill__action:active:not(:disabled) { transform: scale(0.96); }
+.ov-scope .pill__action:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.ov-scope .pill__action:active:not(:disabled) { transform: scale(0.94); }
 
 .ov-scope .pill__action:disabled {
   cursor: progress;
-  opacity: 0.65;
+  opacity: 0.55;
 }
 
+/* Primary action (Insert / Confirm) — accent-filled, visually dominant. */
 .ov-scope .pill__action--primary {
-  background: var(--ov-accent-soft);
-  color: var(--ov-accent);
+  background: var(--ov-accent);
+  color: #1a1410;
 }
-.ov-scope .pill__action--primary:hover:not(:disabled) { background: rgba(232, 145, 42, 0.24); }
+.ov-scope .pill__action--primary:hover:not(:disabled) { background: #f5a03a; }
+.ov-scope .pill__action--primary:disabled { opacity: 0.5; }
 
 .ov-scope .pill__action-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.ov-scope .pill__action-label { white-space: nowrap; }
+
+/* Busy spinner: replaces the icon while an action is in flight. */
+.ov-scope .pill__spinner {
+  animation: ov-spin 0.7s linear infinite;
+}
+
+@keyframes ov-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
 
 /* ── Edit-mode (tall capsule) ──────────────────────────────────────────────── */
 

@@ -4,11 +4,13 @@ import {
   Check,
   Clipboard,
   CornerDownLeft,
+  Loader2,
   Mic,
   MicOff,
   Pause,
   Pencil,
   Play,
+  Square,
   X,
 } from "lucide-react";
 import "../../styles/overlay-pill.css";
@@ -31,7 +33,6 @@ export type OverlayPillState =
       mode: OverlayProcessingMode;
       muted: boolean;
       paused: boolean;
-      /** Mock audio level 0..1 driving the waveform. */
       level: number;
       elapsedSec: number;
       onMuteToggle?: () => void;
@@ -95,9 +96,6 @@ function formatElapsed(seconds: number): string {
   return `${m}:${s}`;
 }
 
-/** Shape a mock 0..1 audio level into 11 bar heights (5..30 px). A gentle,
- *  center-biased envelope keeps the waveform legible at low levels and
- *  saturates softly at full level. */
 function levelToBars(level: number): number[] {
   const clamped = Math.min(1, Math.max(0, level));
   if (clamped < 0.018) return [...IDLE_BARS];
@@ -127,23 +125,23 @@ export function OverlayPill({ state }: { state: OverlayPillState }) {
 
 export default OverlayPill;
 
-/* ── Recording ────────────────────────────────────────────────────────────── */
+/* ─ Recording ────────────────────────────────────────────────────────────── */
 
 function RecordingPill({ state }: { state: Extract<OverlayPillState, { kind: "recording" }> }) {
   const classes = ["pill", "pill--compact", "pill--recording"];
   if (state.muted) classes.push("pill--muted");
   if (state.paused) classes.push("pill--paused");
 
-  const bars = levelToBars(state.level);
-
   return (
     <div className={classes.join(" ")}>
       <MicButton muted={state.muted} onClick={state.onMuteToggle} />
-      <Bars heights={bars} muted={state.muted} />
+      <Bars heights={levelToBars(state.level)} muted={state.muted} />
       <ModeChip mode={state.mode} onClick={state.onCycleMode} />
       <span className="pill__divider" aria-hidden="true" />
       <SideButton
-        icon={state.paused ? <Play size={13} strokeWidth={2.5} /> : <Pause size={13} strokeWidth={2.5} />}
+        icon={state.paused
+          ? <Play size={14} strokeWidth={2.25} />
+          : <Pause size={14} strokeWidth={2.25} />}
         timer={formatElapsed(state.elapsedSec)}
         label={state.paused ? "Paused" : "Pause"}
         ariaLabel={state.paused ? "Resume recording" : "Pause recording"}
@@ -212,7 +210,7 @@ function ResultActionsPill({ state }: { state: Extract<OverlayPillState, { kind:
       />
       <span className="pill__divider" aria-hidden="true" />
       <SideButton
-        icon={<Check size={14} strokeWidth={2.5} />}
+        icon={<X size={14} strokeWidth={2.25} />}
         timer="Done"
         label="Dismiss"
         ariaLabel="Dismiss result actions"
@@ -222,7 +220,7 @@ function ResultActionsPill({ state }: { state: Extract<OverlayPillState, { kind:
   );
 }
 
-/* ── Edit mode (tall capsule) ─────────────────────────────────────────────── */
+/* ── Edit mode (tall capsule) ────────────────────────────────────────────── */
 
 function EditPill({ state }: { state: Extract<OverlayPillState, { kind: "edit-mode" }> }) {
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
@@ -243,17 +241,15 @@ function EditPill({ state }: { state: Extract<OverlayPillState, { kind: "edit-mo
         />
         <div className="pill__edit-footer">
           <IconAction
-            icon={<Check size={14} strokeWidth={2.5} />}
+            icon={<Check size={16} strokeWidth={2.25} />}
             label="Confirm"
-            busyLabel="Inserting"
-            disabled={!state.text.trim()}
             primary
+            disabled={!state.text.trim()}
             onClick={state.onConfirm}
           />
           <IconAction
-            icon={<X size={14} strokeWidth={2.5} />}
+            icon={<X size={16} strokeWidth={2.25} />}
             label="Cancel"
-            busyLabel="Cancel"
             onClick={state.onCancel}
           />
         </div>
@@ -378,19 +374,19 @@ function PreviewActions({
   return (
     <div className="pill__action-group" role="group" aria-label="Preview actions">
       <IconAction
-        icon={clipboardOnly ? <Clipboard size={14} strokeWidth={2.25} /> : <CornerDownLeft size={14} strokeWidth={2.25} />}
+        icon={clipboardOnly
+          ? <Clipboard size={16} strokeWidth={2.25} />
+          : <CornerDownLeft size={16} strokeWidth={2.25} />}
         label={clipboardOnly ? "Copy" : "Insert"}
         busy={committing}
-        busyLabel={committing ? pending!.label : clipboardOnly ? "Copying" : "Inserting"}
         primary
         disabled={Boolean(pending)}
         onClick={onCommit}
       />
       <IconAction
-        icon={<Ban size={14} strokeWidth={2.25} />}
+        icon={<Square size={16} strokeWidth={2.25} />}
         label="Abort"
         busy={aborting}
-        busyLabel={aborting ? pending!.label : "Aborting"}
         disabled={Boolean(pending)}
         onClick={onAbort}
       />
@@ -414,27 +410,24 @@ function ResultActions({
   return (
     <div className="pill__action-group" role="group" aria-label="Result actions">
       <IconAction
-        icon={<Clipboard size={14} strokeWidth={2.25} />}
+        icon={<Clipboard size={16} strokeWidth={2.25} />}
         label="Copy"
         busy={pending?.action === "copy"}
-        busyLabel={pending?.action === "copy" ? pending.label : "Copying"}
         disabled={Boolean(pending)}
         onClick={onCopy}
       />
       <IconAction
-        icon={<Pencil size={14} strokeWidth={2.25} />}
+        icon={<Pencil size={16} strokeWidth={2.25} />}
         label="Edit"
         busy={pending?.action === "edit"}
-        busyLabel={pending?.action === "edit" ? pending.label : "Editing"}
         disabled={Boolean(pending)}
         onClick={onEdit}
       />
       {clipboardOnly && (
         <IconAction
-          icon={<CornerDownLeft size={14} strokeWidth={2.25} />}
+          icon={<CornerDownLeft size={16} strokeWidth={2.25} />}
           label="Insert"
           busy={pending?.action === "insert"}
-          busyLabel={pending?.action === "insert" ? pending.label : "Inserting"}
           primary
           disabled={Boolean(pending)}
           onClick={onInsert}
@@ -444,11 +437,13 @@ function ResultActions({
   );
 }
 
+/** Icon-only action button. Busy state swaps the icon for a spinner.
+ *  Primary (Insert/Confirm) uses an accent-filled background to stand out
+ *  from the ghost peers. Every instance carries title + aria-label. */
 function IconAction({
   icon,
   label,
   busy,
-  busyLabel,
   primary,
   disabled,
   onClick,
@@ -456,7 +451,6 @@ function IconAction({
   icon: ReactNode;
   label: string;
   busy?: boolean;
-  busyLabel: string;
   primary?: boolean;
   disabled?: boolean;
   onClick?: () => void;
@@ -466,12 +460,15 @@ function IconAction({
       type="button"
       className={`pill__action${primary ? " pill__action--primary" : ""}`}
       onClick={busy ? undefined : onClick}
-      disabled={disabled}
-      aria-label={busy ? busyLabel : label}
-      title={busy ? busyLabel : label}
+      disabled={disabled || busy}
+      aria-label={label}
+      title={label}
     >
-      <span className="pill__action-icon" aria-hidden="true">{icon}</span>
-      <span className="pill__action-label">{busy ? busyLabel : label}</span>
+      <span className="pill__action-icon" aria-hidden="true">
+        {busy
+          ? <Loader2 size={16} strokeWidth={2.5} className="pill__spinner" />
+          : icon}
+      </span>
     </button>
   );
 }
