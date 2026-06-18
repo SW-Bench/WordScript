@@ -37,7 +37,7 @@ import { Sidebar, ProfileSwitcher, StatusBadge } from "../components/shell";
 import type { SidebarGroup } from "../components/shell";
 import { Button } from "../components/ui/button";
 import { TooltipProvider } from "../components/ui/tooltip";
-import wordmarkLogo from "../../assets/wordscript_wordmark+logo.png";
+import wordmarkLogo from "../../assets/logos/wordscipt-logo-transparent.png";
 
 type AreaId =
   | "home"
@@ -341,8 +341,19 @@ export default function SettingsWindow() {
           activeId={active}
           onSelect={navigate}
           header={
-            <div className="flex items-center px-5 pb-4 pt-5">
-              <img src={wordmarkLogo} alt="WordScript" className="h-10 w-auto" />
+            <div className="flex items-center justify-center -ml-4 px-7 pb-4 pt-6">
+              <img 
+                src={wordmarkLogo} 
+                alt="WordScript" 
+                className="h-auto w-full max-w-[180px] object-contain"
+                style={{ 
+                  display: 'block',
+                  background: 'transparent',
+                  filter: 'none',
+                  WebkitFilter: 'none',
+                  mixBlendMode: 'normal'
+                }} 
+              />
             </div>
           }
           footer={

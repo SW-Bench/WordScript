@@ -147,7 +147,7 @@ export function HistoryArea({ isActive, config, onChange }: HistoryAreaProps) {
               return (
                 <li
                   key={entry.id}
-                  className="flex items-start gap-3 border-b border-border py-3 last:border-b-0"
+                  className="ws-list-item-default flex items-start gap-3 border-b border-border py-3 last:border-b-0"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="mb-1 flex flex-wrap items-center gap-2">

@@ -513,7 +513,7 @@ interface HistoryEntryCardProps {
 
 const HistoryEntryCard = memo(function HistoryEntryCard({ entry, isLoading, onRetry, onRemove }: HistoryEntryCardProps) {
   return (
-    <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
+    <div className="ws-list-item-xl rounded-lg border border-border bg-surface px-3.5 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <strong className="text-[13px] font-semibold text-foreground">

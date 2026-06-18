@@ -237,7 +237,13 @@ function RuleField({
 
 function ruleCardClass(isActive: boolean, issues: TextRulesIssue[]) {
   return cn(
-    "rounded-lg border bg-card px-4 py-3.5 shadow-card transition-colors",
+    // ws-list-item-tall skips paint/layout of rule cards scrolled out of view
+    // (content-visibility: auto + contain-intrinsic-size). The auto-sized
+    // scrollbar fallback lets the browser cache each card's real height after
+    // its first paint, so long Dictionary / Snippet lists stay smooth even in
+    // fullscreen. Safe with focus management: DOM stays intact, only off-screen
+    // rendering is skipped.
+    "ws-list-item-tall rounded-lg border bg-card px-4 py-3.5 shadow-card transition-colors",
     hasSeverity(issues, "error")
       ? "border-[var(--red)]"
       : hasSeverity(issues, "warning")

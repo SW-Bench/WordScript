@@ -254,6 +254,42 @@ body.overlay-window {
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
 
+/* ── Long-list scroll performance ─────────────────────────────────────────────
+   content-visibility: auto lets the WebKit compositor skip paint/layout/style
+   work for list items scrolled out of view. Per scroll frame, the dominant
+   cost was compositing every currently-rendered card (with its shadow-card
+   drop shadows + hairline borders) across the whole viewport — which scales
+   with the visible viewport area, exactly why scrolling stuttered badly in
+   fullscreen but not in a small window.
+
+   `contain-intrinsic-size: auto <fallback>` keeps the scrollbar stable: the
+   browser uses the fallback for unmeasured items, then caches the real size
+   after the first paint and reuses it. Pick the variant whose fallback
+   matches the item's typical row height so the scrollbar does not jump.
+
+   content-visibility: auto implies `contain: layout style paint`, but the DOM
+   tree itself stays intact — focus management, querySelector, accessibility
+   tree, scrolling-to-focus and React state all keep working. Pick the
+   compact/default/tall/xl variant per list (see call sites in HistoryArea,
+   HomeRecentList, the PromptsTab Dictionary/Snippet rule cards and the
+   RebuildLab history entry cards). */
+@utility ws-list-item-compact {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}
+@utility ws-list-item-default {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+@utility ws-list-item-tall {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
+@utility ws-list-item-xl {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+}
+
 /* ── Reduced Motion ─────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *,
