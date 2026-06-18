@@ -90,6 +90,12 @@ function modeShortLabel(mode: OverlayProcessingMode): string {
   }
 }
 
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const s = (seconds % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
 function levelToBars(level: number): number[] {
   const clamped = Math.min(1, Math.max(0, level));
   if (clamped < 0.018) return [...IDLE_BARS];
@@ -130,7 +136,10 @@ function RecordingPill({ state }: { state: Extract<OverlayPillState, { kind: "re
     <div className={classes.join(" ")}>
       <MicButton muted={state.muted} onClick={state.onMuteToggle} />
       <Bars heights={levelToBars(state.level)} muted={state.muted} />
+      <span className="pill__divider" aria-hidden="true" />
       <ModeChip mode={state.mode} onClick={state.onCycleMode} />
+      <span className="pill__divider" aria-hidden="true" />
+      <Timer seconds={state.elapsedSec} />
       <span className="pill__divider" aria-hidden="true" />
       <IconAction
         icon={state.paused
@@ -158,6 +167,8 @@ function ProcessingPill({ state }: { state: Extract<OverlayPillState, { kind: "p
           onAbort={state.onAbort}
         />
         <span className="pill__divider" aria-hidden="true" />
+        <Timer seconds={state.elapsedSec} />
+        <span className="pill__divider" aria-hidden="true" />
         <IconAction
           icon={<Loader2 size={16} strokeWidth={2.25} className="pill__spinner" />}
           label="Working"
@@ -171,7 +182,10 @@ function ProcessingPill({ state }: { state: Extract<OverlayPillState, { kind: "p
     <div className="pill pill--compact pill--processing">
       <MicButton muted={false} disabled />
       <Bars heights={IDLE_BARS} muted={false} />
+      <span className="pill__divider" aria-hidden="true" />
       <ModeChip mode={state.mode} onClick={state.onCycleMode} />
+      <span className="pill__divider" aria-hidden="true" />
+      <Timer seconds={state.elapsedSec} />
       <span className="pill__divider" aria-hidden="true" />
       <IconAction
         icon={<Loader2 size={16} strokeWidth={2.25} className="pill__spinner" />}
@@ -281,6 +295,14 @@ function Bars({ heights, muted }: { heights: number[]; muted: boolean }) {
         <span key={i} className={`bar${muted ? " bar--muted" : ""}`} style={{ height: h }} />
       ))}
     </div>
+  );
+}
+
+function Timer({ seconds }: { seconds: number }) {
+  return (
+    <span className="pill__timer" aria-label={`Elapsed time ${formatElapsed(seconds)}`}>
+      {formatElapsed(seconds)}
+    </span>
   );
 }
 

@@ -52,7 +52,7 @@
   gap: 2px;
   width: max-content;
   height: 40px;
-  padding: 0 3px 0 2px;
+  padding: 0 6px;
   background: var(--ov-surface);
   border: 1px solid var(--ov-border);
   border-radius: var(--ov-radius-compact);
@@ -277,6 +277,21 @@
   white-space: nowrap;
 }
 
+/* ── Timer (mono elapsed time, information only) ──────────────────────────── */
+
+.ov-scope .pill__timer {
+  flex: 0 0 auto;
+  font-family: var(--ov-font-display);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--ov-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 0 2px;
+}
+
 /* ── Divider ──────────────────────────────────────────────────────────────── */
 
 .ov-scope .pill__divider {
@@ -399,6 +414,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+  padding-right: 32px;
 }
 
 /* Resize handle — bottom-right corner affordance (Phase 2 wires real resize). */
