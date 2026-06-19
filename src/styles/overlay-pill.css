@@ -335,11 +335,11 @@
 }
 
 /* Symmetric left/right padding for result + preview pills so content doesn't
-   sit flush against the edge. */
+   sit flush against the edge. Matches the canonical recording-state inset (6px). */
 .ov-scope .pill--result-actions,
 .ov-scope .pill--preview-actions {
-  padding-left: 10px;
-  padding-right: 10px;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 /* ─ Inline action group (icon-only buttons) ──────────────────────────────── */
@@ -421,7 +421,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 12px 6px;
   width: 100%;
   box-sizing: border-box;
 }
@@ -479,7 +479,6 @@
   flex: 0 0 auto;
   width: 30px;
   height: 30px;
-  margin-left: 2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

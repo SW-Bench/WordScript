@@ -139,14 +139,10 @@ function RecordingPill({ state }: { state: Extract<OverlayPillState, { kind: "re
       <span className="pill__divider" aria-hidden="true" />
       <ModeChip mode={state.mode} onClick={state.onCycleMode} />
       <span className="pill__divider" aria-hidden="true" />
-      <Timer seconds={state.elapsedSec} />
-      <span className="pill__divider" aria-hidden="true" />
-      <IconAction
-        icon={state.paused
-          ? <Play size={16} strokeWidth={2.25} />
-          : <Pause size={16} strokeWidth={2.25} />}
-        label={state.paused ? "Resume" : "Pause"}
-        onClick={state.onPauseToggle}
+      <Timer
+        seconds={state.elapsedSec}
+        paused={state.paused}
+        onTogglePause={state.onPauseToggle}
       />
     </div>
   );
@@ -298,10 +294,32 @@ function Bars({ heights, muted }: { heights: number[]; muted: boolean }) {
   );
 }
 
-function Timer({ seconds }: { seconds: number }) {
+function Timer({
+  seconds,
+  paused,
+  onTogglePause,
+}: {
+  seconds: number;
+  paused?: boolean;
+  onTogglePause?: () => void;
+}) {
+  const content = formatElapsed(seconds);
+  if (onTogglePause) {
+    return (
+      <button
+        type="button"
+        className="pill__timer"
+        onClick={onTogglePause}
+        aria-label={paused ? "Resume recording" : "Pause recording"}
+        title={paused ? "Resume recording" : "Pause recording"}
+      >
+        {content}
+      </button>
+    );
+  }
   return (
-    <span className="pill__timer" aria-label={`Elapsed time ${formatElapsed(seconds)}`}>
-      {formatElapsed(seconds)}
+    <span className="pill__timer" aria-label={`Elapsed time ${content}`}>
+      {content}
     </span>
   );
 }
