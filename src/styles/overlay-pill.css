@@ -60,8 +60,10 @@
   color: var(--ov-text);
   user-select: none;
   position: relative;
-  transition: border-color 160ms ease-out, box-shadow 160ms ease-out, transform 160ms ease-out;
-  will-change: transform, opacity;
+  transform: scale(0.87);
+  transform-origin: center;
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+  will-change: opacity;
 }
 
 .ov-scope .pill:focus-visible {
@@ -130,7 +132,6 @@
   flex: 0 0 auto;
   width: 30px;
   height: 30px;
-  margin-left: 2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
