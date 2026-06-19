@@ -295,9 +295,11 @@ fn overlay_target_position<R: Runtime>(
     config: &AppConfig,
     surface: OverlaySurface,
     height_override: Option<f64>,
+    width_override: Option<f64>,
 ) -> Option<LogicalPosition<f64>> {
     let (work_x, work_y, work_width, work_height) = overlay_work_area_for_config(window, config)?;
-    let (window_width, default_height) = surface.dimensions();
+    let (default_width, default_height) = surface.dimensions();
+    let window_width = width_override.unwrap_or(default_width);
     let window_height = height_override.unwrap_or(default_height);
 
     match config.overlay_position_mode {
@@ -352,14 +354,20 @@ fn overlay_target_position<R: Runtime>(
     }
 }
 
-fn reveal_overlay_window<R: Runtime>(app: &AppHandle<R>, surface: OverlaySurface, height_override: Option<f64>) {
+fn reveal_overlay_window<R: Runtime>(
+    app: &AppHandle<R>,
+    surface: OverlaySurface,
+    height_override: Option<f64>,
+    width_override: Option<f64>,
+) {
     if let Some(window) = app.get_webview_window("overlay") {
         let config = AppConfig::load_from_disk();
-        let (window_width, default_height) = surface.dimensions();
+        let (default_width, default_height) = surface.dimensions();
+        let window_width = width_override.unwrap_or(default_width);
         let window_height = height_override.unwrap_or(default_height);
         let _ = window.set_size(LogicalSize::new(window_width, window_height));
         let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-        if let Some(position) = overlay_target_position(&window, &config, surface, height_override) {
+        if let Some(position) = overlay_target_position(&window, &config, surface, height_override, width_override) {
             let _ = window.set_position(position);
             let _ = window.show();
             // On Windows, ShowWindow can discard a position set on a hidden window,
@@ -474,7 +482,7 @@ fn apply_trigger_effect<R: Runtime>(app: &AppHandle<R>, effect: TriggerEffect) {
     match effect {
         TriggerEffect::StartCapture => match core::capture::start_native_capture(app) {
             Ok(status) => {
-                reveal_overlay_window(app, OverlaySurface::Compact, None);
+                reveal_overlay_window(app, OverlaySurface::Compact, None, None);
                 core::sound::play_if_enabled(core::sound::SoundCue::Start);
                 if let Some(capture_id) = status.active_capture_id {
                     spawn_native_capture_monitor(app.clone(), capture_id);
@@ -1339,9 +1347,10 @@ async fn sync_overlay_window_visibility(
     visible: bool,
     surface: Option<OverlaySurface>,
     height: Option<f64>,
+    width: Option<f64>,
 ) -> Result<(), String> {
     if visible {
-        reveal_overlay_window(&app, surface.unwrap_or_default(), height);
+        reveal_overlay_window(&app, surface.unwrap_or_default(), height, width);
     } else {
         park_overlay_window(&app);
     }

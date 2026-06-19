@@ -1,40 +1,32 @@
-import { type ChangeEvent, type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { useRuntime } from "../hooks/useRuntime";
 import { resolveActiveTextProfile, resolveTextProfileWorkMode } from "../lib/textProfiles";
-import type { AppConfig, EnhanceSubMode, ProcessingMode } from "../types/ipc";
+import type { AppConfig, ProcessingMode } from "../types/ipc";
 import type { NativeInsertResult } from "../types/nativeInsertion";
-import "../styles/overlay.css";
+import {
+  OverlayPill,
+  type OverlayPendingPreview,
+  type OverlayPendingResult,
+  type OverlayPillState,
+  type OverlayProcessingMode,
+} from "../components/overlay/OverlayPill";
+import "../styles/overlay-shell.css";
 
-const BAR_COUNT = 11;
 const RUNTIME_EVENT_CHANNEL = "wordscript-event";
 // Order the in-overlay mode cycler rotates through. Mirrors the modes exposed in
-// Settings → Modes; prompt_enhance surfaces its sub-mode label via the shared helper.
+// Settings → Modes.
 const MODE_CYCLE: ProcessingMode[] = ["verbatim", "cleanup", "rewrite", "prompt_enhance", "agent"];
 const OVERLAY_ENTER_MS = 320;
 const OVERLAY_LEAVE_MS = 240;
-const IDLE_WAVEFORM = [5, 7, 9, 12, 16, 20, 16, 12, 9, 7, 5];
-const MIN_BAR_HEIGHT = 5;
-const MAX_BAR_HEIGHT = 32;
 const DRAG_DISTANCE_THRESHOLD = 6;
 const DRAG_CLICK_SUPPRESS_MS = 1000;
-
-const EDIT_LINE_CHAR_ESTIMATE = 48;
-const EDIT_OVERHEAD_PX = 90;
-const EDIT_LINE_HEIGHT_PX = 19;
-const EDIT_HEIGHT_MIN = 140;
-const EDIT_HEIGHT_MAX = 280;
-const EDIT_RESIZE_WIDTH_MIN = 380;
-
-function computeEditWindowHeight(text: string): number {
-  const lineCount = text.split("\n").reduce((total, paragraph) => {
-    return total + Math.max(1, Math.ceil(paragraph.length / EDIT_LINE_CHAR_ESTIMATE));
-  }, 0);
-  return Math.min(EDIT_HEIGHT_MAX, Math.max(EDIT_HEIGHT_MIN, lineCount * EDIT_LINE_HEIGHT_PX + EDIT_OVERHEAD_PX));
-}
+// Matches the .overlay-shell padding so the native window hugs the pill plus its
+// transparent breathing room on every edge.
+const SHELL_PADDING = 4;
 
 type OverlayMotion = "idle" | "entering" | "open" | "leaving";
 type OverlaySurface = "compact" | "processing_preview" | "result_actions" | "edit_mode";
@@ -46,6 +38,10 @@ interface AudioLevelEvent {
   waveform?: number[];
 }
 
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
 function setOverlayDocumentState(idle: boolean) {
   const targets = [document.documentElement, document.body, document.getElementById("root")]
     .filter((node): node is HTMLElement => Boolean(node));
@@ -54,12 +50,6 @@ function setOverlayDocumentState(idle: boolean) {
     node.classList.add("overlay-window");
     node.classList.toggle("overlay-idle", idle);
   });
-}
-
-function formatElapsed(seconds: number) {
-  const mins = Math.floor(seconds / 60).toString().padStart(2, "0");
-  const secs = (seconds % 60).toString().padStart(2, "0");
-  return `${mins}:${secs}`;
 }
 
 // Derives the processing mode the active session actually runs in, straight from
@@ -77,31 +67,30 @@ function resolveOverlayProcessingMode(config: AppConfig): ProcessingMode {
   }
 }
 
-function resolveOverlayEnhanceSubMode(config: AppConfig): EnhanceSubMode {
-  const workMode = resolveTextProfileWorkMode(resolveActiveTextProfile(config));
-  return workMode.enhance_sub_mode ?? config.enhance_sub_mode ?? "enhance";
-}
+// Collapses the native capture payload into a single perceptual level (0–1) that
+// OverlayPill turns into bar heights. The gain mirrors the legacy waveform mapping
+// so quiet speech still reads, while genuine room silence settles to the idle
+// silhouette (level 0).
+function audioPayloadToLevel(payload: AudioLevelEvent): number {
+  const level = clamp01(payload.level ?? 0);
+  const rms = clamp01(payload.rms ?? level * 0.65);
+  const waveformPeak = (payload.waveform ?? []).reduce((peak, sample) => Math.max(peak, clamp01(sample)), 0);
 
-// Short, single-word labels keep the fixed pill geometry intact. Prompt Enhance
-// surfaces its sub-mode (Enhance/Expand) because that is the meaningful distinction.
-function processingModeShortLabel(mode: ProcessingMode, subMode: EnhanceSubMode): string {
-  switch (mode) {
-    case "cleanup": return "Cleanup";
-    case "rewrite": return "Rewrite";
-    case "agent": return "Agent";
-    case "verbatim": return "Verbatim";
-    case "prompt_enhance": return subMode === "expand" ? "Expand" : "Enhance";
-    default: return "Cleanup";
+  if (level < 0.022 && waveformPeak < 0.05) {
+    return 0;
   }
+
+  return clamp01(Math.max(level * 3.15, rms * 3.45, waveformPeak * 2.2));
 }
 
 export default function OverlayWindow() {
-  const { state, toggleMute, togglePause, openSettings } = useRuntime();
+  const { state, toggleMute, togglePause } = useRuntime();
   const { status, muted, paused, error } = state;
   const isRecording = status === "recording";
   const isProcessing = status === "processing";
   const overlayMotionRef = useRef<OverlayMotion>("idle");
   const overlaySurfaceRef = useRef<OverlaySurface>("compact");
+  const shellRef = useRef<HTMLDivElement>(null);
   const dragIntentRef = useRef<{ pointerId: number; startX: number; startY: number; dragged: boolean } | null>(null);
   const movePersistTimeoutRef = useRef<number | null>(null);
   const dragSessionActiveRef = useRef(false);
@@ -112,14 +101,10 @@ export default function OverlayWindow() {
   const suppressMovedPersistenceUntilRef = useRef(0);
   const suppressNextResultActionsRef = useRef(false);
   const lastVisibleSurfaceRef = useRef<OverlaySurface>("compact");
-  const resizeIntentRef = useRef<{ pointerId: number; startX: number; startY: number; startWidth: number; startHeight: number } | null>(null);
-  const hasManualResizeRef = useRef(false);
   const [showError, setShowError] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [overlayMotion, setOverlayMotion] = useState<OverlayMotion>("idle");
   const [actionPending, setActionPending] = useState<"commit" | "abort" | "copy" | "edit" | "insert" | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [actionFailed, setActionFailed] = useState(false);
   const [editText, setEditText] = useState("");
   const [showEditMode, setShowEditMode] = useState(false);
   const [modeOverride, setModeOverride] = useState<ProcessingMode | null>(null);
@@ -157,23 +142,7 @@ export default function OverlayWindow() {
         : overlaySurface;
   const activePreviewResult = renderProcessingPreview ? pendingPreviewResult : renderResultPreview ? previewResult : null;
   const finalPreviewText = activePreviewResult?.final_text?.trim() ?? "";
-  const canCopy = Boolean(renderResultPreview && finalPreviewText);
-  const canEdit = Boolean(renderResultPreview && finalPreviewText);
-  const canInsert = Boolean(renderResultPreview && finalPreviewText && previewResult?.work_mode?.insert_behavior === "clipboard_only");
-  const canCommitPreview = Boolean(renderProcessingPreview && finalPreviewText);
-  const previewCommitLabel = activePreviewResult?.work_mode?.insert_behavior === "clipboard_only"
-    ? "Copy"
-    : "Insert";
-  const actionButtons = renderProcessingPreview
-    ? [
-        ...(canCommitPreview ? [{ id: "commit" as const, label: previewCommitLabel, pendingLabel: previewCommitLabel === "Copy" ? "Copying" : "Inserting", onClick: () => void handleCommitPreview() }] : []),
-        { id: "abort" as const, label: "Abort", pendingLabel: "Aborting", onClick: () => void handleAbortPreview() },
-      ]
-    : [
-        ...(canCopy ? [{ id: "copy" as const, label: "Copy", pendingLabel: "Copying", onClick: () => void handleCopyResult() }] : []),
-        ...(canEdit ? [{ id: "edit" as const, label: "Edit", pendingLabel: "Edit", onClick: () => handleEditOpen() }] : []),
-        ...(canInsert ? [{ id: "insert" as const, label: "Insert", pendingLabel: "Inserting", onClick: () => void handleInsertResult() }] : []),
-      ];
+  const previewClipboardOnly = activePreviewResult?.work_mode?.insert_behavior === "clipboard_only";
 
   overlaySurfaceRef.current = overlaySurface;
 
@@ -258,11 +227,6 @@ export default function OverlayWindow() {
         return;
       }
 
-      if (resizeIntentRef.current) {
-        dragIntentRef.current = null;
-        return;
-      }
-
       if ((event.buttons & 1) !== 1) {
         dragIntentRef.current = null;
         return;
@@ -319,44 +283,6 @@ export default function OverlayWindow() {
   }, []);
 
   useEffect(() => {
-    let lastResizeCall = 0;
-
-    const handleResizePointerMove = (event: globalThis.PointerEvent) => {
-      const intent = resizeIntentRef.current;
-      if (!intent || intent.pointerId !== event.pointerId) return;
-      if ((event.buttons & 1) !== 1) {
-        resizeIntentRef.current = null;
-        return;
-      }
-
-      const now = Date.now();
-      if (now - lastResizeCall < 16) return;
-      lastResizeCall = now;
-
-      const deltaX = event.clientX - intent.startX;
-      const deltaY = event.clientY - intent.startY;
-      const newWidth = intent.startWidth + deltaX;
-      const newHeight = intent.startHeight + deltaY;
-      hasManualResizeRef.current = true;
-      void invoke("resize_edit_overlay", { width: newWidth, height: newHeight }).catch(() => {});
-    };
-
-    const clearResizeIntent = () => {
-      resizeIntentRef.current = null;
-    };
-
-    window.addEventListener("pointermove", handleResizePointerMove);
-    window.addEventListener("pointerup", clearResizeIntent);
-    window.addEventListener("pointercancel", clearResizeIntent);
-
-    return () => {
-      window.removeEventListener("pointermove", handleResizePointerMove);
-      window.removeEventListener("pointerup", clearResizeIntent);
-      window.removeEventListener("pointercancel", clearResizeIntent);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!error) return;
 
     setShowPreview(false);
@@ -371,8 +297,6 @@ export default function OverlayWindow() {
     }
 
     setActionPending(null);
-    setActionMessage(null);
-    setActionFailed(false);
   }, [state.pendingResult?.occurred_at_ms]);
 
   useEffect(() => {
@@ -389,8 +313,6 @@ export default function OverlayWindow() {
     setShowEditMode(false);
     setEditText("");
     setActionPending(null);
-    setActionMessage(null);
-    setActionFailed(false);
   }, [state.lastResult?.occurred_at_ms]);
 
   useEffect(() => {
@@ -406,8 +328,6 @@ export default function OverlayWindow() {
     autoCloseResultTimerRef.current = window.setTimeout(() => {
       autoCloseResultTimerRef.current = null;
       setShowPreview(false);
-      setActionMessage(null);
-      setActionFailed(false);
     }, autoCloseMs);
 
     return () => {
@@ -426,15 +346,6 @@ export default function OverlayWindow() {
     }
   }, [pendingPreviewResult, status]);
 
-  useEffect(() => {
-    if (!showEditMode) return;
-    if (hasManualResizeRef.current) return;
-    const timer = window.setTimeout(() => {
-      void invoke("resize_overlay_to_height", { height: computeEditWindowHeight(editText) }).catch(() => {});
-    }, 150);
-    return () => window.clearTimeout(timer);
-  }, [showEditMode, editText]);
-
   const isActive = status === "recording" || status === "processing" || showError || showAnyPreview;
 
   useEffect(() => {
@@ -446,8 +357,7 @@ export default function OverlayWindow() {
   useEffect(() => {
     if (isActive) {
       suppressMovedPersistenceUntilRef.current = Date.now() + 420;
-      const editHeight = overlaySurface === "edit_mode" ? computeEditWindowHeight(editText) : undefined;
-      void invoke("sync_overlay_window_visibility", { visible: true, surface: overlaySurface, height: editHeight }).catch(() => {});
+      void invoke("sync_overlay_window_visibility", { visible: true, surface: overlaySurface }).catch(() => {});
       void getCurrentWindow().setBackgroundColor([0, 0, 0, 0]).catch(() => {});
       void getCurrentWebview().setBackgroundColor([0, 0, 0, 0]).catch(() => {});
       setOverlayDocumentState(false);
@@ -486,29 +396,57 @@ export default function OverlayWindow() {
     }
   }, [isActive, overlayMotion, overlaySurface]);
 
-  // Reactive waveform bars driven by native capture sample buckets.
-  const [barHeights, setBarHeights] = useState<number[]>(IDLE_WAVEFORM);
+  // Size the native overlay window to the live pill. getBoundingClientRect is
+  // transform-aware, so it already includes the pill's scale(0.87); the shell
+  // owns no transform, keeping the measurement clean. ResizeObserver catches
+  // intra-state size changes (preview text length, edit textarea). Guarded for
+  // jsdom (no ResizeObserver, zero-size rects), where the base surface sync above
+  // remains the source of truth.
+  useLayoutEffect(() => {
+    if (!isActive) return;
+    const pill = shellRef.current?.querySelector<HTMLElement>(".pill");
+    if (!pill) return;
+
+    const measure = () => {
+      if (overlayMotionRef.current === "leaving") return;
+      const rect = pill.getBoundingClientRect();
+      const width = Math.ceil(rect.width) + SHELL_PADDING * 2;
+      const height = Math.ceil(rect.height) + SHELL_PADDING * 2;
+      if (rect.width <= 0 || rect.height <= 0) return;
+      void invoke("sync_overlay_window_visibility", {
+        visible: true,
+        surface: overlaySurfaceRef.current,
+        width,
+        height,
+      }).catch(() => {});
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(pill);
+    return () => observer.disconnect();
+  }, [isActive, renderOverlaySurface, finalPreviewText, editText]);
+
+  // Reactive waveform level driven by native capture sample buckets. OverlayPill
+  // turns the single level into bar heights.
+  const [audioLevel, setAudioLevel] = useState(0);
 
   useEffect(() => {
     const unlisten = listen<AudioLevelEvent>(RUNTIME_EVENT_CHANNEL, ({ payload }) => {
       if (paused) return;
-
       if (payload.event === "audio_level" && typeof payload.level === "number") {
-        const nextHeights = audioPayloadToHeights(payload);
-        setBarHeights((current) => current.map((height, index) => {
-          const target = nextHeights[index];
-          const blend = target > height ? 0.97 : 0.66;
-          return Math.round(height + (target - height) * blend);
-        }));
+        setAudioLevel(audioPayloadToLevel(payload));
       }
     });
     return () => { unlisten.then(fn => fn()); };
   }, [paused]);
 
-  // Reset bars when not actively recording
+  // Settle the level when capture is not actively producing sound.
   useEffect(() => {
     if (status !== "recording" || muted || paused) {
-      setBarHeights(IDLE_WAVEFORM);
+      setAudioLevel(0);
     }
   }, [status, muted, paused]);
 
@@ -562,7 +500,6 @@ export default function OverlayWindow() {
 
     const target = event.target as HTMLElement;
     if (target.tagName === "TEXTAREA") return;
-    if (target.closest("[data-resize-handle]")) return;
 
     dragIntentRef.current = {
       pointerId: event.pointerId,
@@ -570,9 +507,10 @@ export default function OverlayWindow() {
       startY: event.clientY,
       dragged: false,
     };
-
   };
 
+  // Capture-phase guard: swallow the click that ends a drag before it can reach
+  // any pill button, so dragging the overlay never fires an action.
   const handleInteractiveClickCapture = (event: MouseEvent<HTMLElement>) => {
     const suppressClick = suppressNextClickRef.current && Date.now() < suppressClickUntilRef.current;
     if (!suppressClick) {
@@ -591,58 +529,27 @@ export default function OverlayWindow() {
     () => (state.config ? resolveOverlayProcessingMode(state.config) : null),
     [state.config],
   );
-  const enhanceSubMode = useMemo(
-    () => (state.config ? resolveOverlayEnhanceSubMode(state.config) : "enhance"),
-    [state.config],
-  );
-  const effectiveMode = modeOverride ?? processingMode;
-  const modeLabel = effectiveMode ? processingModeShortLabel(effectiveMode, enhanceSubMode) : null;
+  const pillMode: OverlayProcessingMode = modeOverride ?? processingMode ?? "cleanup";
 
   // Tap-to-cycle through processing modes straight from the overlay. Uses the
   // native session override so the change applies to the in-flight pass without
   // permanently rewriting the active profile.
   const handleCycleMode = () => {
-    if (!effectiveMode) return;
-    const index = MODE_CYCLE.indexOf(effectiveMode);
+    const current = modeOverride ?? processingMode;
+    if (!current) return;
+    const index = MODE_CYCLE.indexOf(current);
     const next = MODE_CYCLE[(index + 1) % MODE_CYCLE.length] ?? MODE_CYCLE[0];
     setModeOverride(next);
     void invoke("set_processing_mode_override", { mode: next }).catch(() => {});
   };
 
-  const sideTitle = isRecording
-    ? (paused ? "Resume recording" : "Pause recording")
-    : isProcessing
-      ? "Processing"
-      : "Open Settings";
-  // The mode now has its own tap-to-cycle control, so the side zone is the calm
-  // pause/settings affordance plus the live timer.
-  const sideCaption = isRecording
-    ? (paused ? "Paused" : "Pause")
-    : isProcessing
-      ? "Working"
-      : showError
-        ? "Review"
-        : "Settings";
-  const handleSideAction = () => {
-    if (isRecording) {
-      void togglePause();
-      return;
-    }
-
-    void openSettings();
-  };
-
   const beginOverlayAction = (action: "commit" | "abort" | "copy" | "edit" | "insert") => {
     setShowPreview(true);
     setActionPending(action);
-    setActionMessage(null);
-    setActionFailed(false);
   };
 
-  const finishOverlayAction = (message: string | null, failed = false) => {
+  const finishOverlayAction = (failed = false) => {
     setActionPending(null);
-    setActionFailed(failed);
-    setActionMessage(failed ? message : null);
     if (!failed) {
       setShowPreview(false);
     }
@@ -654,8 +561,6 @@ export default function OverlayWindow() {
     setShowPreview(false);
     setShowEditMode(false);
     setEditText("");
-    setActionMessage(null);
-    setActionFailed(false);
   };
 
   const handleCommitPreview = async () => {
@@ -665,13 +570,13 @@ export default function OverlayWindow() {
     suppressNextResultActionsRef.current = true;
     try {
       const result = await invoke<NativeInsertResult>("commit_pending_transcription_preview");
-      finishOverlayAction(result.ok ? result.recovery_message : result.error ?? "Commit failed.", !result.ok);
+      finishOverlayAction(!result.ok);
       if (!result.ok) {
         suppressNextResultActionsRef.current = false;
       }
-    } catch (error) {
+    } catch {
       suppressNextResultActionsRef.current = false;
-      finishOverlayAction(String(error), true);
+      finishOverlayAction(true);
     }
   };
 
@@ -681,9 +586,9 @@ export default function OverlayWindow() {
     beginOverlayAction("abort");
     try {
       await invoke("abort_native_session");
-      finishOverlayAction("Preview discarded.");
-    } catch (error) {
-      finishOverlayAction(String(error), true);
+      finishOverlayAction();
+    } catch {
+      finishOverlayAction(true);
     }
   };
 
@@ -700,29 +605,20 @@ export default function OverlayWindow() {
           auto_paste: false,
         },
       });
-      finishOverlayAction(result.ok ? result.recovery_message : result.error ?? "Copy failed.", !result.ok);
-    } catch (error) {
-      finishOverlayAction(String(error), true);
+      finishOverlayAction(!result.ok);
+    } catch {
+      finishOverlayAction(true);
     }
   };
 
   const handleEditOpen = () => {
     setEditText(finalPreviewText);
     setShowEditMode(true);
-    setActionFailed(false);
-    setActionMessage(null);
-    hasManualResizeRef.current = false;
-  };
-
-  const handleEditTextChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    setEditText(e.target.value);
   };
 
   const handleEditCancel = () => {
     setShowEditMode(false);
     setEditText("");
-    setActionFailed(false);
-    setActionMessage(null);
   };
 
   const handleEditConfirm = async () => {
@@ -742,21 +638,16 @@ export default function OverlayWindow() {
       });
       if (result.ok) {
         setActionPending(null);
-        setActionFailed(false);
-        setActionMessage(result.recovery_message ?? "Text inserted.");
-        window.setTimeout(() => {
-          setShowEditMode(false);
-          setEditText("");
-          setShowPreview(false);
-          setActionMessage(null);
-        }, 900);
+        setShowEditMode(false);
+        setEditText("");
+        setShowPreview(false);
       } else {
         suppressNextResultActionsRef.current = false;
-        finishOverlayAction(result.error ?? "Edit insert failed.", true);
+        finishOverlayAction(true);
       }
-    } catch (error) {
+    } catch {
       suppressNextResultActionsRef.current = false;
-      finishOverlayAction(String(error), true);
+      finishOverlayAction(true);
     }
   };
 
@@ -773,263 +664,94 @@ export default function OverlayWindow() {
           auto_paste: true,
         },
       });
-      finishOverlayAction(result.ok ? result.recovery_message : result.error ?? "Insert failed.", !result.ok);
-    } catch (error) {
-      finishOverlayAction(String(error), true);
+      finishOverlayAction(!result.ok);
+    } catch {
+      finishOverlayAction(true);
     }
   };
 
-  const handleResizePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.stopPropagation();
-    dragIntentRef.current = null;
-    const pill = event.currentTarget.closest(".pill") as HTMLElement | null;
-    resizeIntentRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startWidth: pill?.offsetWidth ?? EDIT_RESIZE_WIDTH_MIN,
-      startHeight: pill?.offsetHeight ?? EDIT_HEIGHT_MIN,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
+  const resultPending: OverlayPendingResult | undefined =
+    actionPending === "copy" || actionPending === "edit" || actionPending === "insert"
+      ? { action: actionPending, label: actionPending }
+      : undefined;
+  const previewPending: OverlayPendingPreview | undefined =
+    actionPending === "commit"
+      ? { action: "commit", label: "commit" }
+      : actionPending === "abort"
+        ? { action: "abort", label: "abort" }
+        : undefined;
 
-  const pillClass = [
-    "pill",
-    renderOverlaySurface === "compact" ? "pill--compact" : "",
-    renderOverlaySurface === "processing_preview" ? "pill--preview-actions" : "",
-    renderOverlaySurface === "result_actions" ? "pill--result-actions" : "",
-    renderOverlaySurface === "edit_mode" ? "pill--edit-mode" : "",
-    overlayMotion === "entering" ? "pill--entering" : "",
-    overlayMotion === "open" ? "pill--open" : "",
-    overlayMotion === "leaving" ? "pill--leaving" : "",
-    isRecording && !muted ? "pill--recording" : "",
-    isRecording && muted ? "pill--muted" : "",
-    isRecording && paused ? "pill--paused" : "",
-    isProcessing ? "pill--processing" : "",
-    showError ? "pill--error" : "",
-  ].filter(Boolean).join(" ");
-
-  if (showEditMode && previewResult) {
-    return (
-      <div className="overlay-shell" onPointerDownCapture={handleOverlayPointerDownCapture}>
-        <div className={pillClass}>
-          <div
-            className="pill__resize-handle"
-            data-resize-handle=""
-            onPointerDown={handleResizePointerDown}
-            aria-hidden="true"
-          />
-          <div className="pill__edit-body">
-            <textarea
-              className="pill__edit-textarea"
-              value={editText}
-              onChange={handleEditTextChange}
-              // eslint-disable-next-line jsx-a11y/no-autofocus
-              autoFocus
-              disabled={actionPending !== null || (!actionFailed && actionMessage !== null)}
-              aria-label="Edit transcription text"
-            />
-            {actionMessage && (
-              <span className={actionFailed ? "pill__edit-error" : "pill__edit-success"}>{actionMessage}</span>
-            )}
-            <div className="pill__edit-footer">
-              <button
-                type="button"
-                className="pill__action-button pill__action-button--primary"
-                onClickCapture={handleInteractiveClickCapture}
-                onClick={() => void handleEditConfirm()}
-                disabled={actionPending !== null || !editText.trim() || (!actionFailed && actionMessage !== null)}
-              >
-                {actionPending === "edit" ? "Inserting…" : (!actionFailed && actionMessage) ? "Done" : "Confirm"}
-              </button>
-              <button
-                type="button"
-                className="pill__action-button"
-                onClickCapture={handleInteractiveClickCapture}
-                onClick={handleEditCancel}
-                disabled={actionPending !== null}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if ((renderProcessingPreview || renderResultPreview) && activePreviewResult) {
-    return (
-      <div className="overlay-shell" onPointerDownCapture={handleOverlayPointerDownCapture}>
-        <div className={pillClass}>
-          <div className="pill__center pill__center--actions">
-            {actionButtons.length > 0 ? (
-              <div className="pill__action-strip" aria-label={renderProcessingPreview ? "Preview actions" : "Result actions"}>
-                {actionButtons.map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    className="pill__action-button"
-                    onClickCapture={handleInteractiveClickCapture}
-                    onClick={action.onClick}
-                    disabled={actionPending !== null}
-                    title={actionFailed && actionMessage ? actionMessage : action.label}
-                  >
-                    {actionPending === action.id ? action.pendingLabel : action.label}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <span className="pill__action-empty">{finalPreviewText || "Ready for the next pass."}</span>
-            )}
-          </div>
-
-          <div className="pill__divider" />
-          {renderResultPreview ? (
-            <button
-              type="button"
-              className="pill__side pill__side--action"
-              aria-label="Done"
-              onClickCapture={handleInteractiveClickCapture}
-              onClick={handleDismissPreview}
-              title={actionFailed && actionMessage ? actionMessage : "Dismiss action mode"}
-              disabled={actionPending !== null}
-            >
-              <span className="pill__side-copy">
-                <span className="pill__timer">Done</span>
-                <span className="pill__side-label">Dismiss</span>
-              </span>
-            </button>
-          ) : (
-            <div className="pill__side pill__side--status" title={actionFailed && actionMessage ? actionMessage : "Transcription ready for action"}>
-              <span className="pill__side-copy">
-                <span className="pill__timer">{actionFailed ? "Error" : "Ready"}</span>
-                <span className="pill__side-label">{actionFailed ? "Review" : "Action"}</span>
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const pillState: OverlayPillState | null = (() => {
+    if (showError && error) {
+      return { kind: "error", message: error };
+    }
+    if (showEditMode && previewResult) {
+      return {
+        kind: "edit-mode",
+        text: editText,
+        onTextChange: setEditText,
+        onConfirm: () => void handleEditConfirm(),
+        onCancel: handleEditCancel,
+      };
+    }
+    if (renderResultPreview && activePreviewResult) {
+      return {
+        kind: "result-actions",
+        text: finalPreviewText,
+        clipboardOnly: previewClipboardOnly,
+        autoCloseSec: Math.round((state.config?.result_actions_timeout_ms ?? 9000) / 1000),
+        pending: resultPending,
+        onCopy: () => void handleCopyResult(),
+        onEdit: handleEditOpen,
+        onInsert: () => void handleInsertResult(),
+        onDismiss: handleDismissPreview,
+      };
+    }
+    if (renderProcessingPreview && activePreviewResult) {
+      return {
+        kind: "processing",
+        mode: pillMode,
+        elapsedSec: elapsed,
+        preview: { text: finalPreviewText, clipboardOnly: previewClipboardOnly },
+        pending: previewPending,
+        onCommit: () => void handleCommitPreview(),
+        onAbort: () => void handleAbortPreview(),
+        onCycleMode: handleCycleMode,
+      };
+    }
+    if (isProcessing) {
+      return {
+        kind: "processing",
+        mode: pillMode,
+        elapsedSec: elapsed,
+        onCycleMode: handleCycleMode,
+      };
+    }
+    if (isRecording) {
+      return {
+        kind: "recording",
+        mode: pillMode,
+        muted,
+        paused,
+        level: audioLevel,
+        elapsedSec: elapsed,
+        onMuteToggle: () => toggleMute(),
+        onPauseToggle: () => togglePause(),
+        onCycleMode: handleCycleMode,
+      };
+    }
+    return null;
+  })();
 
   return (
-      <div className="overlay-shell" onPointerDownCapture={handleOverlayPointerDownCapture}>
-      <div className={pillClass}>
-        <button
-          type="button"
-          className="pill__mic"
-          onClickCapture={handleInteractiveClickCapture}
-          onClick={() => isRecording && toggleMute()}
-          title={muted ? "Unmute" : "Mute"}
-          aria-pressed={muted}
-        >
-          <MicIcon muted={muted} />
-        </button>
-
-        <div className="pill__center">
-          <div className="pill__bars" aria-label="Audio level">
-            {Array.from({ length: BAR_COUNT }, (_, i) => (
-              <div
-                key={i}
-                className={`bar${muted ? " bar--muted" : ""}`}
-                style={{ height: barHeights[i] }}
-              />
-            ))}
-          </div>
-        </div>
-
-        {(isRecording || isProcessing) && modeLabel && (
-          <button
-            type="button"
-            className="pill__mode"
-            onClickCapture={handleInteractiveClickCapture}
-            onClick={handleCycleMode}
-            title={`Mode: ${modeLabel} · tap to cycle`}
-            aria-label={`Processing mode ${modeLabel}, tap to cycle`}
-          >
-            <span className="pill__mode-label">{modeLabel}</span>
-          </button>
-        )}
-
-        <div className="pill__divider" />
-        <button
-          type="button"
-          className="pill__side"
-          onClickCapture={handleInteractiveClickCapture}
-          onClick={handleSideAction}
-          title={sideTitle}
-          aria-pressed={paused}
-        >
-          <span className="pill__side-copy">
-            <span className="pill__timer">{formatElapsed(elapsed)}</span>
-            <span className="pill__side-label">{sideCaption}</span>
-          </span>
-        </button>
-      </div>
+    <div
+      ref={shellRef}
+      className="ov-scope overlay-shell"
+      data-motion={overlayMotion}
+      onPointerDownCapture={handleOverlayPointerDownCapture}
+      onClickCapture={handleInteractiveClickCapture}
+    >
+      {pillState && <OverlayPill state={pillState} />}
     </div>
-  );
-}
-
-function audioPayloadToHeights(payload: AudioLevelEvent) {
-  const level = Math.min(1, Math.max(0, payload.level ?? 0));
-  const rms = Math.min(1, Math.max(0, payload.rms ?? level * 0.65));
-  const waveform = normalizeWaveform(payload.waveform, Math.max(level, rms));
-  const waveformPeak = waveform.reduce((peak, sample) => Math.max(peak, sample), Math.max(level, rms, 0.001));
-  const quietLevel = Math.max(level, rms);
-
-  // Room noise should settle back toward the idle silhouette instead of twitching constantly.
-  if (quietLevel < 0.022 && waveformPeak < 0.05) {
-    return IDLE_WAVEFORM;
-  }
-
-  const levelGain = Math.min(1, level * 3.15);
-  const rmsGain = Math.min(1, rms * 3.45);
-  const speechBoost = Math.max(levelGain, rmsGain);
-
-  return waveform.map((sample, index) => {
-    const distanceFromCenter = Math.abs(index - (waveform.length - 1) / 2);
-    const centerBias = 1 - distanceFromCenter / Math.max(1, (waveform.length - 1) / 2);
-    const relative = waveformPeak > 0 ? sample / waveformPeak : 0;
-    const energy = Math.min(1, relative * 0.4 + sample * 1.18 + rmsGain * 0.82 + levelGain * 0.5);
-    const floor = quietLevel < 0.05
-      ? Math.min(0.14, 0.026 + speechBoost * 0.08)
-      : Math.min(0.26, 0.04 + rmsGain * 0.1 + levelGain * 0.08);
-    const shaped = Math.pow(Math.max(energy, floor), speechBoost > 0.14 ? 0.68 : 0.76);
-    const emphasis = 0.88 + centerBias * 0.14;
-    return Math.round(MIN_BAR_HEIGHT + (MAX_BAR_HEIGHT - MIN_BAR_HEIGHT) * Math.min(1, shaped * emphasis));
-  });
-}
-
-function normalizeWaveform(waveform: number[] | undefined, fallbackLevel: number) {
-  if (!waveform?.length) {
-    return Array.from({ length: BAR_COUNT }, () => Math.min(1, fallbackLevel * 1.35));
-  }
-
-  if (waveform.length === BAR_COUNT) {
-    return waveform.map((value) => Math.min(1, Math.max(0, value)));
-  }
-
-  return Array.from({ length: BAR_COUNT }, (_, index) => {
-    const sourceIndex = Math.min(waveform.length - 1, Math.floor(index * waveform.length / BAR_COUNT));
-    return Math.min(1, Math.max(0, waveform[sourceIndex] ?? 0));
-  });
-}
-
-// ── Mic SVG icon ──────────────────────────────────────────────────────────────
-
-function MicIcon({ muted }: { muted: boolean }) {
-  const color = muted ? "var(--red)" : "var(--fg)";
-  return (
-    <svg width="34" height="40" viewBox="0 0 38 46" fill="none" aria-hidden="true">
-      <rect x="12" y="3" width="14" height="24" rx="7" fill={color} />
-      <path d="M6 21c0 17 26 17 26 0" stroke={color} strokeWidth="4" fill="none" strokeLinecap="round" />
-      <line x1="19" y1="35" x2="19" y2="41" stroke={color} strokeWidth="4" strokeLinecap="round" />
-      <line x1="11" y1="42" x2="27" y2="42" stroke={color} strokeWidth="4" strokeLinecap="round" />
-      {muted && (
-        <line x1="7" y1="6" x2="31" y2="40" stroke="var(--red)" strokeWidth="4" strokeLinecap="round" />
-      )}
-    </svg>
   );
 }

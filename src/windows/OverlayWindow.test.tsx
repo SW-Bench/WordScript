@@ -297,7 +297,7 @@ describe("OverlayWindow", () => {
 
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Insert" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mute" })).not.toBeInTheDocument();
     expect(screen.queryByText("Last pass")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
@@ -346,16 +346,16 @@ describe("OverlayWindow", () => {
     }));
   });
 
-  it("keeps the action-state pill on screen while Done dismisses it", async () => {
+  it("keeps the action-state pill on screen while Dismiss closes it", async () => {
     render(<OverlayWindow />);
 
-    const doneButton = await screen.findByRole("button", { name: "Done" });
+    const dismissButton = await screen.findByRole("button", { name: "Dismiss" });
     expect(screen.queryByLabelText("Audio level")).not.toBeInTheDocument();
 
-    fireEvent.click(doneButton);
+    fireEvent.click(dismissButton);
 
     expect(screen.queryByLabelText("Audio level")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
   });
 
   it("shows the live commit preview during processing for clipboard-only delivery", async () => {
@@ -461,7 +461,6 @@ describe("OverlayWindow", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument());
 
     expect(screen.getByRole("button", { name: "Abort" })).toBeInTheDocument();
-    expect(screen.getByText("Ready")).toBeInTheDocument();
     expect(screen.queryByText("Last pass")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));

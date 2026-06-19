@@ -71,23 +71,6 @@
   outline-offset: 2px;
 }
 
-/* Neutralise legacy overlay.css width/max-width caps that leak into the gallery
-   in Vite dev (overlay.css is loaded eagerly via the OverlayWindow import).
-   These compound selectors are specificity 0,3,0 so they beat the old
-   .pill--compact.pill--recording { max-width: 296px } (0,2,0) which otherwise
-   hard-caps every recording/processing pill and clips its children. */
-.ov-scope .pill.pill--compact,
-.ov-scope .pill.pill--recording,
-.ov-scope .pill.pill--processing,
-.ov-scope .pill.pill--muted,
-.ov-scope .pill.pill--paused,
-.ov-scope .pill.pill--preview-actions,
-.ov-scope .pill.pill--result-actions,
-.ov-scope .pill.pill--edit-mode,
-.ov-scope .pill.pill--error {
-  max-width: none;
-}
-
 /* Recording: warm hairline + soft inner ring. The live waveform already
    signals capture, so the surface stays calm — no aggressive halo or pulse. */
 .ov-scope .pill--recording {
@@ -259,15 +242,6 @@
 }
 
 .ov-scope .pill__mode:hover { background: rgba(255, 255, 255, 0.05); }
-
-/* Neutralize legacy overlay.css .pill__mode::before (orange vertical bar). */
-.ov-scope .pill__mode::before {
-  content: none !important;
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-  background: transparent !important;
-}
 
 .ov-scope .pill__mode-dot {
   width: 5px;
