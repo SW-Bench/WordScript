@@ -1,6 +1,6 @@
 # WordScript — Design System
 
-Stand: 2026-06-10
+Stand: 2026-06-20
 
 ## Zweck
 
@@ -34,6 +34,10 @@ Die Shell-Ueberarbeitung ist umgesetzt. Verbindliche Entscheidungen, die aeltere
 - **Motion:** React bleibt 18 → Tab-/Area-Wechsel ueber `useTransition` + CSS-Crossfade (`animate-in fade-in`), nicht die React-19-ViewTransition-API.
 - **Form-Kit (`src/components/shell/`):** `Sidebar`, `FormCard`/`FormRow`, `DisclosureRow`, `Inspector`, `SegmentControl`, `Stepper`, `StatusBadge`, `Toggle`, `Select`, `ProfileSwitcher` — das System-Settings-Grouped-Form-Idiom als wiederverwendbare Bausteine.
 - **Overlay:** echtes Glassmorphism via `backdrop-filter`, mit `@supports`-Solid-Fallback fuer Linux/Wayland-Compositors ohne Blur, plus orangefarbener Recording-Glow.
+- **Storybook v2** (`2026-06-10`): Overlay + Tokens + Components als visuelle Regression-Basis; Liquid Glass Polish fuer Overlay und Settings.
+- **Home-Screen v2.1** (`2026-06-15`): 3 explizite Background-Layer (`--bg-base` / `--bg-surface` / `--bg-elevated`), 5-Stufen-Type-Scale (12/14/16/20/28px), 4-Point-Spacing (20px card padding, 32px between sections), einzelne `StatusDot`-Primitive. SW-labs orange nur fuer den Capture-Button.
+- **CSS @layer base** (`2026-06-17`): universeller Reset (`*, *::before, *::after`) in `@layer base` gewrappt, damit Tailwind-Utilities nicht ueberschrieben werden.
+- **Content-Visibility** (`2026-06-18`): `content-visibility: auto` und `contain-intrinsic-size` fuer lange Listen (Diagnostics-History, Text-Rules-Karten) via `src/styles/utilities/scroll.css`.
 
 ## UI-Donoren und Stilreferenzen
 
@@ -257,10 +261,17 @@ Regeln:
 
 ## Overlay-Regeln
 
-- Tauri-Fenster: `transparent: true`, `alwaysOnTop: true`, `decorations: false`, `skipTaskbar: true`.
+- Tauri-Fenster: `transparent: true`, `alwaysOnTop: true` (Linux/KDE Plasma 6 via KWin-Script `packaging/kwin-wordscript-overlay/`, andere Plattformen via Tauri `always_on_top`), `decorations: false`, `skipTaskbar: true`.
+- Linux-Overlay: fixe Fenstergroessen 440×60 (flat) / 460×164 (edit), `resizable: true` in `tauri.conf.json` (GTK ignorierte `set_size` bei `resizable: false`). Kein dynamisches pill-basiertes Resize (ResizeObserver + offsetWidth-Measuring entfernt, da nicht zuverlaessig auf GTK).
+- `set_background_color` wird bei jedem Reveal aufgerufen (nicht nur bei `size_changed`), um WebKitGTK-Compositing-Layer-Probleme zu vermeiden (States ueberlagern sich sonst beim Wechsel).
+- `park_overlay_window` ruft `window.hide()` auf, damit Reveal den Hidden→Visible-Zweig durchlaeuft (Drag-Schutz via `set_position` nur bei Hidden→Visible funktioniert).
+- XWayland-Default (`GDK_BACKEND=x11`) mit `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in fuer nativ Wayland.
 - Pill: `backdrop-filter: blur(20px) saturate(1.2)`, `background: rgba(13, 18, 23, 0.72)`, `border: 1px solid rgba(255,255,255,0.08)`, `border-radius: 20px`.
 - Linux-Fallback (kein `backdrop-filter`): solid `var(--bg)` ohne Blur.
 - Orangener Glow im Recording-Zustand: `box-shadow: 0 0 20px rgba(230, 137, 0, 0.4)`.
+- `--ov-shadow: none` und `--ov-shadow-recording: none` in `overlay-pill.css` (WebKitGTK malt outer `box-shadow` opak).
+- `pointer-events: auto` auf `.ov-scope` (WebKitGTK macht `pointer-events: none` auf overlay-roots die Pill taub).
+- `will-change: opacity` entfernt (reduziert Layer-Cache, verhindert States-Ueberlagerung).
 - linke Mic-Aktion fuer Mute nur im Aufnahme-/Processing-Zustand ohne Action-Strip
 - zentrale Waveform ohne erklaerenden Hilfetext im Normalfall
 - rechte Timerzone fuer Zeit und Kontextaktion

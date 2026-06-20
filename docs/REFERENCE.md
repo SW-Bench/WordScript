@@ -1,12 +1,25 @@
 # WordScript — Reference
 
-Stand: 2026-06-10
+Stand: 2026-06-20
 
 ## Zweck
 
 Dieses Dokument buendelt projektweite Konstanten, die nicht in eine einzelne Architektur-, Status- oder Plattform-Datei gehoeren: Marken- und Produktkontext, Provider- und Runtime-Grenzen, Modus-Semantik, externe API-Limits und spaetere Sync-Planung.
 
 Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll sie von hier aus belegbar sein.
+
+## Lizenz
+
+- AGPL-3.0 (seit 2026-06-17)
+
+## Overlay-Konstanten (Linux)
+
+- Fixe Fenstergroessen: 440×60 (flat) / 460×164 (edit)
+- `resizable: true` in `tauri.conf.json` (GTK ignorierte `set_size` bei `resizable: false`)
+- XWayland-Default: `GDK_BACKEND=x11`, opt-in nativ Wayland: `WORDSCRIPT_NATIVE_WAYLAND=1`
+- KDE Plasma 6 Always-on-Top: `packaging/kwin-wordscript-overlay/`
+- CSS-Variablen: `--ov-shadow: none`, `--ov-shadow-recording: none` in `overlay-pill.css`
+- `pointer-events: auto` auf `.ov-scope` (nicht `none` auf overlay-roots)
 
 ## Projektkontext
 

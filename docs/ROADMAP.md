@@ -1,6 +1,6 @@
 # WordScript — Phasen-Roadmap
 
-Stand: 2026-06-10
+Stand: 2026-06-20
 
 Diese Roadmap bündelt die geplanten V1-Konsolidierungs- und Ausbauphasen, ihre Reihenfolge, ihre Bedingungen und was bewusst noch nicht zu einer Phase gehört. Sie ist die ausführliche Form der Phasen-Pointer, die in `STATUS.md`, `VISION.md` und `DEVELOPMENT.md` jeweils nur angerissen werden.
 
@@ -9,7 +9,7 @@ V1-Nordstern bleibt: Trigger, Sprechen, brauchbarer Text, saubere Recovery, Weit
 ## Status der Phasen
 
 - [x] **Phase 1 — Transkriptions-Bias, Profil-Health, Korpus** (Commit `a6005ca` auf master, 2026-06-10): Korpus-Skelett, profilgebundene Bias-Policy (`BiasMode` Conservative / Manual / Off + `ManualBias`), Profile-Health um `BiasPolicyWeak`-Flag erweitert, persistente `profile_health_acknowledged_flags`, Bias-Preview (`cloud_prompt_preview` / `local_prompt_preview`) in `TextRulesAnalysis`, Bias-Policy-Stage im Text-Rules-Tab. 246 Rust-Tests + 70 Frontend-Tests grün, 0 Warnings.
-- [ ] **Phase 2 — Settings-Shell Polish**: Information-Architektur, Motion, Hierarchie und native macOS-Anmutung der Settings-Fenster, ohne neue Runtime-Heuristiken. Siehe `VISION.md:154`.
+- [x] **Phase 2 — Settings-Shell Polish** (2026-06-10 bis 2026-06-20): Design-System v2 mit Storybook, Liquid Glass Polish, macOS-Utility-Shell mit gruppierter Sidebar, Home-Screen v2.1 mit 3 Background-Layern und 5-Stufen-Type-Scale, CSS @layer base Fix, Content-Visibility-Utilities, Wordmark-Sidebar-Header, standardisierte Border-Radius. Overlay-Refinement mit fixen Linux-Fenster-Groessen, KWin-Script fuer KDE Plasma 6 Always-on-Top, Black-Block- und Compositing-Fixes.
 - [ ] **Phase 3 — Live-Preview und kontrollierter Commit im Overlay**: Sprecher sieht rohen Transkript, bereinigten Text, aktiven Modus und kann vor dem finalen Insert entscheiden. Erweitert den bereits umgesetzten `clipboard_only`-Preview-Stop auf alle Insert-Modi. Siehe `VISION.md:165`.
 - [ ] **Phase 4 — Provider-Stack-Ausbau**: Zweiter Produktionsprovider neben Groq, klare Modi `fast` / `quality` / `local` / `self_hosted` mit ehrlich getrennter Semantik. Siehe `VISION.md:166` und `REFERENCE.md` Modus-Semantik.
 - [ ] **Phase 5 — Lokale Runtime als first-class Produktoption**: Geführtes Modellmanagement, Pull-Checks, Health-Diagnostics, Bias-Prompting und Quality-vs-Latency-Presets. Aufbauend auf der heutigen `local_preview`-Lane. Siehe `VISION.md:167`.
@@ -44,21 +44,25 @@ Bewusst ausserhalb der aktuellen Phasen-Pipeline:
 
 **Validierung:** 246 Rust-Tests + 70 Frontend-Tests, `cargo check` ohne Warnings, `npm run build` erfolgreich.
 
-## Phase 2 — Settings-Shell Polish (geplant)
+## Phase 2 — Settings-Shell Polish (abgeschlossen, 2026-06-20)
 
 **Ziel:** Die Settings-Fenster werden ruhiger, klarer und nativer. Keine neue Runtime-Heuristik.
 
-**Scope (nicht final):**
+**Umgesetzte Vertragspunkte:**
 
-- Sidebar-Rhythmus, Tab-Hierarchie, Motion konsistent.
-- Footer-Save-Bar und Profile-Dock-Integration.
-- Native macOS-Dekoration und Padding konsistent mit Donoren `VoiceInk`, `FluidVoice`, `OpenSuperWhisper` (Stilreferenz, kein Copy/Paste).
-- Bias-Policy-Stage aus Phase 1 visuell in den Rest einpassen.
-- Diagnostik-Lesbarkeit verbessern, ohne zweite Setup-Wahrheit aufzubauen.
+- Design-System v2 mit Storybook v2 als visuelle Regression-Basis (`c3f5195`, `5d96da7`, `9479309`).
+- Liquid Glass Polish fuer Overlay und Settings (`dc24c1f`).
+- Native macOS Utility-Shell mit gruppierter 200px-Sidebar, kompaktem Tab-Header, dominanter Content-Surface und Footer-Save-Bar.
+- Home-Screen v2.1 mit 3 expliziten Background-Layern (`--bg-base` / `--bg-surface` / `--bg-elevated`), 5-Stufen-Type-Scale (12/14/16/20/28px), 4-Point-Spacing und einzelnen `StatusDot`-Primitiven (`f70aae4`).
+- CSS @layer base Fix: universeller Reset in `@layer base` gewrappt, damit Tailwind-Utilities nicht mehr ueberschrieben werden (`9acf6ce`).
+- Content-Visibility-Utilities (`content-visibility: auto`, `contain-intrinsic-size`) fuer lange Listen wie Diagnostics-History und Text-Rules-Karten (`8b647d0`).
+- Wordmark-Sidebar-Header statt separatem Icon + Text (`391dfd8`).
+- Standardisierte Border-Radius und Component-Spacing (`f1ac34a`).
+- Overlay-Refinement: fixe Linux-Fenster-Groessen (440x60 flat / 460x164 edit), Black-Block-Fix, Compositing-Fixes, Drag/Button/Clipping zuverlaessig (`544673e` bis `3e06fd2`).
+- KWin-Script fuer KDE Plasma 6 Always-on-Top (`packaging/kwin-wordscript-overlay/`).
+- AGPL-3.0 Lizenz-Update (`3a2f393`).
 
-**Aussenvor:** Overlay-Visuals, neue Tabs, neue Heuristiken, Profile-Logik.
-
-**Erfolgsmetrik:** Visuelle Konsistenz, reduzierte kognitive Last, keine Regression in `cargo test` und `npm test`.
+**Validierung:** Frontend-Build und Rust-Tests gruen, Overlay-Tests auf Linux/XWayland und KDE Plasma 6 bestanden.
 
 ## Phase 3 — Live-Preview und kontrollierter Commit im Overlay (geplant)
 

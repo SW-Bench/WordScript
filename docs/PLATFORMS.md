@@ -1,6 +1,6 @@
 # WordScript — Platforms
 
-Stand: 2026-06-10
+Stand: 2026-06-20
 
 Plattform-Supportmatrix und plattformspezifische Insert- und Recovery-Diagnostik. Quelle ist `core::insertion` (`NativeInsertionPlatformStatus`); diese Datei ist die menschenlesbare Spiegelung des nativen Vertrags.
 
@@ -13,7 +13,7 @@ Plattform-Supportmatrix und plattformspezifische Insert- und Recovery-Diagnostik
 | Linux X11 | Preview | nutzbarer Produktpfad mit kleinerem Stabilitaetsversprechen |
 | Linux Wayland hybrid (X11+Wayland mit xdotool) | Preview-lite | `xdotool type` (Fake-Input ueber XWayland) direkt, sonst Clipboard + manuelles Paste |
 | Linux Wayland rein (kein X11-Display) | Experimental | Auto-Paste deaktiviert, Clipboard-only + manuelles Paste; verhindert Wayland-Portal-Prompt "Control input devices" |
-| KDE Plasma 6 (Wayland, mit xdg-desktop-portal-kde) | Preview-lite | einmaliger RemoteDesktop-Portal-Grant ueber den Session-Bus; danach direkter Auto-Paste ohne wiederholten Dialog |
+| KDE Plasma 6 (Wayland, mit xdg-desktop-portal-kde) | Preview-lite | einmaliger RemoteDesktop-Portal-Grant ueber den Session-Bus; danach direkter Auto-Paste ohne wiederholten Dialog. Always-on-Top fuer Overlay via KWin-Script (`packaging/kwin-wordscript-overlay/`) |
 | GNOME Mutter (Wayland) | Preview-lite | gleicher Pfad wie KDE Plasma 6 via `org.gnome.Shell` RemoteDesktop-Portal |
 | Hyprland / Sway / KDE Plasma 5 | Experimental | kein persistenter RemoteDesktop-Portal-Grant verfuegbar; Auto-Paste bleibt Clipboard-only |
 
@@ -43,6 +43,8 @@ Die native Plattformdiagnostik kommt aus `core::insertion` und wird sichtbar in 
 ### Linux Wayland — bewusste Default-Wahl
 
 Auf reinen Wayland-Sessions (kein `DISPLAY`, nur `WAYLAND_DISPLAY`) ist die Paste-Driver-Chette leer. Begruendung: jeder Versuch, `wtype`, `ydotool` oder `enigo` fuer Input-Simulation zu starten, loest den KDE-Plasma-Portal-Dialog "Remote Control – Control input devices" aus. Diese bewusste Default-Wahl vermeidet den Portal-Dialog, schraenkt aber die Auto-Paste-Bequemlichkeit auf pure Wayland ein. Hybrid-Sessions (X11+Wayland mit xdotool) sind davon nicht betroffen.
+
+Overlay auf Linux: XWayland-Default (`GDK_BACKEND=x11`) mit `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in fuer nativ Wayland. Always-on-Top auf KDE Plasma 6 via KWin-Script (`packaging/kwin-wordscript-overlay/`), installiert mit `kpackagetool6 --type=KWin/Script -i packaging/kwin-wordscript-overlay && qdbus org.kde.KWin /KWin reconfigure`.
 
 ### Linux Wayland — Portal-Diagnose zur Laufzeit
 

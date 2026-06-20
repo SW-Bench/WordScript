@@ -1,6 +1,6 @@
 # WordScript — Vision
 
-Stand: 2026-06-10
+Stand: 2026-06-20
 
 ## Nordstern
 

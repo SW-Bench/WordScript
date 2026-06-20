@@ -1,6 +1,6 @@
 ![WordScript](assets/OG.png)
 
-![SW bench](assets/SW%20bench_wordmark.png)
+![SW bench](assets/logos/sw-forge-logo-transparent.png)
 
 # WordScript
 

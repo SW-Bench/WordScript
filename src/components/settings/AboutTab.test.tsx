@@ -140,7 +140,7 @@ describe("AboutTab", () => {
     expect(screen.queryByRole("button", { name: /download installer/i })).not.toBeInTheDocument();
     expect(invokeMock).toHaveBeenCalledWith("check_app_update");
 
-    await user.click(screen.getByRole("button", { name: /GitHub - SW-Bench\/WordScript/i }));
-    expect(openUrlMock).toHaveBeenCalledWith("https://github.com/SW-Bench/WordScript");
+    await user.click(screen.getByRole("button", { name: /^GitHub$/i }));
+    expect(openUrlMock).toHaveBeenCalledWith("https://github.com/sw-forge-org/WordScript");
   });
 });

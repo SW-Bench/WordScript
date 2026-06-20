@@ -1,6 +1,6 @@
 # WordScript — Development
 
-Stand: 2026-06-10
+Stand: 2026-06-20
 
 ## Zweck
 
@@ -66,7 +66,7 @@ Wichtiger Plattformhinweis fuer echte Insert-Checks:
 
 - macOS Dev-Mode kann Accessibility und je nach Launcher auch Input Monitoring fuer Terminal, VS Code oder die spaeter paketierte WordScript-App verlangen
 - Windows-Ziele mit hoeheren Rechten koennen simuliertes Paste blockieren, wenn WordScript nicht auf demselben Privileg-Level laeuft
-- Linux Wayland ist compositorspezifisch: auf KDE Plasma 6 und GNOME Mutter wird ein einmaliger xdg-desktop-portal-RemoteDesktop-Grant ueber den Session-Bus angefordert, sodass Auto-Paste ohne wiederholten "Control input devices"-Dialog laeuft; auf Hyprland, Sway und KDE Plasma 5 ist Auto-Paste deaktiviert und der UI-Status nennt den konkreten naechsten Schritt. Reine Wayland-Sessions (ohne X11-Display) bleiben generell Clipboard-only, weil `wtype`/`ydotool`/`enigo` weiterhin den KDE-Plasma-Portal-Prompt ausloesen wuerden. Hybrid-Sessions (X11+Wayland) verwenden weiterhin `xdotool` ueber XWayland, klassifizieren den stderr aber zur Laufzeit und fallen bei Portal-Prompt auf Clipboard-only zurueck.
+- Linux Wayland ist compositorspezifisch: auf KDE Plasma 6 und GNOME Mutter wird ein einmaliger xdg-desktop-portal-RemoteDesktop-Grant ueber den Session-Bus angefordert, sodass Auto-Paste ohne wiederholten "Control input devices"-Dialog laeuft; auf Hyprland, Sway und KDE Plasma 5 ist Auto-Paste deaktiviert und der UI-Status nennt den konkreten naechsten Schritt. Reine Wayland-Sessions (ohne X11-Display) bleiben generell Clipboard-only, weil `wtype`/`ydotool`/`enigo` weiterhin den KDE-Plasma-Portal-Prompt ausloesen wuerden. Hybrid-Sessions (X11+Wayland) verwenden weiterhin `xdotool` ueber XWayland, klassifizieren den stderr aber zur Laufzeit und fallen bei Portal-Prompt auf Clipboard-only zurueck. Overlay auf Linux: XWayland-Default (`GDK_BACKEND=x11`) mit `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in fuer nativ Wayland. Always-on-Top auf KDE Plasma 6 via KWin-Script (`packaging/kwin-wordscript-overlay/`), installiert mit `kpackagetool6 --type=KWin/Script -i packaging/kwin-wordscript-overlay && qdbus org.kde.KWin /KWin reconfigure`.
 - Linux-Checks fuer das Settings-Fenster muessen im nativen Host laufen; Browser-Preview reicht nicht, wenn Fensterdekorationen, Scrollverhalten oder Fensterrand-Verhalten beurteilt werden sollen
 - dasselbe gilt fuer das Diagnostics-Pop-out: native Dekoration, Startgroesse und Resize-Grenzen muessen im Host geprueft werden, nicht nur im eingebetteten Settings-Tab
 
@@ -116,6 +116,14 @@ Optionaler lokaler Runtime-Pfad:
 - neue Correction-Guardrails muessen als Unit-Tests in `core::transform::tests` landen; jede nachgewiesene LLM-Antwort-Variante, die den Stack durchbrochen hat, bekommt einen eigenen Regression-Test
 - in `polished` mode ist `has_suspicious_start` deaktiviert (erlaubte Satzumstrukturierung); der Ersatz-Guard `has_new_first_person_action_start` deckt Ich-Aktionsverb-Starts ab; wer polished-mode-Guardrails aendert, muss beide Guards beachten
 - Guardrail-Ablehnungen sind Runtime-Log-Eintraege; neue Guards muessen ebenfalls loggen, damit Rebuild Lab die Ablehnung zeigen kann
+- Linux-Overlay: fixe Fenstergroessen (440×60 flat / 460×164 edit) muessen konsistent zwischen `OverlaySurface::dimensions()` und beiden invoke-Pfaden (base surface sync + useLayoutEffect) bleiben. Dynamisches pill-basiertes Resize (ResizeObserver + offsetWidth-Measuring) ist nicht zuverlaessig auf GTK und wurde entfernt
+- Linux-Overlay: `set_background_color` muss bei jedem Reveal aufgerufen werden (nicht nur bei `size_changed`), sonst behaelt WebKitGTK die alte compositing-Layer und States ueberlagern sich beim Wechsel
+- Linux-Overlay: `park_overlay_window` muss `window.hide()` aufrufen, damit Reveal den Hidden→Visible-Zweig durchlaeuft und der Drag-Schutz (`set_position` nur bei Hidden→Visible) funktioniert
+- Linux-Overlay: `pointer-events: auto` auf `.ov-scope` ist Pflicht; `pointer-events: none` auf overlay-roots macht die Pill auf WebKitGTK taub
+- Linux-Overlay: `--ov-shadow: none` und `--ov-shadow-recording: none` in `overlay-pill.css` sind Pflicht; WebKitGTK malt outer `box-shadow` opak
+- Linux-Overlay: `will-change: opacity` wurde entfernt (reduziert Layer-Cache, verhindert States-Ueberlagerung)
+- Linux-Overlay: XWayland-Default (`GDK_BACKEND=x11`) mit `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in fuer nativ Wayland. `resizable: true` in `tauri.conf.json` ist Pflicht (GTK ignorierte `set_size` bei `resizable: false`)
+- KDE Plasma 6 Always-on-Top: KWin-Script in `packaging/kwin-wordscript-overlay/` setzt `client.layer = 4` (OverlayLayer). Install: `kpackagetool6 --type=KWin/Script -i packaging/kwin-wordscript-overlay && qdbus org.kde.KWin /KWin reconfigure`
 
 ### 1. Am owning surface anfangen
 
@@ -266,10 +274,12 @@ Loescht `src-tauri/target/debug` und `node_modules/.vite` — danach ist ein nor
 2. `npm run build`
 3. wenn Shell, Fenstergeometrie oder Tauri-gebundene Statusfuehrung geaendert wurde: die Ansicht im nativen Host pruefen statt nur im Browser-Preview
 4. bei Overlay-Aenderungen auf Linux/XWayland oder KDE Plasma explizit pruefen, dass das Overlay nach Dismiss oder Idle nativ verschwindet und keine stale schwarze Restflaeche hinterlaesst
-5. bei Overlay-Placement-Aenderungen explizit pruefen, dass eine manuell gezogene Position nach Stop, Action-State und der naechsten neuen Aufnahme erhalten bleibt und Preset-Display/Anchor-Einstellungen denselben Host-Pfad uebernehmen
+5. bei Overlay-Aenderungen auf Linux explizit pruefen: fixe Fenster-Groessen (440×60 flat / 460×164 edit), `set_background_color` bei jedem Reveal, `park_overlay_window` mit `hide()`, kein dynamisches pill-basiertes Resize. Bei nativem Wayland-Test: `WORDSCRIPT_NATIVE_WAYLAND=1` setzen. Auf KDE Plasma 6: KWin-Script installieren (`kpackagetool6 --type=KWin/Script -i packaging/kwin-wordscript-overlay && qdbus org.kde.KWin /KWin reconfigure`) und Always-on-Top pruefen
+6. bei Overlay-Placement-Aenderungen explizit pruefen, dass eine manuell gezogene Position nach Stop, Action-State und der naechsten neuen Aufnahme erhalten bleibt und Preset-Display/Anchor-Einstellungen denselben Host-Pfad uebernehmen
 6. bei Overlay-Placement-Aenderungen auf Multi-Monitor-Setups explizit pruefen, dass ein Wechsel auf einen zweiten Monitor samt spaeterem Preview-/Result-State nicht die gemerkte Drag-Position durch hostseitige Repositions oder Surface-Breitenwechsel ueberschreibt
-7. bei Settings-Chrome-Aenderungen auf Linux explizit pruefen, dass native Fensterdekorationen sichtbar bleiben und keine fake Window-Controls in den Content zurueckkehren
-8. bei Geometrie-Aenderungen sicherstellen, dass Settings-Sidebar, Footer und Diagnostics-Pop-out auch am jeweiligen Minimum noch ohne verschwundene Controls bedienbar bleiben
+7. bei Overlay-Groessen-Aenderungen auf Linux explizit pruefen, dass die fixen Fenster-Groessen (440×60 flat / 460×164 edit) konsistent zwischen `OverlaySurface::dimensions()` und beiden invoke-Pfaden (base surface sync + useLayoutEffect) bleiben
+8. bei Settings-Chrome-Aenderungen auf Linux explizit pruefen, dass native Fensterdekorationen sichtbar bleiben und keine fake Window-Controls in den Content zurueckkehren
+9. bei Geometrie-Aenderungen sicherstellen, dass Settings-Sidebar, Footer und Diagnostics-Pop-out auch am jeweiligen Minimum noch ohne verschwundene Controls bedienbar bleiben
 
 ### Rust- oder Runtime-Aenderungen
 

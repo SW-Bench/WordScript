@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  APP_ORGANIZATION_URL,
   APP_RELEASE_RUNBOOK_URL,
   APP_RELEASE_WORKFLOW_URL,
   APP_REPOSITORY_URL,
@@ -250,8 +249,7 @@ export function AboutTab({ isActive }: AboutTabProps) {
     }
   };
   const projectLinks = [
-    { label: "GitHub - SW-Bench/WordScript", url: APP_REPOSITORY_URL },
-    { label: "GitHub - SW-Bench", url: APP_ORGANIZATION_URL },
+    { label: "GitHub", url: APP_REPOSITORY_URL },
     { label: "SW labs", url: APP_SITE_URL },
   ];
   const releaseLinks = [
@@ -269,9 +267,19 @@ export function AboutTab({ isActive }: AboutTabProps) {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="px-1">
-        <p className="text-[15px] font-semibold text-[var(--fg)]">WordScript {APP_VERSION}</p>
-        <p className="mt-0.5 text-[12px] text-[var(--fg-muted)]">Lightweight speech-to-text for your desktop.</p>
+      <div className="flex items-center justify-between px-1">
+        <div>
+          <p className="text-[15px] font-semibold text-[var(--fg)]">WordScript {APP_VERSION}</p>
+          <p className="mt-0.5 text-[12px] text-[var(--fg-muted)]">Lightweight speech-to-text for your desktop.</p>
+        </div>
+        <div className="flex gap-2">
+          {projectLinks.map((link) => (
+            <Button key={link.url} size="sm" variant="ghost" onClick={() => void open(link.url)}>
+              {link.url === APP_REPOSITORY_URL ? <Code2 size={14} className="mr-1" /> : <Globe size={14} className="mr-1" />}
+              {link.label}
+            </Button>
+          ))}
+        </div>
       </div>
 
       <Card className="border-[var(--accent)]/10">
@@ -473,15 +481,6 @@ export function AboutTab({ isActive }: AboutTabProps) {
           )}
         </CardContent>
       </Card>
-
-      <div className="flex flex-wrap gap-2 px-1">
-        {projectLinks.map((link) => (
-          <Button key={link.url} size="sm" variant="ghost" onClick={() => void open(link.url)}>
-            {link.url === APP_REPOSITORY_URL ? <Code2 size={14} className="mr-1" /> : link.url === APP_SITE_URL ? <Globe size={14} className="mr-1" /> : <ExternalLink size={14} className="mr-1" />}
-            {link.label}
-          </Button>
-        ))}
-      </div>
 
       {linkError && <p className="px-1 text-[12px] text-[var(--red)]">{linkError}</p>}
     </div>
