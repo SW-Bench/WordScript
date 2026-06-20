@@ -70,3 +70,7 @@ openwhispr donor-screenshots
 
 *storybook.log
 storybook-static
+
+# Diagnostics artifacts
+/.playwright-mcp/
+/gallery-full.png

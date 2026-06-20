@@ -1,0 +1,14 @@
+{
+    "KPlugin": {
+        "Name": "WordScript Overlay Pin",
+        "Description": "Force the WordScript overlay window onto KWin's overlay layer so it stays on top of all applications on Wayland.",
+        "Id": "wordscript-overlay",
+        "Version": "1.0",
+        "Category": "KWin",
+        "License": "MIT",
+        "Authors": [{ "Name": "WordScript" }]
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js",
+    "KPackageStructure": "KWin/Script"
+}

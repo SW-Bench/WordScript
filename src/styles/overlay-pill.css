@@ -31,8 +31,19 @@
   --ov-radius-compact: 999px;
   --ov-radius-tall: 14px;
 
-  --ov-shadow: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.28);
-  --ov-shadow-recording: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.28);
+  /* WebKitGTK paints the OUTER drop-shadow of a transparent overlay window
+     opaquely (the shadow's alpha bounding box turns solid black) instead of
+     compositing it softly — proven by the P3 brute-force test in
+     docs/handoffs/OVERLAY_LINUX_BLACK_BLOCK_HANDOFF.md: setting these to `none`
+     made the black block disappear under XWayland. This affected both backends
+     on the target system. The inner hairline highlight (--ov-highlight) is
+     inset and stays; depth comes from border + surface. Do NOT reintroduce an
+     outer drop-shadow here unless WebKitGTK composites it correctly. The
+     original values are kept commented for reference / Chromium gallery use.
+     --ov-shadow: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.28);
+     --ov-shadow-recording: 0 10px 30px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.28); */
+  --ov-shadow: none;
+  --ov-shadow-recording: none;
 
   --ov-font: "Aptos", "SF Pro Text", "Segoe UI Variable", "Noto Sans", sans-serif;
   --ov-font-display: "Aptos Display", "SF Pro Display", "Segoe UI Variable Display", "Noto Sans", sans-serif;
@@ -41,6 +52,15 @@
   color: var(--ov-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Re-enable pointer events on the overlay subtree. The DOM click-through via
+     pointer-events:none on the overlay-window roots (overlay.css:11) is
+     ineffective on Wayland (the OS input region blocks clicks regardless, see
+     docs/STATUS.md:108) and on WebKitGTK it makes the pill input-deaf even
+     though .pill sets pointer-events:auto. Forcing auto on the scope restores
+     drag + button clicks on the pill; click-through beneath is already lost to
+     the OS      input region and needs layer-shell for a real solution. */
+  pointer-events: auto;
 }
 
 /* ── Pill root ─────────────────────────────────────────────────────────────── */
@@ -63,7 +83,6 @@
   transform: scale(0.87);
   transform-origin: center;
   transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
-  will-change: opacity;
 }
 
 .ov-scope .pill:focus-visible {

@@ -29,6 +29,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -->
 
+## [Unreleased] — 2026-06-20
+
+### Added
+
+- KWin-Script für Always-on-Top auf KDE Plasma 6 / Wayland (`packaging/kwin-wordscript-overlay/`) — setzt `client.layer = 4` (OverlayLayer) für das WordScript-Overlay-Fenster. Install: `kpackagetool6 --type=KWin/Script -i packaging/kwin-wordscript-overlay && qdbus org.kde.KWin /KWin reconfigure`
+
+### Changed
+
+- Linux Overlay-Größe auf fixe 440×60 (flat) / 460×164 (edit) — dynamisches pill-basiertes Resize ist auf WebKitGTK/GTK nicht zuverlässig (`set_size` ist asynchron, Fenster hinkt einen Tick hinterher). Beide invoke-Pfade (base surface sync + useLayoutEffect) nutzen jetzt dieselbe Größe → kein Konflikt mehr.
+- `resizable: true` in `tauri.conf.json` (GTK ignorierte `set_size` bei `resizable: false`).
+- `park_overlay_window` ruft jetzt `window.hide()` auf → Reveal läuft durch den Hidden→Visible-Zweig (Drag-Schutz `set_position` nur bei Hidden→Visible funktioniert wieder).
+- `set_background_color` wird bei jedem Reveal aufgerufen (nicht nur bei `size_changed`) → erzwingt Repaint, verhindert dass WebKitGTK die alte compositing-Layer behält (States überlagern sich sonst beim Wechsel).
+- XWayland-default (`GDK_BACKEND=x11`) mit `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in für nativ Wayland.
+
+### Fixed
+
+- **Schwarzer Block:** WebKitGTK malt outer `box-shadow` opak → `--ov-shadow: none` + `--ov-shadow-recording: none` in `overlay-pill.css`.
+- **Drag + Button-Click (Input-taub):** `pointer-events: none` auf overlay-roots macht Pill auf WebKitGTK taub → `pointer-events: auto` auf `.ov-scope`.
+- **Clipping (Pill-Enden abgeschnitten):** Zwei konkurrierende invoke-Pfade + GTK-async `set_size` → Fenster bleibt bei 256/388. Fix: Rust `OverlaySurface::dimensions()` auf fixe 440×60 (flat) / 460×164 (edit), beide Pfade konsistent.
+- **Overlay verschwindet nach 1. Transkription:** `park_overlay_window` ohne `hide()` → Reveal überspringt Positionierung. Fix: `park→hide`.
+- **Audio-Regression:** Poller-Thread destabilisierte Audio-Init → entfernt.
+- **States überlagern sich beim Wechsel:** flat→flat Wechsel → kein `set_background_color` → WebKitGTK behält compositing-Layer. Fix: `set_background_color` immer + `will-change: opacity` entfernt.
+
+### Removed
+
+- Dynamisches pill-basiertes Resize (ResizeObserver + offsetWidth-Measuring) — nicht zuverlässig auf GTK.
+- `transform: scale(0.87)` bleibt, aber `will-change: opacity` entfernt (reduziert Layer-Cache).
+- Unused Konstanten `OVERLAY_COMPACT_WINDOW_WIDTH`, `OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH`, `OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH`, `OVERLAY_EDIT_MODE_WINDOW_WIDTH`, `OVERLAY_EDIT_MODE_WINDOW_HEIGHT`, `OVERLAY_WINDOW_HEIGHT`.
+
 ## [Unreleased] — 2026-06-10
 
 ### Added

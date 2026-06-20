@@ -27,9 +27,27 @@ const DRAG_CLICK_SUPPRESS_MS = 1000;
 // Matches the .overlay-shell padding so the native window hugs the pill plus its
 // transparent breathing room on every edge.
 const SHELL_PADDING = 4;
+// Extra slack on top of the measured pill box. WebKitGTK under-reports the
+// scaled (scale 0.87) sub-pixel box of the transformed pill — on XWayland by
+// enough to clip both ends of the processing pill, on native Wayland only by a
+// few pixels (the orange mode/accent content at the ends read as a clipped
+// "shimmer"). 4px was too tight; 12px absorbs the under-report plus border /
+// antialiasing without a visible gap (the transparent headroom is click-through
+// via .overlay-shell pointer-events:none). See handoff Abschnitt 0/2.
+const MEASURE_BUFFER = 12;
 
 type OverlayMotion = "idle" | "entering" | "open" | "leaving";
 type OverlaySurface = "compact" | "processing_preview" | "result_actions" | "edit_mode";
+
+// Proven per-surface widths, mirrored from OverlaySurface::dimensions() in
+// src-tauri/src/lib.rs. Used as a floor under the live measurement: if WebKitGTK
+// under-reports the scaled box, the known-good constant still prevents clipping.
+const SURFACE_MIN_WIDTH: Record<OverlaySurface, number> = {
+  compact: 256,
+  processing_preview: 300,
+  result_actions: 388,
+  edit_mode: 420,
+};
 
 interface AudioLevelEvent {
   event: string;
@@ -396,38 +414,60 @@ export default function OverlayWindow() {
     }
   }, [isActive, overlayMotion, overlaySurface]);
 
-  // Size the native overlay window to the live pill. getBoundingClientRect is
-  // transform-aware, so it already includes the pill's scale(0.87); the shell
-  // owns no transform, keeping the measurement clean. ResizeObserver catches
-  // intra-state size changes (preview text length, edit textarea). Guarded for
-  // jsdom (no ResizeObserver, zero-size rects), where the base surface sync above
-  // remains the source of truth.
+  const processingMode = useMemo(
+    () => (state.config ? resolveOverlayProcessingMode(state.config) : null),
+    [state.config],
+  );
+  const pillMode: OverlayProcessingMode = modeOverride ?? processingMode ?? "cleanup";
+
+  // Fixed per-surface window size. Dynamic pill-based sizing is unreliable on
+  // WebKitGTK/GTK: set_size is applied ASYNCHRONOUSLY (one event-loop tick
+  // behind), so back-to-back resizes (ResizeObserver) leave the window stuck at
+  // the previous, too-small size and clip the pill ends. A fixed size per
+  // surface means one set_size on first reveal, then size_changed=false (no
+  // further async churn) — the window is stable and never clips. All flat
+  // surfaces share one size (wide enough for the widest, result-actions); the
+  // pill is centred inside, so compact has transparent side margins. That is
+  // acceptable: click-through beneath the window is already a Wayland layer-
+  // shell limit (docs/STATUS.md:108), not a sizing concern.
   useLayoutEffect(() => {
     if (!isActive) return;
-    const pill = shellRef.current?.querySelector<HTMLElement>(".pill");
-    if (!pill) return;
+    if (overlayMotionRef.current === "leaving") return;
+    if (dragSessionActiveRef.current) return;
+    const surface = overlaySurfaceRef.current;
+    const { width, height } =
+      surface === "edit_mode"
+        ? { width: 460, height: 164 }
+        : { width: 440, height: 60 };
+    if (import.meta.env.DEV) {
+      const pill = shellRef.current?.querySelector<HTMLElement>(".pill");
+      console.warn(
+        `[ov-dom] surface=${surface} reqW=${width} innerW=${window.innerWidth} innerH=${window.innerHeight} pillOffsetW=${pill?.offsetWidth ?? "n/a"}`,
+      );
+    }
+    void invoke("sync_overlay_window_visibility", {
+      visible: true,
+      surface,
+      width,
+      height,
+    }).catch(() => {});
+  }, [isActive, renderOverlaySurface]);
 
-    const measure = () => {
-      if (overlayMotionRef.current === "leaving") return;
-      const rect = pill.getBoundingClientRect();
-      const width = Math.ceil(rect.width) + SHELL_PADDING * 2;
-      const height = Math.ceil(rect.height) + SHELL_PADDING * 2;
-      if (rect.width <= 0 || rect.height <= 0) return;
-      void invoke("sync_overlay_window_visibility", {
-        visible: true,
-        surface: overlaySurfaceRef.current,
-        width,
-        height,
-      }).catch(() => {});
+  // DEV: mirror the native reveal (req/outer/inner window sizes) into the
+  // overlay console so window-vs-webview sizing is diagnosable without the
+  // terminal (the Rust eprintln goes to the terminal, this goes to devtools).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    let unlisten: (() => void) | undefined;
+    void listen<unknown>("ov-reveal-debug", (event) => {
+      console.warn("[ov-reveal]", JSON.stringify(event.payload));
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
     };
-
-    measure();
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => measure());
-    observer.observe(pill);
-    return () => observer.disconnect();
-  }, [isActive, renderOverlaySurface, finalPreviewText, editText]);
+  }, []);
 
   // Reactive waveform level driven by native capture sample buckets. OverlayPill
   // turns the single level into bar heights.
@@ -524,12 +564,6 @@ export default function OverlayWindow() {
     event.preventDefault();
     event.stopPropagation();
   };
-
-  const processingMode = useMemo(
-    () => (state.config ? resolveOverlayProcessingMode(state.config) : null),
-    [state.config],
-  );
-  const pillMode: OverlayProcessingMode = modeOverride ?? processingMode ?? "cleanup";
 
   // Tap-to-cycle through processing modes straight from the overlay. Uses the
   // native session override so the change applies to the in-flight pass without

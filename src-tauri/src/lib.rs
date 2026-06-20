@@ -19,12 +19,6 @@ use crate::core::transcription_hints::{
 use crate::core::trigger::{NativeTriggerConfig, NativeTriggerState, TriggerEffect};
 use crate::v1_slice::V1SliceState;
 
-const OVERLAY_COMPACT_WINDOW_WIDTH: f64 = 256.0;
-const OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH: f64 = 300.0;
-const OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH: f64 = 388.0;
-const OVERLAY_EDIT_MODE_WINDOW_WIDTH: f64 = 420.0;
-const OVERLAY_WINDOW_HEIGHT: f64 = 52.0;
-const OVERLAY_EDIT_MODE_WINDOW_HEIGHT: f64 = 164.0;
 const OVERLAY_EDIT_MODE_WINDOW_HEIGHT_MIN: f64 = 140.0;
 const OVERLAY_EDIT_MODE_WINDOW_HEIGHT_MAX: f64 = 280.0;
 const OVERLAY_EDIT_MODE_WINDOW_WIDTH_MIN: f64 = 380.0;
@@ -63,11 +57,18 @@ impl Default for OverlaySurface {
 
 impl OverlaySurface {
     fn dimensions(self) -> (f64, f64) {
+        // Flat surfaces share ONE fixed size (wide enough for the widest,
+        // result-actions). Dynamic pill-based sizing is unreliable on
+        // WebKitGTK/GTK (set_size is async, the window lags one tick behind).
+        // CRITICAL: this default is used by BOTH the base surface sync (invoke
+        // without width/height) and the frontend useLayoutEffect — they MUST
+        // agree, otherwise two competing set_size calls leave the window stuck
+        // at the wrong size (the observed clipping).
         match self {
-            Self::Compact => (OVERLAY_COMPACT_WINDOW_WIDTH, OVERLAY_WINDOW_HEIGHT),
-            Self::ProcessingPreview => (OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH, OVERLAY_WINDOW_HEIGHT),
-            Self::ResultActions => (OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH, OVERLAY_WINDOW_HEIGHT),
-            Self::EditMode => (OVERLAY_EDIT_MODE_WINDOW_WIDTH, OVERLAY_EDIT_MODE_WINDOW_HEIGHT),
+            Self::Compact => (440.0, 60.0),
+            Self::ProcessingPreview => (440.0, 60.0),
+            Self::ResultActions => (440.0, 60.0),
+            Self::EditMode => (460.0, 164.0),
         }
     }
 
@@ -354,6 +355,16 @@ fn overlay_target_position<R: Runtime>(
     }
 }
 
+// Reveals/resizes the overlay window. Two WebKitGTK/Linux constraints shape this:
+//   1. After a set_size, WebKitGTK does NOT re-paint the newly exposed area of a
+//      transparent window as transparent — it stays black. So the transparent
+//      background color must be re-asserted right after every set_size, not just
+//      on the first show, otherwise a resize leaves a black bar/block.
+//   2. set_position is only applied on the hidden→visible transition. While the
+//      window is already visible we never reposition it: a resize (surface
+//      change) must keep the window where it is, so a user-dragged overlay does
+//      not snap back to its config anchor — which read as a frozen drag.
+// set_size itself stays guarded so an unchanged resize stays a no-op.
 fn reveal_overlay_window<R: Runtime>(
     app: &AppHandle<R>,
     surface: OverlaySurface,
@@ -365,18 +376,77 @@ fn reveal_overlay_window<R: Runtime>(
         let (default_width, default_height) = surface.dimensions();
         let window_width = width_override.unwrap_or(default_width);
         let window_height = height_override.unwrap_or(default_height);
-        let _ = window.set_size(LogicalSize::new(window_width, window_height));
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let was_visible = window.is_visible().unwrap_or(false);
+
+        let size_changed = window
+            .outer_size()
+            .map(|current| {
+                let current_width = current.width as f64 / scale;
+                let current_height = current.height as f64 / scale;
+                (current_width - window_width).abs() > 0.5
+                    || (current_height - window_height).abs() > 0.5
+            })
+            .unwrap_or(true);
+        // Always re-assert transparency + force a repaint on every reveal. On
+        // flat→flat surface transitions (same 440x60, size_changed=false) WebKitGTK
+        // keeps the previous pill's composited layer and renders the new pill on
+        // top → stale overlap that only clears after a repaint. Re-asserting the
+        // background invalidates the layer.
         let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-        if let Some(position) = overlay_target_position(&window, &config, surface, height_override, width_override) {
-            let _ = window.set_position(position);
-            let _ = window.show();
-            // On Windows, ShowWindow can discard a position set on a hidden window,
-            // restoring the window to its creation coordinates (0, 0). Re-applying
-            // after show() ensures the overlay lands at the correct location.
-            #[cfg(target_os = "windows")]
-            let _ = window.set_position(position);
-        } else {
-            let _ = window.show();
+        if size_changed {
+            let _ = window.set_size(LogicalSize::new(window_width, window_height));
+            // Pin min=max so the geometry is authoritative. GTK/WebKitGTK can
+            // ignore a bare set_size and leave the window stuck at a stale size
+            // (observed: req=(388,52) but window stays 256x200). Edit-mode keeps
+            // free sizing (user/programmatic resize via resize_edit_overlay).
+            if matches!(surface, OverlaySurface::EditMode) {
+                let _ = window.set_min_size(None::<LogicalSize<f64>>);
+                let _ = window.set_max_size(None::<LogicalSize<f64>>);
+            } else {
+                let _ = window.set_min_size(Some(LogicalSize::new(window_width, window_height)));
+                let _ = window.set_max_size(Some(LogicalSize::new(window_width, window_height)));
+            }
+            // Re-assert transparency: WebKitGTK leaves the resized backing opaque/black.
+            let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+            #[cfg(debug_assertions)]
+            {
+                let outer = window
+                    .outer_size()
+                    .map(|s| (s.width as f64 / scale, s.height as f64 / scale));
+                let inner = window
+                    .inner_size()
+                    .map(|s| (s.width as f64 / scale, s.height as f64 / scale));
+                eprintln!(
+                    "[ov-reveal] req=({window_width:.0},{window_height:.0}) scale={scale:.2} outer={outer:?} inner={inner:?}"
+                );
+                let _ = app.emit(
+                    "ov-reveal-debug",
+                    serde_json::json!({
+                        "req": [window_width as i32, window_height as i32],
+                        "outer": outer.ok().map(|(w, h)| [w as i32, h as i32]),
+                        "inner": inner.ok().map(|(w, h)| [w as i32, h as i32]),
+                    }),
+                );
+            }
+        } else if !was_visible {
+            let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+        }
+
+        // Only position + show on the hidden→visible transition. An in-place
+        // resize keeps the current (possibly dragged) position untouched.
+        if !was_visible {
+            if let Some(position) = overlay_target_position(&window, &config, surface, height_override, width_override) {
+                let _ = window.set_position(position);
+                let _ = window.show();
+                // On Windows, ShowWindow can discard a position set on a hidden window,
+                // restoring the window to its creation coordinates (0, 0). Re-applying
+                // after show() ensures the overlay lands at the correct location.
+                #[cfg(target_os = "windows")]
+                let _ = window.set_position(position);
+            } else {
+                let _ = window.show();
+            }
         }
     }
 }
@@ -389,6 +459,12 @@ fn park_overlay_window<R: Runtime>(app: &AppHandle<R>) {
         if let Some(position) = overlay_offscreen_position(&window) {
             let _ = window.set_position(position);
         }
+        // Hide so the next reveal() runs the hidden→visible branch (which sets
+        // the position). Without this the window stays visible-but-offscreen
+        // after parking, and reveal's "only set_position on hidden→visible"
+        // guard (drag-snap protection) skips re-positioning — the overlay then
+        // vanishes from the 2nd transcription onward.
+        let _ = window.hide();
     }
 }
 
@@ -1366,6 +1442,8 @@ async fn resize_overlay_to_height(app: AppHandle, height: f64) -> Result<(), Str
         let scale = window.scale_factor().unwrap_or(1.0);
         let current_width = current_size.width as f64 / scale;
         let _ = window.set_size(LogicalSize::new(current_width, clamped));
+        // WebKitGTK leaves the resized backing opaque/black — re-assert transparency.
+        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
     }
     Ok(())
 }
@@ -1376,9 +1454,18 @@ async fn resize_edit_overlay(app: AppHandle, width: f64, height: f64) -> Result<
     let clamped_h = height.clamp(OVERLAY_EDIT_MODE_WINDOW_HEIGHT_MIN, OVERLAY_EDIT_MODE_RESIZE_HEIGHT_MAX);
     if let Some(window) = app.get_webview_window("overlay") {
         let _ = window.set_size(LogicalSize::new(clamped_w, clamped_h));
+        // WebKitGTK leaves the resized backing opaque/black — re-assert transparency.
+        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
     }
     Ok(())
 }
+
+// ── Overlay input routing (Linux/WebKitGTK) ─────────────────────────────────
+// REVERTED 2026-06-19. A cursor-position poller toggling set_ignore_cursor_events
+// does NOT work on this Wayland setup — confirmed by STATUS.md ("setIgnoreCursorEvents
+// ist auf dem getesteten Setup nicht wirksam") and live test. Click-through on
+// Wayland requires layer-shell, not set_ignore_cursor_events. Kept as a marker;
+// the real path forward is layer-shell (see docs/STATUS.md:108 + handoff Abschnitt 11).
 
 #[tauri::command]
 async fn remember_overlay_manual_position<R: Runtime>(
