@@ -10,7 +10,7 @@ It is being built in public under SW bench, the open-source brand of SW labs, wh
 
 ## Interface (Overlay screenshots were squeezed through an image-upscaler)
 
-![WordScript settings UI](assets/settings-ui.png)
+![WordScript settings UI](assets/settings-ui-speech-ai.png)
 
 ![WordScript overlay while recording](assets/overlay-ui.png)
 
