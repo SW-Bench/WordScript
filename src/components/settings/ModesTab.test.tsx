@@ -47,7 +47,7 @@ describe("ModesTab", () => {
 
     expect(screen.getByText("Enhance sub-mode")).toBeInTheDocument();
     expect(screen.getByText("Prompt target")).toBeInTheDocument();
-    expect(screen.getByLabelText(/target platform/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/prompt target/i)).toBeInTheDocument();
   });
 
   it("hides enhance sub-mode when cleanup is selected", () => {

@@ -1,21 +1,11 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
-import { FormCard, FormRow, Select, StatTiles, StatusBadge, Toggle, type StatusTone } from "../shell";
+import { memo, useMemo, useState, type ReactNode } from "react";
+import { FormCard, FormRow, Select, StatusBadge, type StatusTone } from "../shell";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { cn } from "../../lib/utils";
-import { useTranscriptionHistory } from "../../hooks/useTranscriptionHistory";
 import { useRuntimeLogs } from "../../hooks/useRuntimeLogs";
 import { useV1Slice } from "../../hooks/useV1Slice";
 import { describeTextProfileWorkMode } from "../../lib/textProfiles";
 import type { AppConfig } from "../../types/ipc";
-import type {
-  TranscriptionHistoryEntry,
-  TranscriptionHistoryQuery,
-  TranscriptionHistorySource,
-  TranscriptionHistoryStatus,
-} from "../../types/history";
-import type { NativeClipboardRestoreStatus, NativeInsertRecoveryAction } from "../../types/nativeInsertion";
 import type {
   SlicePipelineState,
   SlicePipelineStep,
@@ -23,6 +13,29 @@ import type {
   SliceRuntimeContract,
   SliceStage,
 } from "../../types/v1Slice";
+
+type DiagnosticsPanel = "slice-runner" | "diagnostics-preview" | "runtime-logs";
+
+const DIAGNOSTICS_PANELS: ReadonlyArray<{ id: DiagnosticsPanel; label: string; sub: string; aria: string }> = [
+  {
+    id: "slice-runner",
+    label: "Slice runner",
+    sub: "Run checks, snapshot, coverage and sample dictation",
+    aria: "Open slice runner panel",
+  },
+  {
+    id: "diagnostics-preview",
+    label: "Diagnostics preview",
+    sub: "Inspect the live transcript and insert plan",
+    aria: "Open diagnostics preview panel",
+  },
+  {
+    id: "runtime-logs",
+    label: "Runtime logs",
+    sub: "Read the buffered native log stream",
+    aria: "Open runtime logs panel",
+  },
+];
 
 const DEFAULT_TEXT = "wir shippen morgen die neue WordScript Version und brauchen klare release notes ohne Halluzinationen oder Fallback Chaos";
 
@@ -41,35 +54,6 @@ const PROFILE_OPTIONS = [
 const INSERT_TARGET_OPTIONS = [
   { value: "editor_preview", label: "Editor preview" },
   { value: "clipboard_preview", label: "Clipboard fallback preview" },
-] as const;
-
-const HISTORY_PROVIDER_OPTIONS = [
-  { value: "all", label: "All providers" },
-  { value: "groq", label: "Groq" },
-  { value: "local_preview", label: "Local preview" },
-] as const;
-
-const HISTORY_STATUS_OPTIONS = [
-  { value: "all", label: "All statuses" },
-  { value: "completed", label: "Completed" },
-  { value: "empty", label: "Empty" },
-  { value: "failed", label: "Failed" },
-] as const;
-
-const HISTORY_SOURCE_OPTIONS = [
-  { value: "all", label: "All sources" },
-  { value: "native_pipeline", label: "Native pipeline" },
-  { value: "retry", label: "Retry only" },
-] as const;
-
-const HISTORY_VIEW_LIMIT_OPTIONS = [8, 25, 50] as const;
-const HISTORY_LIMIT_OPTIONS = [50, 100, 200, 500, 1000] as const;
-const HISTORY_RETENTION_OPTIONS = [
-  { value: 7, label: "7 days" },
-  { value: 30, label: "30 days" },
-  { value: 90, label: "90 days" },
-  { value: 365, label: "1 year" },
-  { value: 0, label: "Keep indefinitely" },
 ] as const;
 
 function stageLabel(stage: SliceStage | undefined) {
@@ -321,54 +305,6 @@ function describeCorrectionOutcome(corrected: boolean | null) {
   }
 }
 
-function historyStatusLabel(status: TranscriptionHistoryStatus) {
-  switch (status) {
-    case "completed":
-      return "Completed";
-    case "empty":
-      return "Empty";
-    case "failed":
-    default:
-      return "Failed";
-  }
-}
-
-function historySourceLabel(source: TranscriptionHistorySource) {
-  switch (source) {
-    case "retry":
-      return "Retry run";
-    case "native_pipeline":
-    default:
-      return "Native pipeline";
-  }
-}
-
-function historyRecoveryActionLabel(action: NativeInsertRecoveryAction | null | undefined) {
-  switch (action) {
-    case "none":
-      return "No recovery action needed";
-    case "manual_paste":
-      return "Manual paste";
-    case "use_scratchpad":
-      return "Use scratchpad";
-    default:
-      return null;
-  }
-}
-
-function historyClipboardRestoreLabel(status: NativeClipboardRestoreStatus | null | undefined) {
-  switch (status) {
-    case "scheduled":
-      return "Previous clipboard restore scheduled";
-    case "skipped_no_previous_clipboard":
-      return "No previous clipboard to restore";
-    case "not_attempted":
-      return "Clipboard restore not attempted";
-    default:
-      return null;
-  }
-}
-
 function localPromptStrengthLabel(value: string | null | undefined) {
   switch (value) {
     case "off":
@@ -468,14 +404,6 @@ function describeRuntimeDraftDifferences(
   return differences;
 }
 
-function formatHistoryTimestamp(createdAtMs: number) {
-  return new Date(createdAtMs).toISOString().slice(0, 16).replace("T", " ");
-}
-
-function canRetryHistoryEntry(entry: TranscriptionHistoryEntry) {
-  return Boolean(entry.raw_transcript?.trim());
-}
-
 function parseRuntimeLogRuleHints(entries: string[]): RuntimeLogRuleHint[] {
   return entries
     .filter((entry) => entry.includes(" rules="))
@@ -503,122 +431,6 @@ function parseRuntimeLogRuleHints(entries: string[]): RuntimeLogRuleHint[] {
       ];
     });
 }
-
-interface HistoryEntryCardProps {
-  entry: TranscriptionHistoryEntry;
-  isLoading: boolean;
-  onRetry: (id: string) => void | Promise<unknown>;
-  onRemove: (id: string) => void | Promise<unknown>;
-}
-
-const HistoryEntryCard = memo(function HistoryEntryCard({ entry, isLoading, onRetry, onRemove }: HistoryEntryCardProps) {
-  return (
-    <div className="ws-list-item-xl rounded-lg border border-border bg-surface px-3.5 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <strong className="text-[13px] font-semibold text-foreground">
-            {historyStatusLabel(entry.status)} · {humanizeValue(entry.provider, "Provider")}
-          </strong>
-          <p className="mt-0.5 text-[12px] text-fg-muted">
-            {formatHistoryTimestamp(entry.created_at_ms)} · {historySourceLabel(entry.source)}
-            {entry.retry_of ? ` · retry of ${entry.retry_of}` : ""}
-          </p>
-        </div>
-        <StatusBadge tone={entry.status === "completed" ? "success" : entry.status === "failed" ? "error" : "neutral"} dot>
-          {historyStatusLabel(entry.status)}
-        </StatusBadge>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <Chip>{entry.model ?? "default model"}</Chip>
-        {entry.provider_profile && <Chip>{entry.provider_profile}</Chip>}
-        {entry.local_prompt_strength && (
-          <Chip>{localPromptStrengthLabel(entry.local_prompt_strength) ?? entry.local_prompt_strength}</Chip>
-        )}
-        {entry.local_prompt_carry !== null && entry.local_prompt_carry !== undefined && (
-          <Chip>{entry.local_prompt_carry ? "Carry initial prompt" : "Do not carry prompt"}</Chip>
-        )}
-        {entry.local_beam_size !== null && entry.local_beam_size !== undefined && <Chip>{`Beam ${entry.local_beam_size}`}</Chip>}
-        {entry.local_best_of !== null && entry.local_best_of !== undefined && <Chip>{`Best of ${entry.local_best_of}`}</Chip>}
-        {entry.insert_mode && <Chip>{humanizeValue(entry.insert_mode, "Insert mode")}</Chip>}
-        {entry.active_driver && <Chip>{humanizeValue(entry.active_driver, "Driver")}</Chip>}
-        {entry.recovery_action && <Chip>{historyRecoveryActionLabel(entry.recovery_action)}</Chip>}
-        {entry.clipboard_restore && <Chip>{historyClipboardRestoreLabel(entry.clipboard_restore)}</Chip>}
-        {entry.work_mode && <Chip>{describeTextProfileWorkMode({ work_mode: entry.work_mode })}</Chip>}
-        <Chip>{entry.active_profile ?? "Global rules"}</Chip>
-      </div>
-      <div className="mt-3 grid gap-2.5">
-        <div>
-          <strong className="text-[12px] font-semibold text-foreground">Raw transcript</strong>
-          <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{entry.raw_transcript ?? "No raw transcript stored."}</p>
-        </div>
-        <div>
-          <strong className="text-[12px] font-semibold text-foreground">Final transcript</strong>
-          <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">
-            {entry.transformed_transcript ?? entry.error ?? "No transformed transcript stored."}
-          </p>
-        </div>
-        {(entry.recovery_message || entry.fallback_reason || entry.clipboard_restore) && (
-          <div>
-            <strong className="text-[12px] font-semibold text-foreground">Recovery</strong>
-            <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">
-              {entry.recovery_message ?? entry.fallback_reason ?? "No recovery guidance stored."}
-            </p>
-            {entry.clipboard_restore && (
-              <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{historyClipboardRestoreLabel(entry.clipboard_restore)}</p>
-            )}
-          </div>
-        )}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          aria-label={`Retry history entry ${entry.id}`}
-          disabled={isLoading || !canRetryHistoryEntry(entry)}
-          onClick={() => void onRetry(entry.id)}
-        >
-          Retry
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-label={`Delete history entry ${entry.id}`}
-          disabled={isLoading}
-          onClick={() => void onRemove(entry.id)}
-        >
-          Delete
-        </Button>
-      </div>
-    </div>
-  );
-});
-
-interface HistoryEntriesListProps {
-  entries: TranscriptionHistoryEntry[];
-  isLoading: boolean;
-  onRetry: (id: string) => void | Promise<unknown>;
-  onRemove: (id: string) => void | Promise<unknown>;
-}
-
-const HistoryEntriesList = memo(function HistoryEntriesList({ entries, isLoading, onRetry, onRemove }: HistoryEntriesListProps) {
-  if (!entries.length) {
-    return <p className="text-[12px] text-fg-muted">No history entries match the current filters.</p>;
-  }
-
-  return (
-    <div className="grid gap-3">
-      {entries.map((entry) => (
-        <HistoryEntryCard
-          key={entry.id}
-          entry={entry}
-          isLoading={isLoading}
-          onRetry={onRetry}
-          onRemove={onRemove}
-        />
-      ))}
-    </div>
-  );
-});
 
 interface RuntimeRuleHintListProps {
   hints: RuntimeLogRuleHint[];
@@ -675,21 +487,13 @@ interface RebuildLabTabProps {
 
 export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps) {
   const { status, result, error, isPending, refresh, startCapture, completeCapture, reset } = useV1Slice();
-  const transcriptionHistory = useTranscriptionHistory(isActive);
   const runtimeLogs = useRuntimeLogs(isActive);
   const [trigger, setTrigger] = useState("hold_to_talk");
   const [profile, setProfile] = useState("developer");
   const [insertTarget, setInsertTarget] = useState("editor_preview");
   const [rawText, setRawText] = useState(DEFAULT_TEXT);
   const [editorValue, setEditorValue] = useState("");
-  const [historyProviderFilter, setHistoryProviderFilter] = useState("all");
-  const [historyProfileFilter, setHistoryProfileFilter] = useState("all");
-  const [historyStatusFilter, setHistoryStatusFilter] = useState("all");
-  const [historySourceFilter, setHistorySourceFilter] = useState("all");
-  const [historySearch, setHistorySearch] = useState("");
-  const [historyErrorsOnly, setHistoryErrorsOnly] = useState(false);
-  const [historyViewLimit, setHistoryViewLimit] = useState<number>(8);
-  const [historyFeedback, setHistoryFeedback] = useState<string | null>(null);
+  const [activePanel, setActivePanel] = useState<DiagnosticsPanel>("slice-runner");
 
   const capabilityText = useMemo(() => {
     if (!status) return [];
@@ -708,20 +512,6 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
     () => parseRuntimeLogRuleHints(runtimeLogs.entries),
     [runtimeLogs.entries],
   );
-  const historyQuery = useMemo<TranscriptionHistoryQuery>(() => ({
-    limit: historyViewLimit,
-    provider: historyProviderFilter === "all" ? undefined : historyProviderFilter,
-    active_profile: historyProfileFilter === "all"
-      ? undefined
-      : config.text_profiles.find((profileOption) => profileOption.id === historyProfileFilter)?.label,
-    status: historyStatusFilter === "all" ? undefined : historyStatusFilter as TranscriptionHistoryStatus,
-    source: historySourceFilter === "all" ? undefined : historySourceFilter as TranscriptionHistorySource,
-    search: historySearch,
-    include_errors_only: historyErrorsOnly,
-  }), [config.text_profiles, historyErrorsOnly, historyProfileFilter, historyProviderFilter, historySearch, historySourceFilter, historyStatusFilter, historyViewLimit]);
-  const visibleHistoryEntries = transcriptionHistory.entries;
-  const retentionLabel = HISTORY_RETENTION_OPTIONS.find((option) => option.value === config.history_retention_days)?.label
-    ?? `${config.history_retention_days} days`;
   const runtimeContract = status?.runtime_contract ?? null;
   const runtimeLocalPreview = runtimeContract?.local_preview ?? null;
   const runtimeProviderStatus = runtimeContract?.provider_status ?? null;
@@ -752,11 +542,6 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
   );
   const previewModeLabel = humanizeValue(result?.insertion.mode, "Pending");
   const previewFallbackLabel = humanizeValue(result?.insertion.fallback, "Clipboard fallback planned");
-
-  useEffect(() => {
-    if (!isActive) return;
-    void transcriptionHistory.refresh(historyQuery);
-  }, [historyQuery, isActive, transcriptionHistory.refresh]);
 
   const appendPreview = (text: string) => {
     setEditorValue((current) => (current ? `${current}\n${text}` : text));
@@ -803,44 +588,70 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
     setRawText(DEFAULT_TEXT);
   };
 
-  const handleExportHistory = async () => {
-    const target = await save({
-      title: "Export transcription history",
-      defaultPath: "wordscript-transcription-history.json",
-      filters: [{ name: "WordScript history", extensions: ["json"] }],
-    });
-    if (!target) return;
-
-    const response = await transcriptionHistory.exportEntries(target, historyQuery);
-    if (response) {
-      setHistoryFeedback(`Exported ${response.exported_count} history entries to ${response.path.split(/[\\/]/).pop() ?? response.path}.`);
-    }
-  };
-
   return (
     <div className="flex flex-col gap-8">
-      <FormCard
-        title="Runtime checks"
-        description="Run a full capture-to-insert check, inspect the current native state and confirm which fallback path the runtime will use right now."
-        bodyClassName="py-4"
-        action={
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => void refresh()}>
-              Refresh status
-            </Button>
-            <Button size="sm" disabled={isPending} onClick={() => void handleRunDemo()}>
-              Run end-to-end check
-            </Button>
-          </div>
-        }
-      >
-        <p className="text-[12px] leading-snug text-fg-muted">
-          Diagnostics is the native control room for capture, transform, recovery and insert. Use it to verify the live
-          runtime path without leaving the settings shell.
-        </p>
-      </FormCard>
+      <div className="flex flex-col gap-3">
+        <div className="px-1">
+          <strong className="text-[15px] font-semibold text-foreground">Diagnostics</strong>
+          <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">
+            Native control room for capture, transform, recovery, insert and log inspection. Switch between the live
+            diagnostic panels without leaving the settings shell.
+          </p>
+        </div>
+        <div
+          role="tablist"
+          aria-label="Diagnostics workspace"
+          className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-surface p-1"
+        >
+          {DIAGNOSTICS_PANELS.map((tab) => {
+            const active = activePanel === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-label={tab.aria}
+                aria-selected={active}
+                onClick={() => setActivePanel(tab.id)}
+                className={cn(
+                  "flex flex-col items-start gap-0.5 rounded-[7px] px-3 py-2 text-left",
+                  active ? "bg-card" : "hover:bg-[rgba(255,255,255,0.04)]",
+                )}
+              >
+                <span className={cn("text-[13px] font-medium", active ? "text-foreground" : "text-fg-dim")}>
+                  {tab.label}
+                </span>
+                <span className="text-[11px] text-fg-muted">{tab.sub}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-      <FormCard title="Runtime snapshot">
+      {activePanel === "slice-runner" && (
+        <div className="flex flex-col gap-8">
+          <FormCard
+            title="Runtime checks"
+            description="Run a full capture-to-insert check, inspect the current native state and confirm which fallback path the runtime will use right now."
+            bodyClassName="py-4"
+            action={
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => void refresh()}>
+                  Refresh status
+                </Button>
+                <Button size="sm" disabled={isPending} onClick={() => void handleRunDemo()}>
+                  Run end-to-end check
+                </Button>
+              </div>
+            }
+          >
+            <p className="text-[12px] leading-snug text-fg-muted">
+              Diagnostics is the native control room for capture, transform, recovery and insert. Use it to verify the live
+              runtime path without leaving the settings shell.
+            </p>
+          </FormCard>
+
+          <FormCard title="Runtime snapshot">
         <FormRow
           label="Stage"
           control={
@@ -1058,245 +869,106 @@ export function RebuildLabTab({ isActive, config, onChange }: RebuildLabTabProps
           </p>
         </div>
       </FormCard>
+        </div>
+      )}
 
-      <FormCard
-        title="Diagnostics Preview"
-        description="This preview belongs to the active diagnostics lane in this window. It is not the recovery scratchpad from Input and not the persisted history store below."
-        bodyClassName="py-4"
-        action={
-          <div className="flex flex-wrap gap-1.5">
-            <Chip>{previewProfileLabel}</Chip>
-            <Chip>{previewTargetLabel}</Chip>
-            <Chip>{previewModeLabel}</Chip>
-            <Chip>{runtimeWorkModeLabel}</Chip>
-          </div>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
-              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Transcript</span>
-              <p className="mt-1 text-[13px] leading-snug text-foreground">{previewTranscript}</p>
-            </div>
-            <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
-              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Insert plan</span>
-              <div className="mt-2 flex flex-col gap-2">
-                <DiagItem title="Target" lines={[previewTargetLabel]} />
-                <DiagItem title="Insert mode" lines={[previewModeLabel]} />
-                <DiagItem title="Fallback path" lines={[previewFallbackLabel]} />
+      {activePanel === "diagnostics-preview" && (
+        <div className="flex flex-col gap-8">
+          <FormCard
+            title="Diagnostics Preview"
+            description="This preview belongs to the active diagnostics lane in this window. It is not the recovery scratchpad from Input."
+            bodyClassName="py-4"
+            action={
+              <div className="flex flex-wrap gap-1.5">
+                <Chip>{previewProfileLabel}</Chip>
+                <Chip>{previewTargetLabel}</Chip>
+                <Chip>{previewModeLabel}</Chip>
+                <Chip>{runtimeWorkModeLabel}</Chip>
               </div>
-            </div>
-          </div>
-
-          <div>
-            <strong className="text-[12px] font-semibold text-foreground">Preview editor</strong>
-            <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">
-              This editor mirrors the current insert plan. It is diagnostic, but it already reflects the real fallback
-              contract coming back from the native runtime.
-            </p>
-            <textarea
-              className={cn(RL_TEXTAREA_CLASS, "mt-2")}
-              value={editorValue}
-              onChange={(event) => setEditorValue(event.target.value)}
-              rows={8}
-              placeholder="No preview text yet."
-            />
-          </div>
-
-          <MetaRow label="Profile used" value={previewProfileLabel} divider={false} />
-
-          {transcriptRules.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {transcriptRules.map((rule) => (
-                <span key={rule.id} title={rule.id} className="rounded-full bg-surface-strong px-2.5 py-0.5 text-[11px] text-fg-dim">
-                  {rule.label}
-                </span>
-              ))}
-            </div>
-          )}
-          {transcriptRules.length > 0 && (
-            <div className="grid gap-2.5">
-              {transcriptRules.map((rule) => (
-                <div key={rule.id}>
-                  <strong className="text-[12px] font-semibold text-foreground">{rule.label}</strong>
-                  <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{rule.description}</p>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Transcript</span>
+                  <p className="mt-1 text-[13px] leading-snug text-foreground">{previewTranscript}</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </FormCard>
+                <div className="rounded-lg border border-border bg-surface px-3.5 py-3">
+                  <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Insert plan</span>
+                  <div className="mt-2 flex flex-col gap-2">
+                    <DiagItem title="Target" lines={[previewTargetLabel]} />
+                    <DiagItem title="Insert mode" lines={[previewModeLabel]} />
+                    <DiagItem title="Fallback path" lines={[previewFallbackLabel]} />
+                  </div>
+                </div>
+              </div>
 
-      <FormCard
-        title="Transcription History"
-        description="History is stored natively and survives the diagnostics UI. Retry re-runs transform and insertion from the stored raw transcript instead of only restoring clipboard state, so this is a separate store from Input recovery."
-        bodyClassName="py-1"
-      >
-        <FormRow
-          label="History store"
-          align="start"
-          control={
-            <div className="flex flex-col items-end gap-1 text-right">
-              <StatusBadge tone={transcriptionHistory.storagePath ? "success" : "neutral"} dot>
-                Persistent transcript log
-              </StatusBadge>
-              <span className="font-mono text-[11px] text-fg-muted">
-                {transcriptionHistory.storagePath ?? "Loading native history path"}
-              </span>
-            </div>
-          }
-        />
-        <FormRow
-          label="Provider filter"
-          htmlFor="history-provider-filter"
-          control={
-            <Select id="history-provider-filter" aria-label="History provider filter" className="w-[200px]" value={historyProviderFilter} onChange={(event) => setHistoryProviderFilter(event.target.value)}>
-              {HISTORY_PROVIDER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </Select>
-          }
-        />
-        <FormRow
-          label="Status filter"
-          htmlFor="history-status-filter"
-          control={
-            <Select id="history-status-filter" aria-label="History status filter" className="w-[200px]" value={historyStatusFilter} onChange={(event) => setHistoryStatusFilter(event.target.value)}>
-              {HISTORY_STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </Select>
-          }
-        />
-        <FormRow
-          label="Profile filter"
-          htmlFor="history-profile-filter"
-          control={
-            <Select id="history-profile-filter" aria-label="History profile filter" className="w-[200px]" value={historyProfileFilter} onChange={(event) => setHistoryProfileFilter(event.target.value)}>
-              <option value="all">All profiles</option>
-              {config.text_profiles.map((profileOption) => (
-                <option key={profileOption.id} value={profileOption.id}>{profileOption.label}</option>
-              ))}
-            </Select>
-          }
-        />
-        <FormRow
-          label="Source filter"
-          htmlFor="history-source-filter"
-          control={
-            <Select id="history-source-filter" aria-label="History source filter" className="w-[200px]" value={historySourceFilter} onChange={(event) => setHistorySourceFilter(event.target.value)}>
-              {HISTORY_SOURCE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </Select>
-          }
-        />
-        <FormRow
-          label="Search history"
-          htmlFor="history-search"
-          control={
-            <Input
-              id="history-search"
-              aria-label="Search history"
-              type="search"
-              className="w-[260px]"
-              value={historySearch}
-              placeholder="Find transcript text, recovery notes, errors or models"
-              onChange={(event) => setHistorySearch(event.target.value)}
-            />
-          }
-        />
-        <FormRow
-          label="Visible entries"
-          htmlFor="history-view-limit"
-          control={
-            <Select id="history-view-limit" aria-label="History visible entries" className="w-[120px]" value={historyViewLimit} onChange={(event) => setHistoryViewLimit(Number(event.target.value))}>
-              {HISTORY_VIEW_LIMIT_OPTIONS.map((value) => (
-                <option key={value} value={value}>{value}</option>
-              ))}
-            </Select>
-          }
-        />
-        <FormRow
-          label="Only failed entries"
-          htmlFor="history-errors-only"
-          control={
-            <Toggle
-              id="history-errors-only"
-              aria-label="Only failed history entries"
-              checked={historyErrorsOnly}
-              onCheckedChange={(checked) => setHistoryErrorsOnly(checked)}
-            />
-          }
-        />
-        <FormRow
-          label="Stored entries"
-          htmlFor="history-limit"
-          control={
-            <Select id="history-limit" aria-label="Stored history entries" className="w-[120px]" value={config.history_limit} onChange={(event) => onChange({ history_limit: Number(event.target.value) })}>
-              {HISTORY_LIMIT_OPTIONS.map((value) => (
-                <option key={value} value={value}>{value}</option>
-              ))}
-            </Select>
-          }
-        />
-        <FormRow
-          label="Retention window"
-          htmlFor="history-retention-days"
-          hint={`Native retention currently keeps up to ${config.history_limit} entries and prunes anything older than ${retentionLabel.toLowerCase()}. Save settings to apply policy changes to the runtime store.`}
-          control={
-            <Select id="history-retention-days" aria-label="History retention window" className="w-[160px]" value={config.history_retention_days} onChange={(event) => onChange({ history_retention_days: Number(event.target.value) })}>
-              {HISTORY_RETENTION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </Select>
-          }
-        />
-        <div className="flex flex-col gap-3 py-3">
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={transcriptionHistory.isLoading} onClick={() => void transcriptionHistory.refresh(historyQuery)}>
-              Refresh history
-            </Button>
-            <Button size="sm" variant="outline" disabled={transcriptionHistory.isLoading || !visibleHistoryEntries.length} onClick={() => void handleExportHistory()}>
-              Export history
-            </Button>
-            <Button size="sm" variant="ghost" disabled={transcriptionHistory.isLoading || !transcriptionHistory.entries.length} onClick={() => void transcriptionHistory.clear()}>
-              Clear history
-            </Button>
-          </div>
-          <HistoryEntriesList
-            entries={visibleHistoryEntries}
-            isLoading={transcriptionHistory.isLoading}
-            onRetry={transcriptionHistory.retry}
-            onRemove={transcriptionHistory.remove}
-          />
-          <p className={cn("text-[12px] leading-snug", transcriptionHistory.error ? "text-danger" : "text-fg-muted")}>
-            {transcriptionHistory.error ?? historyFeedback ?? `${transcriptionHistory.entries.length} history entries match the current filters.`}
-          </p>
-        </div>
-      </FormCard>
+              <div>
+                <strong className="text-[12px] font-semibold text-foreground">Preview editor</strong>
+                <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">
+                  This editor mirrors the current insert plan. It is diagnostic, but it already reflects the real fallback
+                  contract coming back from the native runtime.
+                </p>
+                <textarea
+                  className={cn(RL_TEXTAREA_CLASS, "mt-2")}
+                  value={editorValue}
+                  onChange={(event) => setEditorValue(event.target.value)}
+                  rows={8}
+                  placeholder="No preview text yet."
+                />
+              </div>
 
-      <FormCard
-        title="Runtime Logs"
-        description="Structured native logs stay enabled and are buffered here for fast inspection while the runtime is active. History above keeps the durable transcript record separate from this transient log stream."
-        bodyClassName="py-4"
-      >
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={runtimeLogs.isLoading} onClick={() => void runtimeLogs.refresh()}>
-              Refresh logs
-            </Button>
-            <Button size="sm" variant="ghost" disabled={runtimeLogs.isLoading || !runtimeLogs.entries.length} onClick={() => void runtimeLogs.clear()}>
-              Clear logs
-            </Button>
-          </div>
-          <textarea className={cn(RL_TEXTAREA_CLASS, "font-mono text-[12px]")} value={runtimeLogText} readOnly rows={10} />
-          <RuntimeRuleHintList hints={runtimeRuleHints} />
-          <p className={cn("text-[12px] leading-snug", runtimeLogs.error ? "text-danger" : "text-fg-muted")}>
-            {runtimeLogs.error ?? `${runtimeLogs.entries.length} runtime log entries buffered.`}
-          </p>
+              <MetaRow label="Profile used" value={previewProfileLabel} divider={false} />
+
+              {transcriptRules.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {transcriptRules.map((rule) => (
+                    <span key={rule.id} title={rule.id} className="rounded-full bg-surface-strong px-2.5 py-0.5 text-[11px] text-fg-dim">
+                      {rule.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {transcriptRules.length > 0 && (
+                <div className="grid gap-2.5">
+                  {transcriptRules.map((rule) => (
+                    <div key={rule.id}>
+                      <strong className="text-[12px] font-semibold text-foreground">{rule.label}</strong>
+                      <p className="mt-0.5 text-[12px] leading-snug text-fg-dim">{rule.description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </FormCard>
         </div>
-      </FormCard>
+      )}
+
+      {activePanel === "runtime-logs" && (
+        <div className="flex flex-col gap-8">
+          <FormCard
+            title="Runtime Logs"
+            description="Structured native logs stay enabled and are buffered here for fast inspection while the runtime is active. The durable transcript record lives in the History area."
+            bodyClassName="py-4"
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" disabled={runtimeLogs.isLoading} onClick={() => void runtimeLogs.refresh()}>
+                  Refresh logs
+                </Button>
+                <Button size="sm" variant="ghost" disabled={runtimeLogs.isLoading || !runtimeLogs.entries.length} onClick={() => void runtimeLogs.clear()}>
+                  Clear logs
+                </Button>
+              </div>
+              <textarea className={cn(RL_TEXTAREA_CLASS, "font-mono text-[12px]")} value={runtimeLogText} readOnly rows={10} />
+              <RuntimeRuleHintList hints={runtimeRuleHints} />
+              <p className={cn("text-[12px] leading-snug", runtimeLogs.error ? "text-danger" : "text-fg-muted")}>
+                {runtimeLogs.error ?? `${runtimeLogs.entries.length} runtime log entries buffered.`}
+              </p>
+            </div>
+          </FormCard>
+        </div>
+      )}
 
       {(error || status?.last_error) && (
         <p className="text-[12px] leading-snug text-danger">{error ?? status?.last_error}</p>

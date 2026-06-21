@@ -61,7 +61,7 @@ export function HomeArea({
                   {platform ? (insertReady ? "Ready" : "Fallback") : "Checking"}
                 </StatusBadge>
                 {platform && !insertReady && (
-                  <Button size="sm" variant="ghost" onClick={() => onNavigate("permissions")}>
+                  <Button size="sm" variant="ghost" onClick={() => onNavigate("insert_recovery")}>
                     Review
                   </Button>
                 )}

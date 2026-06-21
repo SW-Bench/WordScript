@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppConfig } from "../../test/factories";
 import type { ProviderCommandError, ProviderStatus } from "../../types/providers";
@@ -256,30 +256,6 @@ describe("ApiModelsTab", () => {
     await waitFor(() => expect(revealItemInDirMock).toHaveBeenCalledWith("/tmp/wordscript/config.json"));
   });
 
-  it("reduces AI cleanup copy to one master switch and short dependent options", () => {
-    render(<ApiModelsTab config={createAppConfig()} onChange={vi.fn()} onOpenDiagnostics={vi.fn()} />);
-
-    expect(screen.getByRole("switch", { name: /^ai cleanup$/i })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: /remove fillers/i })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: /rewrite phrasing/i })).toBeInTheDocument();
-    expect(screen.getByText(/fixes errors and removes fillers while staying close to the original phrasing/i)).toBeInTheDocument();
-    expect(screen.getByText(/runs after speech-to-text and can fall back to the original transcript/i)).toBeInTheDocument();
-  });
-
-  it("hides AI cleanup sub-options when cleanup is off", () => {
-    render(
-      <ApiModelsTab
-        config={createAppConfig({ post_process: false })}
-        onChange={vi.fn()}
-        onOpenDiagnostics={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByRole("switch", { name: /remove fillers/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: /rewrite phrasing/i })).not.toBeInTheDocument();
-    expect(screen.queryByText("Model")).not.toBeInTheDocument();
-  });
-
   it("shows local runtime as a full local lane without key actions", () => {
     render(
       <ApiModelsTab
@@ -315,11 +291,13 @@ describe("ApiModelsTab", () => {
     expect(screen.getByRole("switch", { name: /carry initial prompt/i })).not.toBeChecked();
     expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("1");
     expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("1");
-    expect(screen.getByRole("combobox", { name: /^model$/i })).toHaveValue("llama3.2:latest");
+    const cleanupModelCard = screen.getByText("Cleanup model", { selector: "h3" }).closest("section");
+    expect(cleanupModelCard).not.toBeNull();
+    expect(within(cleanupModelCard as HTMLElement).getByRole("combobox", { name: /^model$/i })).toHaveValue("llama3.2:latest");
     expect(screen.getByText(/^supported$/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /groq keys/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save locally/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: /^ai cleanup$/i })).toBeEnabled();
+    expect(screen.queryByRole("switch", { name: /^ai cleanup$/i })).not.toBeInTheDocument();
   });
 
   it("renders discovered local models from the native provider status", () => {
@@ -405,7 +383,9 @@ describe("ApiModelsTab", () => {
     expect(screen.getByRole("switch", { name: /carry initial prompt/i })).toBeChecked();
     expect(screen.getByRole("combobox", { name: /beam size/i })).toHaveValue("5");
     expect(screen.getByRole("combobox", { name: /best of/i })).toHaveValue("5");
-    expect(screen.getByRole("combobox", { name: /^model$/i })).toHaveValue("qwen2.5:7b-instruct");
+    const cleanupModelCard = screen.getByText("Cleanup model", { selector: "h3" }).closest("section");
+    expect(cleanupModelCard).not.toBeNull();
+    expect(within(cleanupModelCard as HTMLElement).getByRole("combobox", { name: /^model$/i })).toHaveValue("qwen2.5:7b-instruct");
     expect(screen.getAllByText("/models/ggml-large-v3-q5_0.bin").length).toBeGreaterThan(0);
     expect(screen.getAllByText("http://127.0.0.1:11434").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Endpoint reachable").length).toBeGreaterThan(0);

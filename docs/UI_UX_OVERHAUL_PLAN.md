@@ -101,11 +101,11 @@ Das **Main Window** ersetzt das heutige Settings-Fenster als **WordScript Shell*
 | `ActivitySquare` | Diagnostics | **aktiv** | Logs, History, Pipeline-Status |
 | `Info` | About | **aktiv** | Version, Platform, Release-Status |
 | --- | --- | --- | --- |
-| `MessageSquare` | Chat | **preview** | AI-Chat auf Transkript-Basis |
-| `Upload` | Upload | **preview** | Audio-Upload, Batch-Transkription |
-| `NotebookPen` | Notes | **preview** | Meeting-Notes, Speaker-Diarization |
-| `Monitor` | Workspace | **preview** | Profil-Workspace, App-Zuordnung |
-| `User` | Account | **preview** | Self-Hosting-Sync, Daten-Export |
+| `MessageSquare` | Chat | **aktiv (MORE)** | AI-Chat auf Transkript-Basis — Layout-Preview im Settings-Kit (`src/components/areas/ChatArea.tsx`), Replies noch nicht runtime-verdrahtet |
+| `Upload` | Upload | **aktiv (MORE)** | Audio-Upload, Batch-Transkription — Layout-Preview via `src/components/ui/upload.tsx` + `src/components/areas/UploadArea.tsx`, Transkription noch nicht runtime-verdrahtet |
+| `NotebookPen` | Notes | **aktiv (MORE)** | Meeting-Notes, Speaker-Diarization — Layout-Preview mit 3-Spalten-View in `src/components/areas/NotesArea.tsx`, Diarization/Enhancement noch nicht runtime-verdrahtet |
+| `User` | Account | **aktiv (MORE)** | Local-only, Self-Hosting-Sync-Preview, Full-Export/Import-Hinweise — `src/components/areas/AccountArea.tsx` |
+| ~~`Monitor`~~ | ~~Workspace~~ | **konsolidiert** | Intent (per-app mapping, auto-detect) ist voll in Modes implementiert; kein eigener Tab |
 
 **Sidebar-Regeln:**
 - Breite: **200px** (macOS-Standard, wie Finder-Sidebar)
@@ -305,7 +305,9 @@ body.overlay-window {
 - Self-Hosting: Server-URL, Sync-Status
 - Export/Import: Vollstaendiger Daten-Export
 
-### 5.6 Preview-Tab-Regeln
+### 5.6 Preview-Tab-Regeln (historisch, nicht mehr angewendet)
+
+> Die Preview-Tabs waren urspruenglich als dimmed "coming later"-Items geplant. Mit der Settings-IA-Restrukturierung (2026-06-21) wurden Chat/Upload/Notes/Account als **aktive MORE-Areas** im Settings-Kit implementiert (Layout-Previews, nicht ausgegraut). Workspace wurde konsolidiert (Intent in Modes erfuellt). Storybook und die Glass-Prototypen wurden geloescht. Siehe `docs/STATUS.md` und `.kilo/plans/1782040423014-settings-ia-audit.md`.
 
 ```css
 .ws-sidebar-item.preview {

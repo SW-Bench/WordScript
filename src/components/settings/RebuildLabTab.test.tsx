@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppConfig } from "../../test/factories";
 import type { TranscriptionHistoryEntry } from "../../types/history";
@@ -355,8 +356,11 @@ beforeEach(() => {
 });
 
 describe("RebuildLabTab", () => {
-  it("renders friendly explanations for transcript rule ids", () => {
+  it("renders friendly explanations for transcript rule ids on the diagnostics preview panel", async () => {
+    const user = userEvent.setup();
     render(<RebuildLabTab isActive config={createAppConfig()} onChange={vi.fn()} />);
+
+    await user.click(screen.getByRole("tab", { name: /open diagnostics preview panel/i }));
 
     expect(screen.getAllByText("Guardrail kept original transcript")).toHaveLength(2);
     expect(screen.getByText(/the model returned a rewrite, but the runtime kept the safer original transcript/i)).toBeInTheDocument();
@@ -365,7 +369,8 @@ describe("RebuildLabTab", () => {
     expect(screen.queryByText("correction_guardrail_fallback")).not.toBeInTheDocument();
   });
 
-  it("keeps raw runtime logs visible and adds decoded rule hints separately", () => {
+  it("keeps raw runtime logs visible and adds decoded rule hints separately", async () => {
+    const user = userEvent.setup();
     if (v1SliceState.result) {
       v1SliceState.result = {
         ...v1SliceState.result,
@@ -382,6 +387,8 @@ describe("RebuildLabTab", () => {
 
     render(<RebuildLabTab isActive config={createAppConfig()} onChange={vi.fn()} />);
 
+    await user.click(screen.getByRole("tab", { name: /open runtime logs panel/i }));
+
     expect(
       screen.getByDisplayValue(
         "[WordScript] Native pipeline transform done elapsed_ms=812 corrected=false output_len=26 rules=correction_guardrail_fallback,removed_fillers",
@@ -391,33 +398,6 @@ describe("RebuildLabTab", () => {
     expect(screen.getByText("Original transcript kept in this pass")).toBeInTheDocument();
     expect(screen.getAllByText("Guardrail kept original transcript")).toHaveLength(2);
     expect(screen.getAllByText("Removed filler words")).toHaveLength(2);
-  });
-
-  it("renders native transcription history separately from runtime logs", () => {
-    render(<RebuildLabTab isActive config={createAppConfig()} onChange={vi.fn()} />);
-
-    expect(screen.getByText("Diagnostics Preview")).toBeInTheDocument();
-    expect(screen.getByText("Transcription History")).toBeInTheDocument();
-    expect(screen.getByText(/this preview belongs to the active diagnostics lane/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/insert plan/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/history is stored natively and survives the diagnostics ui/i)).toBeInTheDocument();
-    expect(screen.getByText("History store")).toBeInTheDocument();
-    expect(screen.getByText(/capture · completed/i)).toBeInTheDocument();
-    expect(screen.getByText(/provider · completed/i)).toBeInTheDocument();
-    expect(screen.getByText(/applied 2 runtime rules to the transcript/i)).toBeInTheDocument();
-    expect(screen.getByText(/wordscript-history\.json/i)).toBeInTheDocument();
-    expect(screen.getByLabelText("History provider filter")).toBeInTheDocument();
-    expect(screen.getByLabelText("History profile filter")).toBeInTheDocument();
-    expect(screen.getByLabelText("History retention window")).toHaveValue("90");
-    expect(screen.getByRole("button", { name: /export history/i })).toBeEnabled();
-    expect(screen.getByText(/completed · groq/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/raw transcript/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/final transcript/i)).toBeInTheDocument();
-    expect(screen.getByText(/no recovery action needed/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/previous clipboard restore scheduled/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/1 history entries match the current filters/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /retry history entry history-1/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /delete history entry history-1/i })).toBeEnabled();
   });
 
   it("surfaces local decode and prompt controls in diagnostics and history", () => {

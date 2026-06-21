@@ -1,8 +1,10 @@
-import { memo, useState, useCallback, type ReactNode } from "react";
+import { memo, useState, useCallback, useEffect, type ReactNode } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { ArrowRight, Trash2 } from "lucide-react";
 import { HotkeyRecorder } from "./HotkeyRecorder";
-import { FormCard, FormRow, Select, Toggle } from "../shell";
+import { FormCard, FormRow, Select, StatusBadge, Toggle } from "../shell";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { cn } from "../../lib/utils";
 import type { AppConfig, ProcessingMode, EnhanceSubMode, PromptTarget } from "../../types/ipc";
 
@@ -11,49 +13,18 @@ interface Props {
   onChange: (p: Partial<AppConfig>) => void;
 }
 
+interface ResolvedProcessingContext {
+  mode: ProcessingMode;
+  is_override: boolean;
+  auto_detected: boolean;
+  detected_from: string | null;
+}
+
 function Chip({ children }: { children: ReactNode }) {
   return (
     <span className="inline-flex items-center rounded-md bg-surface-strong px-2 py-0.5 text-[12px] font-medium text-fg-dim">
       {children}
     </span>
-  );
-}
-
-function ModeRadioRow({
-  name,
-  value,
-  checked,
-  title,
-  description,
-  onSelect,
-}: {
-  name: string;
-  value: string;
-  checked: boolean;
-  title: ReactNode;
-  description: ReactNode;
-  onSelect: () => void;
-}) {
-  return (
-    <label
-      className={cn(
-        "flex cursor-pointer items-start gap-3 border-b border-border py-3 last:border-b-0",
-        checked && "cursor-default",
-      )}
-    >
-      <input
-        type="radio"
-        name={name}
-        value={value}
-        checked={checked}
-        onChange={onSelect}
-        className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
-      />
-      <span className="min-w-0">
-        <span className="block text-[13px] font-medium text-foreground">{title}</span>
-        <span className="mt-0.5 block text-[12px] leading-snug text-fg-dim">{description}</span>
-      </span>
-    </label>
   );
 }
 
@@ -96,6 +67,19 @@ const APP_CATEGORIES: { value: string; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
+const AGENT_MODEL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile — Empfohlen (beste Qualität)" },
+  { value: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant — Schnell, einfache Anweisungen" },
+  { value: "mixtral-8x7b-32768", label: "mixtral-8x7b-32768 — Ausgewogen" },
+  { value: "gemma2-9b-it", label: "gemma2-9b-it — Kompakt" },
+];
+
+const LOCAL_AGENT_MODEL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "llama3.2:latest", label: "llama3.2:latest — Empfohlen (beste lokale Qualität)" },
+  { value: "qwen2.5:7b-instruct", label: "qwen2.5:7b-instruct — Ausgewogen" },
+  { value: "gemma3:4b", label: "gemma3:4b — Kompakt" },
+];
+
 // Maps each processing mode to its dedicated per-mode hotkey config field.
 const MODE_HOTKEY_FIELDS = {
   verbatim: "mode_verbatim_hotkey",
@@ -109,6 +93,23 @@ function processingModeLabel(mode: ProcessingMode): string {
   return MODE_LABELS[mode] ?? mode;
 }
 
+function cleanupSummary(config: AppConfig) {
+  if (!config.post_process) {
+    return "Off. WordScript keeps the raw speech-to-text result and only applies your text rules.";
+  }
+  if (config.professionalize && config.filter_fillers) {
+    return "On. Fixes errors, removes fillers, and allows broader rewrites.";
+  }
+  if (config.professionalize) {
+    return "On. Fixes errors and allows broader rewrites.";
+  }
+  if (config.filter_fillers) {
+    return "On. Fixes errors and removes fillers while staying close to the original phrasing.";
+  }
+
+  return "On. Fixes punctuation, typos, and grammar without broader rewrites.";
+}
+
 export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
   const selectedMode: ProcessingMode = config.processing_mode ?? "cleanup";
   const selectedSubMode: EnhanceSubMode = config.enhance_sub_mode ?? "enhance";
@@ -117,9 +118,26 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
   const appMappings: Record<string, ProcessingMode> = config.workspace_app_map ?? {};
   const modePickerHotkey = config.mode_picker_hotkey ?? "";
   const cycleModeHotkey = config.mode_cycle_hotkey ?? "";
+  const previewLaneSelected = config.provider === "local_preview";
+  const cleanupEnabled = config.post_process;
+  const agentEnabled = config.agent_mode_enabled;
 
   const [newMappingCategory, setNewMappingCategory] = useState("ide");
   const [newMappingMode, setNewMappingMode] = useState<ProcessingMode>("cleanup");
+  const [resolved, setResolved] = useState<ResolvedProcessingContext | null>(null);
+
+  const fetchResolved = useCallback(async () => {
+    try {
+      const ctx = await invoke<ResolvedProcessingContext>("resolve_current_processing_mode");
+      setResolved(ctx);
+    } catch {
+      setResolved(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchResolved();
+  }, [fetchResolved, selectedMode, config.active_text_profile_id, autoDetectEnabled, appMappings]);
 
   const handleSetMode = useCallback((next: ProcessingMode) => {
     onChange({ processing_mode: next });
@@ -162,65 +180,200 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
 
   const hasMappings = Object.keys(appMappings).length > 0;
 
+  const precedenceLine = resolved
+    ? resolved.is_override
+      ? `Runtime override: ${processingModeLabel(resolved.mode)} (wins over profile default)`
+      : resolved.auto_detected
+        ? `Auto-detected: ${processingModeLabel(resolved.mode)}${resolved.detected_from ? ` from ${resolved.detected_from}` : ""}`
+        : `Profile default active: ${processingModeLabel(resolved.mode)}`
+    : "Resolving effective mode…";
+
   return (
     <div className="flex flex-col gap-8">
-      <FormCard title="Default processing mode" description="How dictation is transformed before it is inserted.">
-        <div role="radiogroup" aria-label="Processing mode selector">
-          {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode) => (
-            <ModeRadioRow
-              key={mode}
-              name="processing_mode"
-              value={mode}
-              checked={selectedMode === mode}
-              title={processingModeLabel(mode)}
-              description={MODE_DESCRIPTIONS[mode]}
-              onSelect={() => handleSetMode(mode)}
-            />
-          ))}
+      <FormCard
+        title="Effective mode"
+        description="Which processing mode WordScript is using right now, and where it comes from. Profile defaults live in Profiles; this tab sets the global fallback and per-session overrides."
+        bodyClassName="py-4"
+      >
+        <FormRow
+          label="Currently effective"
+          align="start"
+          divider={false}
+          control={
+            <StatusBadge tone={resolved?.is_override ? "accent" : resolved?.auto_detected ? "info" : "neutral"} dot>
+              {resolved ? processingModeLabel(resolved.mode) : "—"}
+            </StatusBadge>
+          }
+          hint={precedenceLine}
+        />
+      </FormCard>
+
+      <FormCard
+        title="Default processing mode"
+        description="How dictation is transformed before it is inserted. Pick a mode to reveal its controls. Trigger hotkeys live in Capture; mode hotkeys are further down."
+      >
+        <div role="radiogroup" aria-label="Processing mode selector" className="flex flex-col">
+          {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode, index, arr) => {
+            const checked = selectedMode === mode;
+            const isLast = index === arr.length - 1;
+            return (
+              <div key={mode} className={cn("border-b border-border", isLast && "border-b-0")}>
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 py-3",
+                    checked && "cursor-default",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="processing_mode"
+                    value={mode}
+                    checked={checked}
+                    onChange={() => handleSetMode(mode)}
+                    className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-medium text-foreground">{processingModeLabel(mode)}</span>
+                    <span className="mt-0.5 block text-[12px] leading-snug text-fg-dim">{MODE_DESCRIPTIONS[mode]}</span>
+                  </span>
+                </label>
+
+                {checked && mode === "cleanup" && (
+                  <div className="pb-4 pl-7">
+                    <CleanupControls config={config} onChange={onChange} previewLaneSelected={previewLaneSelected} cleanupEnabled={cleanupEnabled} />
+                  </div>
+                )}
+                {checked && mode === "rewrite" && (
+                  <div className="pb-4 pl-7">
+                    <CleanupControls config={config} onChange={onChange} previewLaneSelected={previewLaneSelected} cleanupEnabled={cleanupEnabled} />
+                  </div>
+                )}
+                {checked && mode === "prompt_enhance" && (
+                  <div className="pb-4 pl-7">
+                    <FormRow
+                      label="Enhance sub-mode"
+                      hint="Enhance polishes without bloat; Expand restructures fully."
+                      control={
+                        <Select
+                          aria-label="Enhance sub-mode"
+                          className="w-[200px]"
+                          value={selectedSubMode}
+                          onChange={(e) => handleSetSubMode(e.target.value as EnhanceSubMode)}
+                        >
+                          <option value="enhance">Enhance</option>
+                          <option value="expand">Expand</option>
+                        </Select>
+                      }
+                    />
+                    <FormRow
+                      label="Prompt target"
+                      hint="Optimizes prompt syntax for the chosen AI tool."
+                      divider={false}
+                      control={
+                        <Select
+                          aria-label="Prompt target"
+                          className="w-[200px]"
+                          value={selectedTarget}
+                          onChange={(e) => handleSetTarget(e.target.value as PromptTarget)}
+                        >
+                          {TARGET_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </Select>
+                      }
+                    />
+                  </div>
+                )}
+                {checked && mode === "agent" && (
+                  <div className="pb-4 pl-7">
+                    <AgentControls config={config} onChange={onChange} previewLaneSelected={previewLaneSelected} agentEnabled={agentEnabled} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </FormCard>
 
-      {selectedMode === "prompt_enhance" && (
-        <>
-          <FormCard title="Enhance sub-mode" description="How aggressively raw dictation is restructured into a prompt.">
-            <div role="radiogroup" aria-label="Enhance sub-mode selector">
-              {(Object.keys(SUB_MODE_LABELS) as EnhanceSubMode[]).map((sub) => (
-                <ModeRadioRow
-                  key={sub}
-                  name="enhance_sub_mode"
-                  value={sub}
-                  checked={selectedSubMode === sub}
-                  title={sub === "enhance" ? "Enhance" : "Expand"}
-                  description={SUB_MODE_LABELS[sub]}
-                  onSelect={() => handleSetSubMode(sub)}
-                />
-              ))}
-            </div>
-          </FormCard>
-
-          <FormCard title="Prompt target" description="Optimize prompt syntax and idiom for the selected AI tool.">
+      <FormCard
+        title="AI cleanup"
+        description="Cleanup runs after speech-to-text. When on, filter fillers and rewrite phrasing tune how aggressively the transcript is corrected. The cleanup model is configured in Speech & AI."
+        bodyClassName="py-4"
+      >
+        <FormRow
+          label="AI cleanup"
+          hint="Tidy punctuation, grammar and phrasing after transcription."
+          htmlFor="ai-cleanup-toggle"
+          control={
+            <Toggle
+              id="ai-cleanup-toggle"
+              checked={cleanupEnabled}
+              onCheckedChange={(checked) => onChange({ post_process: checked })}
+            />
+          }
+        />
+        {cleanupEnabled && (
+          <>
             <FormRow
-              label="Target platform"
-              htmlFor="prompt-target-select"
-              divider={false}
+              label="Remove fillers"
+              hint="Strip ums, uhs and false starts."
+              htmlFor="filter-fillers-toggle"
               control={
-                <Select
-                  id="prompt-target-select"
-                  className="w-[180px]"
-                  value={selectedTarget}
-                  onChange={(e) => handleSetTarget(e.target.value as PromptTarget)}
-                >
-                  {TARGET_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </Select>
+                <Toggle
+                  id="filter-fillers-toggle"
+                  checked={config.filter_fillers}
+                  disabled={!config.post_process}
+                  onCheckedChange={(checked) => onChange({ filter_fillers: checked })}
+                />
               }
             />
-          </FormCard>
-        </>
-      )}
+            <FormRow
+              label="Rewrite phrasing"
+              hint="Allow broader rewrites beyond simple fixes."
+              htmlFor="professionalize-toggle"
+              divider={false}
+              control={
+                <Toggle
+                  id="professionalize-toggle"
+                  checked={config.professionalize}
+                  disabled={!config.post_process}
+                  onCheckedChange={(checked) => onChange({ professionalize: checked })}
+                />
+              }
+            />
+          </>
+        )}
+        <p className="border-t border-border py-3 text-[12px] leading-snug text-fg-muted">
+          {cleanupSummary(config)} Choose the cleanup model in Speech &amp; AI.
+        </p>
+      </FormCard>
+
+      <FormCard
+        title="AI agent mode"
+        description={
+          agentEnabled
+            ? "When an instruction is detected, WordScript executes it via AI instead of just transcribing."
+            : "Off. All recordings are transcribed as-is and passed through the normal cleanup pipeline."
+        }
+      >
+        <FormRow
+          label="Agent mode"
+          hint={'Detects spoken instructions like "Hey WordScript, write an email…".'}
+          htmlFor="agent-mode-toggle"
+          control={
+            <Toggle
+              id="agent-mode-toggle"
+              checked={agentEnabled}
+              onCheckedChange={(checked) => onChange({ agent_mode_enabled: checked })}
+            />
+          }
+        />
+        {agentEnabled && (
+          <AgentControls config={config} onChange={onChange} previewLaneSelected={previewLaneSelected} agentEnabled={agentEnabled} embedded />
+        )}
+      </FormCard>
 
       <FormCard
         title="Auto-detection"
@@ -302,7 +455,12 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
 
       <FormCard
         title="Hotkeys"
-        description="Global hotkeys for quick mode switching. The picker opens the overlay selector; cycle rotates recent modes; per-mode keys jump directly."
+        description={
+          <>
+            Global hotkeys for quick mode switching. The picker opens the overlay selector; cycle rotates recent modes; per-mode keys jump directly.{" "}
+            <span className="text-fg-muted">Trigger hotkeys (start, stop, pause, abort) live in Capture.</span>
+          </>
+        }
       >
         <FormRow
           label="Mode picker"
@@ -329,3 +487,131 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
     </div>
   );
 });
+
+function CleanupControls({
+  config,
+  onChange,
+  previewLaneSelected,
+  cleanupEnabled,
+}: {
+  config: AppConfig;
+  onChange: (p: Partial<AppConfig>) => void;
+  previewLaneSelected: boolean;
+  cleanupEnabled: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border bg-surface px-3 py-3">
+      <FormRow
+        label="AI cleanup"
+        hint="Tidy punctuation, grammar and phrasing after transcription."
+        htmlFor="inline-ai-cleanup-toggle"
+        divider={false}
+        control={
+          <Toggle
+            id="inline-ai-cleanup-toggle"
+            checked={cleanupEnabled}
+            onCheckedChange={(checked) => onChange({ post_process: checked })}
+          />
+        }
+      />
+      {cleanupEnabled && (
+        <>
+          <FormRow
+            label="Remove fillers"
+            hint="Strip ums, uhs and false starts."
+            htmlFor="inline-filter-fillers-toggle"
+            control={
+              <Toggle
+                id="inline-filter-fillers-toggle"
+                checked={config.filter_fillers}
+                onCheckedChange={(checked) => onChange({ filter_fillers: checked })}
+              />
+            }
+          />
+          <FormRow
+            label="Rewrite phrasing"
+            hint="Allow broader rewrites beyond simple fixes."
+            htmlFor="inline-professionalize-toggle"
+            divider={false}
+            control={
+              <Toggle
+                id="inline-professionalize-toggle"
+                checked={config.professionalize}
+                onCheckedChange={(checked) => onChange({ professionalize: checked })}
+              />
+            }
+          />
+        </>
+      )}
+      <p className="text-[12px] leading-snug text-fg-muted">
+        {previewLaneSelected ? "Local Ollama cleanup model" : "Groq cleanup model"} is selected in Speech &amp; AI.
+        {previewLaneSelected ? ` Current: ${config.local_correction_model || "llama3.2:latest"}.` : ` Current: ${config.correction_model || "llama-3.3-70b-versatile"}.`}
+      </p>
+    </div>
+  );
+}
+
+function AgentControls({
+  config,
+  onChange,
+  previewLaneSelected,
+  agentEnabled,
+  embedded,
+}: {
+  config: AppConfig;
+  onChange: (p: Partial<AppConfig>) => void;
+  previewLaneSelected: boolean;
+  agentEnabled: boolean;
+  embedded?: boolean;
+}) {
+  if (!agentEnabled) return null;
+  return (
+    <div className={cn("flex flex-col gap-3", !embedded && "rounded-md border border-border bg-surface px-3 py-3")}>
+      <FormRow
+        label="Agent name"
+        hint="The name you use when addressing the agent in speech."
+        htmlFor={embedded ? "embedded-agent-name-input" : "inline-agent-name-input"}
+        control={
+          <Input
+            id={embedded ? "embedded-agent-name-input" : "inline-agent-name-input"}
+            type="text"
+            className="w-[200px]"
+            value={config.agent_name}
+            placeholder="WordScript"
+            onChange={(e) => onChange({ agent_name: e.target.value })}
+          />
+        }
+      />
+      <FormRow
+        label="Model"
+        hint={
+          previewLaneSelected
+            ? "Local Ollama model for intent + execution. Requires the local chat endpoint."
+            : "Groq model for intent classification and instruction execution."
+        }
+        htmlFor={embedded ? "embedded-agent-model-select" : "inline-agent-model-select"}
+        divider={false}
+        control={
+          <Select
+            id={embedded ? "embedded-agent-model-select" : "inline-agent-model-select"}
+            className="w-[300px]"
+            value={previewLaneSelected ? config.local_agent_model : config.agent_model}
+            onChange={(e) =>
+              onChange(
+                previewLaneSelected
+                  ? { local_agent_model: e.target.value }
+                  : { agent_model: e.target.value },
+              )
+            }
+          >
+            {(previewLaneSelected ? LOCAL_AGENT_MODEL_OPTIONS : AGENT_MODEL_OPTIONS).map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </Select>
+        }
+      />
+    </div>
+  );
+}

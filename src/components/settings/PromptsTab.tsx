@@ -17,7 +17,18 @@ import { FormCard, FormRow, SegmentControl, Select, StatTiles, StatusBadge, Togg
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { cn } from "../../lib/utils";
-import type { AppConfig, BiasMode, DictionaryEntry, SnippetEntry, TextProfile } from "../../types/ipc";
+import type {
+  AppConfig,
+  BiasMode,
+  DictionaryEntry,
+  EnhanceSubMode,
+  ProcessingMode,
+  PromptTarget,
+  SnippetEntry,
+  TextProfile,
+  TextProfileInsertBehavior,
+  TextProfileRewriteStyle,
+} from "../../types/ipc";
 import {
   buildTextProfilesPatch,
   clearTextProfileCuration,
@@ -38,6 +49,22 @@ import type {
   TextRulesConflictResolution,
   TextRulesIssue,
 } from "../../types/textRules";
+
+const MODE_LABELS: Record<ProcessingMode, string> = {
+  verbatim: "Verbatim",
+  cleanup: "Cleanup",
+  rewrite: "Rewrite",
+  agent: "Agent",
+  prompt_enhance: "Prompt Enhance",
+};
+
+const TARGET_OPTIONS: { value: PromptTarget; label: string }[] = [
+  { value: "general", label: "General" },
+  { value: "claude_code", label: "Claude Code" },
+  { value: "cursor", label: "Cursor" },
+  { value: "chatgpt", label: "ChatGPT" },
+  { value: "copilot", label: "Copilot" },
+];
 
 interface Props {
   config: AppConfig;
@@ -181,10 +208,6 @@ function countPromptLines(value: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .length;
-}
-
-function profileOriginLabel(profile: TextProfile) {
-  return isCuratedTextProfile(profile) ? "Included by WordScript" : "User profile";
 }
 
 function profileLibrarySummary(profile: TextProfile) {
@@ -470,33 +493,16 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<"context" | "dictionary" | "snippets" | "bias_policy">("context");
-  const [showStarterDetails, setShowStarterDetails] = useState(false);
   const [pendingFocusRuleId, setPendingFocusRuleId] = useState<string | null>(null);
   const ruleCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const configRef = useRef(config);
   const textProfilesRef = useRef(textProfiles);
   const activeTextProfileIdRef = useRef(activeTextProfile.id);
-  const profileLibrary = textProfiles;
-  const selectedTemplate = profileLibrary.find((profile) => profile.id === selectedTemplateId) ?? activeTextProfile;
 
   configRef.current = config;
   textProfilesRef.current = textProfiles;
   activeTextProfileIdRef.current = activeTextProfile.id;
-
-  useEffect(() => {
-    if (profileLibrary.length === 0) {
-      if (selectedTemplateId) {
-        setSelectedTemplateId("");
-      }
-      return;
-    }
-
-    if (!profileLibrary.some((profile) => profile.id === selectedTemplateId)) {
-      setSelectedTemplateId(activeTextProfile.id);
-    }
-  }, [activeTextProfile.id, profileLibrary, selectedTemplateId]);
 
   useEffect(() => {
     setAcknowledgedFlags(new Set());
@@ -602,28 +608,6 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
     const nextProfile = createTextProfile();
     applyProfiles([...textProfiles, nextProfile], nextProfile.id);
     setActiveWorkspacePanel("context");
-  };
-
-  const useSelectedProfile = () => {
-    if (!selectedTemplate) return;
-
-    applyProfiles(textProfiles, selectedTemplate.id);
-    setActiveWorkspacePanel("context");
-    setMessage(true, `${selectedTemplate.label} is now the active profile.`);
-  };
-
-  const duplicateSelectedProfile = () => {
-    if (!selectedTemplate) return;
-
-    const nextProfileId = createTextProfile().id;
-    const nextProfile = cloneTextProfile(selectedTemplate, {
-      id: nextProfileId,
-      label: selectedTemplate.label.trim() ? `${selectedTemplate.label} copy` : "Profile copy",
-      curation: createEmptyTextProfileCuration(),
-    });
-    applyProfiles([...textProfiles, nextProfile], nextProfile.id);
-    setActiveWorkspacePanel("context");
-    setMessage(true, `Duplicated ${selectedTemplate.label}.`);
   };
 
   const duplicateProfile = () => {
@@ -814,15 +798,6 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
   const hasImportedOnlyIssues = Boolean(pendingImport && issueList.some((entry) => entry.rule_ids.some((ruleId) => !currentRuleLookup.has(ruleId))));
   const activePromptLineCount = countPromptLines(activeTextProfile.prompt);
   const activeSttHintLineCount = countPromptLines(activeTextProfile.stt_hints);
-  const selectedTemplatePromptLines = selectedTemplate ? countPromptLines(selectedTemplate.prompt) : 0;
-  const selectedTemplateSttHintLines = selectedTemplate ? countPromptLines(selectedTemplate.stt_hints) : 0;
-  const selectedTemplateContextLines = selectedTemplate?.prompt.split(/\r?\n/).filter(Boolean) ?? [];
-  const selectedTemplateSttHintPreview = selectedTemplate?.stt_hints.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
-  const selectedTemplateDictionaryPreview = selectedTemplate?.dictionary_entries.slice(0, 4) ?? [];
-  const selectedTemplateSnippetPreview = selectedTemplate?.snippet_entries.slice(0, 4) ?? [];
-  const selectedTemplateWorkModeSummary = selectedTemplate
-    ? describeTextProfileWorkMode(selectedTemplate)
-    : "Clean rewrite, Auto-paste delivery, Standard recovery";
   const totalRuleCount = dictionaryEntries.length + snippetEntries.length;
   const activeWorkspaceCopy = activeWorkspacePanel === "context"
     ? {
@@ -978,6 +953,8 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
         <FormRow
           label="Active profile"
           htmlFor="text-profile-select"
+          hint={profileLibrarySummary(activeTextProfile)}
+          align="start"
           control={
             <Select
               id="text-profile-select"
@@ -986,11 +963,17 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
               value={activeTextProfile.id}
               onChange={(event) => applyProfiles(textProfiles, event.target.value)}
             >
-              {textProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {displayTextProfileLabel(profile)}
-                </option>
-              ))}
+              {textProfiles.map((profile) => {
+                const terms = (profile.dictionary_entries ?? []).length;
+                const snippets = (profile.snippet_entries ?? []).length;
+                const origin = isCuratedTextProfile(profile) ? "Included" : "User";
+                const summary = describeTextProfileWorkMode(profile);
+                return (
+                  <option key={profile.id} value={profile.id}>
+                    {displayTextProfileLabel(profile)} — {origin} · {summary} · {terms} terms · {snippets} snippets
+                  </option>
+                );
+              })}
             </Select>
           }
         />
@@ -1020,128 +1003,124 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
         <p className="py-3 text-[12px] leading-snug text-fg-muted">
           Each profile carries its own context, optional STT hints, dictionary, snippets and work-mode defaults. Included
           profiles ship inside this app config on first run, and the first real edit turns them into regular user-owned
-          profiles. Preview, import/export and runtime all follow the same active profile.
+          profiles. Preview, import/export and runtime all follow the same active profile. Switch profiles here or from
+          the sidebar footer for quick access while working elsewhere.
         </p>
       </FormCard>
 
       <FormCard
-        title="Use any profile already loaded in this app"
-        description="Built-in profiles are saved into the same local profile list as yours. Use, edit, duplicate or delete them like normal profiles."
+        title="Profile defaults"
+        description="How this profile processes dictation by default. Modes can override these per session; the active default wins when no override is set."
         bodyClassName="py-4"
       >
-        {selectedTemplate ? (
-          <div className="flex flex-col gap-3">
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Selected profile</div>
-              <strong className="text-[14px] font-semibold text-foreground">{selectedTemplate.label}</strong>
-              <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">{profileLibrarySummary(selectedTemplate)}</p>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                profileOriginLabel(selectedTemplate),
-                `${selectedTemplatePromptLines} context lines`,
-                `${selectedTemplateSttHintLines} STT hints`,
-                `${selectedTemplate.dictionary_entries.length} terms`,
-                `${selectedTemplate.snippet_entries.length} snippets`,
-                selectedTemplateWorkModeSummary,
-              ].map((chip) => (
-                <span key={chip} className="rounded-full bg-surface-strong px-2.5 py-0.5 text-[11px] text-fg-dim">
-                  {chip}
-                </span>
+        <FormRow
+          label="Default processing mode"
+          hint="The mode WordScript uses when no session override or auto-detection applies. Override live in Modes."
+          control={
+            <Select
+              aria-label="Default processing mode"
+              className="w-[200px]"
+              value={activeTextProfile.work_mode?.processing_mode ?? "cleanup"}
+              onChange={(event) =>
+                updateActiveProfileWorkMode((wm) => ({
+                  ...wm,
+                  processing_mode: event.target.value as ProcessingMode,
+                }))
+              }
+            >
+              {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode) => (
+                <option key={mode} value={mode}>
+                  {MODE_LABELS[mode]}
+                </option>
               ))}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={useSelectedProfile}>
-                Use profile
-              </Button>
-              <Button size="sm" variant="ghost" onClick={duplicateSelectedProfile}>
-                Duplicate selected
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setShowStarterDetails((current) => !current)}>
-                {showStarterDetails ? "Hide profile details" : "Show profile details"}
-              </Button>
-            </div>
-            {showStarterDetails && (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[
-                  { label: "Context focus", items: selectedTemplateContextLines.slice(0, 4) },
-                  { label: "Optional STT hints", items: selectedTemplateSttHintPreview.slice(0, 4) },
-                ].map((group) => (
-                  <div key={group.label} className="rounded-lg border border-border bg-surface px-3 py-2.5">
-                    <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">{group.label}</span>
-                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
-                      {group.items.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-                <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
-                  <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Key replacements</span>
-                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
-                    {selectedTemplateDictionaryPreview.slice(0, 3).map((entry) => (
-                      <li key={entry.phrase}>
-                        {entry.phrase}
-                        {" -> "}
-                        {entry.replace_with}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="rounded-lg border border-border bg-surface px-3 py-2.5">
-                  <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">Ready snippets</span>
-                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] text-fg-dim">
-                    {selectedTemplateSnippetPreview.slice(0, 3).map((entry) => (
-                      <li key={entry.trigger}>
-                        {entry.label}: {entry.trigger}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div>
-            <strong className="text-[14px] font-semibold text-foreground">No profiles available</strong>
-            <p className="mt-0.5 text-[12px] leading-snug text-fg-muted">Create a profile to start building a local writing mode.</p>
-          </div>
-        )}
-        <div className="mt-4 grid gap-2 sm:grid-cols-2" role="list" aria-label="Profiles in this app">
-          {profileLibrary.map((template) => {
-            const selected = selectedTemplate?.id === template.id;
-            return (
-              <button
-                key={template.id}
-                type="button"
-                className={cn(
-                  "flex flex-col gap-1.5 rounded-lg border bg-surface px-3 py-2.5 text-left hover:border-border-strong",
-                  selected ? "border-brand ring-1 ring-brand/40" : "border-border",
-                )}
-                aria-label={`Select ${template.label} profile`}
-                aria-pressed={selected}
-                onClick={() => setSelectedTemplateId(template.id)}
-              >
-                <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">
-                  {isCuratedTextProfile(template) ? template.curation.audience : "User profile"}
-                </span>
-                <strong className="text-[13px] font-semibold text-foreground">{template.label}</strong>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    profileOriginLabel(template),
-                    describeTextProfileWorkMode(template),
-                    `${template.dictionary_entries.length} terms`,
-                    `${template.snippet_entries.length} snippets`,
-                  ].map((chip) => (
-                    <span key={chip} className="rounded-full bg-surface-strong px-2 py-0.5 text-[10px] text-fg-dim">
-                      {chip}
-                    </span>
-                  ))}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+            </Select>
+          }
+        />
+        <FormRow
+          label="Rewrite style"
+          hint="verbatim keeps the transcript; clean strips fillers; polished allows broader rewrites. Drives cleanup toggles in Modes."
+          control={
+            <Select
+              aria-label="Rewrite style"
+              className="w-[200px]"
+              value={activeTextProfile.work_mode?.rewrite_style ?? "clean"}
+              onChange={(event) =>
+                updateActiveProfileWorkMode((wm) => ({
+                  ...wm,
+                  rewrite_style: event.target.value as TextProfileRewriteStyle,
+                }))
+              }
+            >
+              <option value="verbatim">Verbatim</option>
+              <option value="clean">Clean</option>
+              <option value="polished">Polished</option>
+            </Select>
+          }
+        />
+        <FormRow
+          label="Insert behavior"
+          hint="auto_paste inserts at the cursor; clipboard_only leaves the transcript on the clipboard. Overridable in Insert & Recovery."
+          control={
+            <Select
+              aria-label="Insert behavior"
+              className="w-[200px]"
+              value={activeTextProfile.work_mode?.insert_behavior ?? "auto_paste"}
+              onChange={(event) =>
+                updateActiveProfileWorkMode((wm) => ({
+                  ...wm,
+                  insert_behavior: event.target.value as TextProfileInsertBehavior,
+                }))
+              }
+            >
+              <option value="auto_paste">Insert at cursor</option>
+              <option value="clipboard_only">Clipboard only</option>
+            </Select>
+          }
+        />
+        <FormRow
+          label="Enhance sub-mode"
+          hint="Used when the default mode is Prompt Enhance. Enhance polishes; Expand restructures fully."
+          control={
+            <Select
+              aria-label="Enhance sub-mode"
+              className="w-[200px]"
+              value={activeTextProfile.work_mode?.enhance_sub_mode ?? "enhance"}
+              onChange={(event) =>
+                updateActiveProfileWorkMode((wm) => ({
+                  ...wm,
+                  enhance_sub_mode: event.target.value as EnhanceSubMode,
+                }))
+              }
+            >
+              <option value="enhance">Enhance</option>
+              <option value="expand">Expand</option>
+            </Select>
+          }
+        />
+        <FormRow
+          label="Prompt target"
+          hint="Optimizes prompt syntax for the chosen AI tool when in Prompt Enhance mode."
+          divider={false}
+          control={
+            <Select
+              aria-label="Prompt target"
+              className="w-[200px]"
+              value={activeTextProfile.work_mode?.target ?? "general"}
+              onChange={(event) =>
+                updateActiveProfileWorkMode((wm) => ({
+                  ...wm,
+                  target: event.target.value as PromptTarget,
+                }))
+              }
+            >
+              {TARGET_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </Select>
+          }
+        />
       </FormCard>
 
       <div className="flex flex-col gap-3">

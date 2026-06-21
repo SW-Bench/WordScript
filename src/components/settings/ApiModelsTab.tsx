@@ -117,23 +117,6 @@ function buildLocalPreviewFallbackProfiles(): ProviderProfile[] {
   });
 }
 
-function cleanupSummary(config: AppConfig) {
-  if (!config.post_process) {
-    return "Off. WordScript keeps the raw speech-to-text result and only applies your text rules.";
-  }
-  if (config.professionalize && config.filter_fillers) {
-    return "On. Fixes errors, removes fillers, and allows broader rewrites.";
-  }
-  if (config.professionalize) {
-    return "On. Fixes errors and allows broader rewrites.";
-  }
-  if (config.filter_fillers) {
-    return "On. Fixes errors and removes fillers while staying close to the original phrasing.";
-  }
-
-  return "On. Fixes punctuation, typos, and grammar without broader rewrites.";
-}
-
 function defaultLocalDecodeSettingsForProfileId(profileId: string | null | undefined) {
   return profileId?.endsWith("-quality")
     ? { beamSize: 5, bestOf: 5 }
@@ -367,7 +350,6 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const selectedLocalModel = previewLaneSelected ? config.local_model : null;
   const selectedCleanupModel = previewLaneSelected ? config.local_correction_model : config.correction_model;
   const providerLabel = previewLaneSelected ? "Local runtime" : "Groq cloud";
-  const cleanupEnabled = config.post_process;
   const {
     status,
     isLoading,
@@ -997,155 +979,80 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
       </FormCard>
 
       <FormCard
-        title="AI cleanup"
+        title="Cleanup model"
         description={
           previewLaneSelected
-            ? "Runs locally after speech-to-text and falls back to the original transcript if the rewrite looks unsafe."
-            : cleanupSummary(config)
+            ? "Local Ollama chat model used for cleanup. Keep it installed to stay offline. Cleanup behavior (fillers, rewrites) is configured in Modes."
+            : "Groq model used for cleanup. Runs after speech-to-text and can fall back to the original transcript. Cleanup behavior (fillers, rewrites) is configured in Modes."
         }
       >
         <FormRow
-          label="AI cleanup"
-          hint="Tidy punctuation, grammar and phrasing after transcription."
-          htmlFor="ai-cleanup-toggle"
+          label="Model"
+          hint={
+            previewLaneSelected
+              ? "Local Ollama chat model. Keep it installed to stay offline."
+              : "Runs after speech-to-text and can fall back to the original transcript."
+          }
+          htmlFor="correction-model-select"
+          divider={false}
           control={
-            <Toggle
-              id="ai-cleanup-toggle"
-              checked={cleanupEnabled}
-              onCheckedChange={(checked) => onChange({ post_process: checked })}
-            />
+            <Select
+              id="correction-model-select"
+              className="w-[260px]"
+              value={previewLaneSelected ? config.local_correction_model : config.correction_model}
+              onChange={(e) =>
+                onChange(
+                  previewLaneSelected
+                    ? { local_correction_model: e.target.value }
+                    : { correction_model: e.target.value },
+                )
+              }
+            >
+              {(previewLaneSelected ? localCleanupModels : CORRECTION_MODELS).map((m) => (
+                <option key={m}>{m}</option>
+              ))}
+            </Select>
           }
         />
-        {cleanupEnabled && (
-          <>
-            <FormRow
-              label="Remove fillers"
-              hint="Strip ums, uhs and false starts."
-              htmlFor="filter-fillers-toggle"
-              control={
-                <Toggle
-                  id="filter-fillers-toggle"
-                  checked={config.filter_fillers}
-                  disabled={!config.post_process}
-                  onCheckedChange={(checked) => onChange({ filter_fillers: checked })}
-                />
-              }
-            />
-            <FormRow
-              label="Rewrite phrasing"
-              hint="Allow broader rewrites beyond simple fixes."
-              htmlFor="professionalize-toggle"
-              control={
-                <Toggle
-                  id="professionalize-toggle"
-                  checked={config.professionalize}
-                  disabled={!config.post_process}
-                  onCheckedChange={(checked) => onChange({ professionalize: checked })}
-                />
-              }
-            />
-            <FormRow
-              label="Model"
-              hint={
-                previewLaneSelected
-                  ? "Local Ollama chat model. Keep it installed to stay offline."
-                  : "Runs after speech-to-text and can fall back to the original transcript."
-              }
-              htmlFor="correction-model-select"
-              control={
-                <Select
-                  id="correction-model-select"
-                  className="w-[260px]"
-                  value={previewLaneSelected ? config.local_correction_model : config.correction_model}
-                  onChange={(e) =>
-                    onChange(
-                      previewLaneSelected
-                        ? { local_correction_model: e.target.value }
-                        : { correction_model: e.target.value },
-                    )
-                  }
-                >
-                  {(previewLaneSelected ? localCleanupModels : CORRECTION_MODELS).map((m) => (
-                    <option key={m}>{m}</option>
-                  ))}
-                </Select>
-              }
-            />
-          </>
-        )}
       </FormCard>
 
       <FormCard
-        title="AI agent mode"
-        description={
-          config.agent_mode_enabled
-            ? "When an instruction is detected, WordScript executes it via AI instead of just transcribing."
-            : "Off. All recordings are transcribed as-is and passed through the normal cleanup pipeline."
-        }
+        title="Agent model"
+        description="Model used when agent mode is active. Agent mode itself (enable, agent name) is configured in Modes."
       >
         <FormRow
-          label="Agent mode"
-          hint={'Detects spoken instructions like "Hey WordScript, write an email…".'}
-          htmlFor="agent-mode-toggle"
+          label="Model"
+          hint={
+            previewLaneSelected
+              ? "Local Ollama model for intent + execution. Requires the local chat endpoint."
+              : "Groq model for intent classification and instruction execution."
+          }
+          htmlFor="agent-model-select"
+          divider={false}
           control={
-            <Toggle
-              id="agent-mode-toggle"
-              checked={config.agent_mode_enabled}
-              onCheckedChange={(checked) => onChange({ agent_mode_enabled: checked })}
-            />
+            <Select
+              id="agent-model-select"
+              className="w-[300px]"
+              value={previewLaneSelected ? config.local_agent_model : config.agent_model}
+              onChange={(e) =>
+                onChange(
+                  previewLaneSelected
+                    ? { local_agent_model: e.target.value }
+                    : { agent_model: e.target.value },
+                )
+              }
+            >
+              {(previewLaneSelected
+                ? localAgentModelOptions(config, localSetup?.available_chat_models)
+                : AGENT_MODEL_OPTIONS
+              ).map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </Select>
           }
         />
-        {config.agent_mode_enabled && (
-          <>
-            <FormRow
-              label="Agent name"
-              hint="The name you use when addressing the agent in speech."
-              htmlFor="agent-name-input"
-              control={
-                <Input
-                  id="agent-name-input"
-                  type="text"
-                  className="w-[200px]"
-                  value={config.agent_name}
-                  placeholder="WordScript"
-                  onChange={(e) => onChange({ agent_name: e.target.value })}
-                />
-              }
-            />
-            <FormRow
-              label="Model"
-              hint={
-                previewLaneSelected
-                  ? "Local Ollama model for intent + execution. Requires the local chat endpoint."
-                  : "Groq model for intent classification and instruction execution."
-              }
-              htmlFor="agent-model-select"
-              control={
-                <Select
-                  id="agent-model-select"
-                  className="w-[300px]"
-                  value={previewLaneSelected ? config.local_agent_model : config.agent_model}
-                  onChange={(e) =>
-                    onChange(
-                      previewLaneSelected
-                        ? { local_agent_model: e.target.value }
-                        : { agent_model: e.target.value },
-                    )
-                  }
-                >
-                  {(previewLaneSelected
-                    ? localAgentModelOptions(config, localSetup?.available_chat_models)
-                    : AGENT_MODEL_OPTIONS
-                  ).map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </Select>
-              }
-            />
-          </>
-        )}
       </FormCard>
     </div>
   );

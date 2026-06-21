@@ -27,12 +27,17 @@ import type { ProfileHealthLevel, TextRulesAnalysis } from "../types/textRules";
 import { ModesTab } from "../components/settings/ModesTab";
 import { ApiModelsTab } from "../components/settings/ApiModelsTab";
 import { InputTab } from "../components/settings/InputTab";
+import { OverlayTab } from "../components/settings/OverlayTab";
 import { PromptsTab } from "../components/settings/PromptsTab";
 import { AboutTab } from "../components/settings/AboutTab";
 import { RebuildLabTab } from "../components/settings/RebuildLabTab";
 import { HomeArea } from "../components/areas/HomeArea";
 import { HistoryArea } from "../components/areas/HistoryArea";
-import { PermissionsArea } from "../components/areas/PermissionsArea";
+import { InsertRecoveryArea } from "../components/areas/InsertRecoveryArea";
+import { ChatArea } from "../components/areas/ChatArea";
+import { UploadArea } from "../components/areas/UploadArea";
+import { NotesArea } from "../components/areas/NotesArea";
+import { AccountArea } from "../components/areas/AccountArea";
 import { Sidebar, ProfileSwitcher, StatusBadge } from "../components/shell";
 import type { SidebarGroup } from "../components/shell";
 import { Button } from "../components/ui/button";
@@ -46,9 +51,14 @@ type AreaId =
   | "speech"
   | "modes"
   | "capture"
-  | "permissions"
+  | "overlay"
+  | "insert_recovery"
   | "diagnostics"
-  | "about";
+  | "about"
+  | "chat"
+  | "upload"
+  | "notes"
+  | "account";
 
 interface AreaDef {
   id: AreaId;
@@ -64,21 +74,18 @@ interface AreaDef {
 const AREAS: AreaDef[] = [
   { id: "home", label: "Home", icon: Home, group: "Workspace", eyebrow: "Overview", blurb: "Runtime readiness, recent dictations and quick recovery." },
   { id: "history", label: "History", icon: HistoryIcon, group: "Workspace", eyebrow: "Transcriptions", blurb: "Searchable transcription history, export and retention.", config: true },
-  { id: "profiles", label: "Profiles", icon: BookText, group: "Workspace", eyebrow: "Text Rules", blurb: "Context, dictionary, snippets and transcription bias.", config: true },
-  { id: "speech", label: "Speech & AI", icon: Cpu, group: "Engine", eyebrow: "Provider & Models", blurb: "Cloud BYOK or local lane, language, models and cleanup.", config: true },
-  { id: "modes", label: "Modes", icon: SlidersHorizontal, group: "Engine", eyebrow: "Processing", blurb: "Verbatim, cleanup, rewrite, agent or prompt enhancement.", config: true },
-  { id: "capture", label: "Capture", icon: Keyboard, group: "Engine", eyebrow: "Input & Delivery", blurb: "Shortcuts, microphone, delivery and overlay placement.", config: true },
-  { id: "permissions", label: "Permissions", icon: ShieldCheck, group: "System", eyebrow: "Insert & Recovery", blurb: "Insert readiness, driver chain and recovery scratchpad." },
+  { id: "profiles", label: "Profiles", icon: BookText, group: "Workspace", eyebrow: "Text Rules", blurb: "Context, dictionary, snippets, transcription bias and profile defaults.", config: true },
+  { id: "speech", label: "Speech & AI", icon: Cpu, group: "Engine", eyebrow: "Provider & Models", blurb: "Cloud BYOK or local lane, language, STT and cleanup models.", config: true },
+  { id: "modes", label: "Modes", icon: SlidersHorizontal, group: "Engine", eyebrow: "AI Reaction", blurb: "Verbatim, cleanup, rewrite, agent or prompt enhancement, plus per-mode hotkeys.", config: true },
+  { id: "capture", label: "Capture", icon: Keyboard, group: "Engine", eyebrow: "Input", blurb: "Shortcuts, activation and microphone.", config: true },
+  { id: "overlay", label: "Overlay", icon: Monitor, group: "Engine", eyebrow: "Placement", blurb: "Overlay placement, display, anchor and result timeout.", config: true },
+  { id: "insert_recovery", label: "Insert & Recovery", icon: ShieldCheck, group: "System", eyebrow: "Delivery & Recovery", blurb: "Insert readiness, driver chain, delivery, portal diagnostics and recovery scratchpad.", config: true },
   { id: "diagnostics", label: "Diagnostics", icon: ActivitySquare, group: "System", eyebrow: "Runtime", blurb: "Capture, transform and insert pipeline diagnostics.", config: true },
   { id: "about", label: "About", icon: Info, group: "System", eyebrow: "Support", blurb: "Version, release path and project links." },
-];
-
-const PREVIEW_ITEMS = [
-  { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "upload", label: "Upload", icon: Upload },
-  { id: "notes", label: "Notes", icon: NotebookPen },
-  { id: "workspace", label: "Workspace", icon: Monitor },
-  { id: "account", label: "Account", icon: User },
+  { id: "chat", label: "Chat", icon: MessageSquare, group: "More", eyebrow: "AI Chat", blurb: "AI chat on transcription context, dictionary and profiles." },
+  { id: "upload", label: "Upload", icon: Upload, group: "More", eyebrow: "Batch", blurb: "Audio upload and batch transcription queue." },
+  { id: "notes", label: "Notes", icon: NotebookPen, group: "More", eyebrow: "Meeting", blurb: "Meeting notes with speaker diarization and AI enhancement." },
+  { id: "account", label: "Account", icon: User, group: "More", eyebrow: "Sync", blurb: "Local account, self-hosting sync and full data export." },
 ];
 
 interface ConfiguredTriggerStatus {
@@ -141,8 +148,8 @@ export default function SettingsWindow() {
   const activeArea = AREAS.find((area) => area.id === active) ?? AREAS[0];
 
   const groups: SidebarGroup[] = useMemo(() => {
-    const order = ["Workspace", "Engine", "System"];
-    const byGroup: SidebarGroup[] = order.map((label) => ({
+    const order = ["Workspace", "Engine", "System", "More"];
+    return order.map((label) => ({
       label,
       items: AREAS.filter((area) => area.group === label).map((area) => ({
         id: area.id,
@@ -150,11 +157,6 @@ export default function SettingsWindow() {
         icon: area.icon,
       })),
     }));
-    byGroup.push({
-      label: "Preview",
-      items: PREVIEW_ITEMS.map((item) => ({ ...item, preview: true })),
-    });
-    return byGroup;
   }, []);
 
   const readiness = state.error
@@ -322,12 +324,22 @@ export default function SettingsWindow() {
         return <ModesTab config={form} onChange={patch} />;
       case "capture":
         return <InputTab config={form} onChange={patch} />;
-      case "permissions":
-        return <PermissionsArea />;
+      case "overlay":
+        return <OverlayTab config={form} onChange={patch} />;
+      case "insert_recovery":
+        return <InsertRecoveryArea config={form} onChange={patch} />;
       case "diagnostics":
         return <RebuildLabTab isActive config={form} onChange={patch} />;
       case "about":
         return <AboutTab isActive />;
+      case "chat":
+        return <ChatArea />;
+      case "upload":
+        return <UploadArea />;
+      case "notes":
+        return <NotesArea />;
+      case "account":
+        return <AccountArea />;
       default:
         return null;
     }

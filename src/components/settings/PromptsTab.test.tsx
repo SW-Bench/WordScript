@@ -394,12 +394,8 @@ describe("PromptsTab", () => {
 
     render(<Harness />);
 
-    expect(screen.getByRole("list", { name: /profiles in this app/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /select customer success replies profile/i }));
-    expect(screen.getAllByText(/polished rewrite, auto-paste delivery, standard recovery/i).length).toBeGreaterThan(0);
-
-    await user.click(screen.getByRole("button", { name: /use profile/i }));
+    const activeProfileSelect = screen.getByRole("combobox", { name: /active profile/i });
+    await user.selectOptions(activeProfileSelect, "curated-customer-success");
 
     expect(screen.getByRole("textbox", { name: /profile label/i })).toHaveValue("Customer success replies");
 

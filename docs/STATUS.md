@@ -11,8 +11,8 @@ Aktueller Produktstand, implementierte Kernfunktionen, Insertion/Recovery-Modell
 - heute benutzbare Version: Dev-Version aus dem Repo via `npm run tauri dev`
 - aktive Fenster: Overlay, Settings und das Diagnostics-Pop-out
 - UI-Stand: Auf `feat/ui-overhaul-v2` ist die Settings-Flaeche eine native-macOS-inspirierte **WordScript Shell** (gruppierte 200px-Sidebar, shadcn/ui + Tailwind v4 auf den v2-Tokens, native Titelleiste auf jedem OS, `useTransition`-Crossfade).
-- aktive Areas: WORKSPACE (Home, History, Profiles) · ENGINE (Speech & AI, Modes, Capture) · SYSTEM (Permissions & Recovery, Diagnostics, About); Home/History/Permissions sind neu im Form-Kit gebaut, deaktivierte PREVIEW-Items (Chat, Upload, Notes, Workspace, Account) zeigen ehrliche "coming later"-States.
-- Folgeschritt: die grossen Legacy-Tabs (Speech & AI, Modes, Capture, Profiles, Diagnostics) sind optisch an die neue Grouped-Form-Sprache angeglichen, aber noch nicht voll auf das Form-Kit + Sub-Tabs migriert; einige Inhalte ueberschneiden sich uebergangsweise mit den neuen Areas (Details in `docs/UI_UX_OVERHAUL_PLAN.md`).
+- aktive Areas: WORKSPACE (Home, History, Profiles) · ENGINE (Speech & AI, Modes, Capture, Overlay) · SYSTEM (Insert & Recovery, Diagnostics, About) · MORE (Chat, Upload, Notes, Account); alle Areas sind voll im Form-Kit gebaut.
+- Settings-IA-Restrukturierung (2026-06-21): Die Tab-Struktur wurde auf Redundanz und Auffindbarkeit auditiert und neu geordnet.insert/Recovery/Diagnostics-Daten waren bis zu 4-fach dupliziert (Input, Permissions, About, Diagnostics) und sind jetzt konsolidiert: **Insert & Recovery** (Merge aus Permissions + Input-Delivery/Recovery, config-bearing) ist die einzige Recovery-Flaeche; **Overlay** wurde aus Input extrahiert (Placement/Display/Anchor/Result-Timeout); **About** wurde auf Version + Release-Path entschlankt (Platform-support-Karte entfernt). History-Liste + -Policy wurden aus Diagnostics entfernt (History ist jetzt die einzige History-Flaeche). Diagnostics erhielt interne Sub-Tabs (Slice runner / Diagnostics preview / Runtime logs). Profile-`work_mode`-Defaults (processing_mode/rewrite_style/insert_behavior/enhance_sub_mode/target) sind jetzt in Profiles editierbar ("Profile defaults"-Karte); Modes zeigt einen "Effective mode"-Praezedenz-Indikator (Profil-Default → Global → Runtime-Override via `resolve_current_processing_mode` IPC). AI-Cleanup-Verhalten (post_process/filter_fillers/professionalize) und AI-Agent-Mode (agent_mode_enabled/agent_name) wanderten von Speech & AI zu Modes (beschreiben die AI-Reaktion, nicht den Provider); Speech & AI behaelt nur Provider/Key/Local-Setup/STT/Language + Cleanup-/Agent-**Model**-Selects. Profile-Gallery ("Use any profile already loaded") entfiel; Vorschau-Chips sind in die Active-Profile-Select-Optionen eingefoldet. Das tote Preview-Nav (Chat/Upload/Notes/Workspace/Account) wurde durch 4 aktive MORE-Areas ersetzt (Workspace-Intent ist in Modes erfuellt, Account ist eigenstaendig). Storybook (`.storybook/`, `src/stories/`, Storybook-deps + scripts) und die Glass-Prototypen (`src/components/glass/`) wurden komplett geloescht; die 4 MORE-Areas sind im Settings-Kit (`@/components/ui/*` + shell) gebaut, nicht im isolierten Glass-Kit. Details in `.kilo/plans/1782040423014-settings-ia-audit.md` und `docs/UI_UX_OVERHAUL_PLAN.md`.
 
 ## Heute implementierte Kernfunktionen
 
@@ -37,7 +37,7 @@ Aktueller Produktstand, implementierte Kernfunktionen, Insertion/Recovery-Modell
 - Profile Health und Bias Policy: automatische Erkennung systemischer Verhaltensverzerrungen in einem Profil (Laengen-Asymmetrie im Dictionary, widerspruechliche Stil-Anweisungen im Prompt, Cleanup-unterdrueckende Prompt-Muster) mit Traffic-Light-Anzeige (gruen / gelb / rot) im Text-Rules-Tab und als Punkt im Profil-Dock; einzelne Flags koennen per Acknowledge-Toggle unterdrückt werden, ohne die Konfiguration anzufassen; persistente `profile_health_acknowledged_flags`-Map ueber `acknowledge_profile_health_flag` / `unacknowledge_profile_health_flag` Tauri-Commands, geladen in `get_profile_health` aus der AppConfig
 - native Insertion mit mehreren Fallback-Stufen
 - Scratchpad und Last-Transcript-Restore
-- Input-Preflight fuer die erste Diktation mit Trigger-, Mikrofon-, Insert- und Recovery-Status aus nativer Wahrheit
+- Input-Preflight fuer die erste Diktation mit Trigger- und Mikrofon-Status aus nativer Wahrheit; Insert- und Recovery-Status leben jetzt in der Insert & Recovery-Area
 - native Sound-Cues fuer Startup, Start, Stop, Abort und Fehler
 - gepufferte Runtime-Logs in Diagnostics
 - nativer Release-Status-Check fuer die About-Flaeche mit ehrlichem GitHub-Release-Signal
@@ -87,11 +87,11 @@ Der Insert-Pfad kann heute in vier sichtbare Modi enden:
 Zusatzregeln des aktiven Pfads:
 
 - erfolgreicher Direct Insert stellt den vorherigen Clipboard-Inhalt best effort wieder her
-- Scratchpad und Last-Transcript-Restore bleiben sichtbar in der Input-UX
+- Scratchpad und Last-Transcript-Restore bleiben sichtbar in der Insert & Recovery-UX (einzige Recovery-Flaeche; Home behaelt nur einen Quick-Restore-Button mit Link dorthin)
 - aktuelle Insert-Ergebnisse enthalten `recovery_action`, `recovery_message` und `clipboard_restore`, damit Settings und Diagnostics klar zwischen keiner Aktion, manuellem Paste, Scratchpad-Recovery und Clipboard-Restore-Signal unterscheiden koennen
 - persistierte History-Eintraege und History-Exporte tragen dieselben Recovery-Felder, damit Retry, Export und Diagnostics dieselbe Insert-Wahrheit behalten
-- Scratchpad-Recovery in Input, diagnostische Preview-Transkripte in Diagnostics und der persistente History-Store sind drei getrennte native Datenflaechen
-- Overlay, Input und About lesen denselben nativen Plattformstatus
+- Scratchpad-Recovery in Insert & Recovery, diagnostische Preview-Transkripte in Diagnostics und der persistente History-Store sind drei getrennte native Datenflaechen
+- Overlay, Insert & Recovery und Diagnostics lesen denselben nativen Plattformstatus; About zeigt keinen Plattformstatus mehr
 - Overlay-Sichtbarkeit selbst folgt inzwischen ebenfalls dem nativen Host-Vertrag: aktive Sessions werden bottom-center sichtbar gemacht, Idle-Zustaende ausserhalb des sichtbaren Bereichs geparkt
 - Overlay-Placement folgt ebenfalls dem nativen Host-Vertrag: Drag speichert die letzte Manual-Position, Settings kann auf preset-basierte Display-Anker umschalten und beides bleibt Teil desselben `AppConfig`
 
