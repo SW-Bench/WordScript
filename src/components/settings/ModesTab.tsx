@@ -1,12 +1,15 @@
-import { memo, useState, useCallback, useEffect, type ReactNode } from "react";
+import { memo, useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowRight, Trash2 } from "lucide-react";
 import { HotkeyRecorder } from "./HotkeyRecorder";
 import { FormCard, FormRow, Select, StatusBadge, Toggle } from "../shell";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { cn } from "../../lib/utils";
-import type { AppConfig, ProcessingMode, EnhanceSubMode, PromptTarget } from "../../types/ipc";
+import {
+  buildTextProfilesPatch,
+  resolveActiveTextProfile,
+} from "../../lib/textProfiles";
+import type { AppConfig, ProcessingMode, EnhanceSubMode, PromptTarget, TextProfile, TextProfileWorkMode } from "../../types/ipc";
 
 interface Props {
   config: AppConfig;
@@ -20,15 +23,8 @@ interface ResolvedProcessingContext {
   detected_from: string | null;
 }
 
-function Chip({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-md bg-surface-strong px-2 py-0.5 text-[12px] font-medium text-fg-dim">
-      {children}
-    </span>
-  );
-}
-
 const MODE_LABELS: Record<ProcessingMode, string> = {
+  auto: "Auto",
   verbatim: "Verbatim",
   cleanup: "Cleanup",
   rewrite: "Rewrite",
@@ -37,11 +33,12 @@ const MODE_LABELS: Record<ProcessingMode, string> = {
 };
 
 const MODE_DESCRIPTIONS: Record<ProcessingMode, string> = {
-  verbatim: "No processing. Only text rules (dictionary, snippets) are applied.",
+  auto: "LLM decides per transcription which concrete mode to run. Enable workspace context below to improve routing accuracy.",
+  verbatim: "No LLM processing. Only text rules (dictionary, snippets) are applied.",
   cleanup: "Remove fillers, light grammar correction. Meaning preserved.",
-  rewrite: "Cleanup plus professional rephrasing for better language.",
-  agent: "Route to AI agent. Detects instructions and executes them.",
-  prompt_enhance: "Structure raw dictation into a well-formed AI prompt.",
+  rewrite: "Cleanup plus professional rephrasing for better language. Manual only — not auto-detected.",
+  agent: "WordScript executes instructions addressed to it by name (e.g. \"Hey WordScript, write an email…\").",
+  prompt_enhance: "Structure raw dictation into a well-formed AI prompt for external tools (Claude Code, Cursor, …).",
 };
 
 const SUB_MODE_LABELS: Record<EnhanceSubMode, string> = {
@@ -57,31 +54,9 @@ const TARGET_OPTIONS: { value: PromptTarget; label: string }[] = [
   { value: "copilot", label: "Copilot" },
 ];
 
-const APP_CATEGORIES: { value: string; label: string }[] = [
-  { value: "ide", label: "IDE" },
-  { value: "browser", label: "Browser" },
-  { value: "chat", label: "Chat App" },
-  { value: "mail", label: "Mail" },
-  { value: "notes", label: "Notes" },
-  { value: "terminal", label: "Terminal" },
-  { value: "other", label: "Other" },
-];
-
-const AGENT_MODEL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile — Empfohlen (beste Qualität)" },
-  { value: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant — Schnell, einfache Anweisungen" },
-  { value: "mixtral-8x7b-32768", label: "mixtral-8x7b-32768 — Ausgewogen" },
-  { value: "gemma2-9b-it", label: "gemma2-9b-it — Kompakt" },
-];
-
-const LOCAL_AGENT_MODEL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "llama3.2:latest", label: "llama3.2:latest — Empfohlen (beste lokale Qualität)" },
-  { value: "qwen2.5:7b-instruct", label: "qwen2.5:7b-instruct — Ausgewogen" },
-  { value: "gemma3:4b", label: "gemma3:4b — Kompakt" },
-];
-
 // Maps each processing mode to its dedicated per-mode hotkey config field.
 const MODE_HOTKEY_FIELDS = {
+  auto: "mode_auto_hotkey",
   verbatim: "mode_verbatim_hotkey",
   cleanup: "mode_cleanup_hotkey",
   rewrite: "mode_rewrite_hotkey",
@@ -111,19 +86,16 @@ function cleanupSummary(config: AppConfig) {
 }
 
 export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
-  const selectedMode: ProcessingMode = config.processing_mode ?? "cleanup";
-  const selectedSubMode: EnhanceSubMode = config.enhance_sub_mode ?? "enhance";
-  const selectedTarget: PromptTarget = config.enhance_target ?? "general";
+  const activeProfile = resolveActiveTextProfile(config);
+  const activeWorkMode = activeProfile.work_mode;
+  const selectedMode: ProcessingMode = activeWorkMode?.processing_mode ?? config.processing_mode ?? "auto";
+  const selectedSubMode: EnhanceSubMode = activeWorkMode?.enhance_sub_mode ?? config.enhance_sub_mode ?? "enhance";
+  const selectedTarget: PromptTarget = activeWorkMode?.target ?? config.enhance_target ?? "general";
   const autoDetectEnabled = config.auto_detect_mode ?? false;
-  const appMappings: Record<string, ProcessingMode> = config.workspace_app_map ?? {};
   const modePickerHotkey = config.mode_picker_hotkey ?? "";
   const cycleModeHotkey = config.mode_cycle_hotkey ?? "";
-  const previewLaneSelected = config.provider === "local_preview";
   const cleanupEnabled = config.post_process;
-  const agentEnabled = config.agent_mode_enabled;
 
-  const [newMappingCategory, setNewMappingCategory] = useState("ide");
-  const [newMappingMode, setNewMappingMode] = useState<ProcessingMode>("cleanup");
   const [resolved, setResolved] = useState<ResolvedProcessingContext | null>(null);
 
   const fetchResolved = useCallback(async () => {
@@ -137,34 +109,48 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
 
   useEffect(() => {
     void fetchResolved();
-  }, [fetchResolved, selectedMode, config.active_text_profile_id, autoDetectEnabled, appMappings]);
+  }, [fetchResolved, selectedMode, config.active_text_profile_id, autoDetectEnabled]);
+
+  // Write the processing mode into the active profile's work_mode, not the
+  // global config field. This is the same pattern the Prompts tab uses for
+  // rewrite_style, insert_behavior, etc. — each profile carries its own mode
+  // default, and the global `config.processing_mode` is only the serde
+  // fallback for pre-migration configs.
+  const updateActiveProfileWorkMode = useCallback(
+    (updater: (workMode: NonNullable<TextProfileWorkMode>) => NonNullable<TextProfileWorkMode>) => {
+      const currentWorkMode: NonNullable<TextProfileWorkMode> = activeWorkMode ?? {
+        rewrite_style: "clean",
+        insert_behavior: "auto_paste",
+        recovery_behavior: "standard",
+        processing_mode: "auto",
+        enhance_sub_mode: null,
+        target: null,
+      };
+      const nextProfiles = config.text_profiles.map((profile) =>
+        profile.id === activeProfile.id
+          ? { ...profile, work_mode: updater(currentWorkMode) }
+          : profile,
+      );
+      onChange(buildTextProfilesPatch(config, nextProfiles, activeProfile.id));
+    },
+    [activeProfile.id, activeWorkMode, config, onChange],
+  );
 
   const handleSetMode = useCallback((next: ProcessingMode) => {
-    onChange({ processing_mode: next });
-  }, [onChange]);
+    updateActiveProfileWorkMode((wm) => ({ ...wm, processing_mode: next }));
+  }, [updateActiveProfileWorkMode]);
 
   const handleSetSubMode = useCallback((next: EnhanceSubMode) => {
-    onChange({ enhance_sub_mode: next });
-  }, [onChange]);
+    updateActiveProfileWorkMode((wm) => ({ ...wm, enhance_sub_mode: next }));
+  }, [updateActiveProfileWorkMode]);
 
   const handleSetTarget = useCallback((next: PromptTarget) => {
-    onChange({ enhance_target: next });
-  }, [onChange]);
+    updateActiveProfileWorkMode((wm) => ({ ...wm, target: next }));
+  }, [updateActiveProfileWorkMode]);
 
   const handleToggleAutoDetect = useCallback((next: boolean) => {
     onChange({ auto_detect_mode: next });
   }, [onChange]);
-
-  const handleAddMapping = useCallback(() => {
-    const nextMappings = { ...appMappings, [newMappingCategory]: newMappingMode };
-    onChange({ workspace_app_map: nextMappings });
-  }, [appMappings, newMappingCategory, newMappingMode, onChange]);
-
-  const handleRemoveMapping = useCallback((category: string) => {
-    const nextMappings = { ...appMappings };
-    delete nextMappings[category];
-    onChange({ workspace_app_map: nextMappings });
-  }, [appMappings, onChange]);
 
   const handleModePickerHotkey = useCallback((value: string) => {
     onChange({ mode_picker_hotkey: value });
@@ -178,21 +164,19 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
     onChange({ [MODE_HOTKEY_FIELDS[mode]]: value });
   }, [onChange]);
 
-  const hasMappings = Object.keys(appMappings).length > 0;
-
   const precedenceLine = resolved
     ? resolved.is_override
       ? `Runtime override: ${processingModeLabel(resolved.mode)} (wins over profile default)`
       : resolved.auto_detected
-        ? `Auto-detected: ${processingModeLabel(resolved.mode)}${resolved.detected_from ? ` from ${resolved.detected_from}` : ""}`
-        : `Profile default active: ${processingModeLabel(resolved.mode)}`
+        ? `Auto mode: ${processingModeLabel(resolved.mode)} (LLM will decide per transcription)`
+        : `Profile default: ${processingModeLabel(resolved.mode)}`
     : "Resolving effective mode…";
 
   return (
     <div className="flex flex-col gap-8">
       <FormCard
         title="Effective mode"
-        description="Which processing mode WordScript is using right now, and where it comes from. Profile defaults live in Profiles; this tab sets the global fallback and per-session overrides."
+        description={`Which processing mode WordScript uses right now for the active profile "${activeProfile.label}". Mode defaults are stored per profile — switch profiles in the sidebar to set different defaults.`}
         bodyClassName="py-4"
       >
         <FormRow
@@ -209,8 +193,8 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
       </FormCard>
 
       <FormCard
-        title="Default processing mode"
-        description="How dictation is transformed before it is inserted. Pick a mode to reveal its controls. Trigger hotkeys live in Capture; mode hotkeys are further down."
+        title="Processing mode"
+        description={`How dictation is transformed before it is inserted. This is the default for the active profile "${activeProfile.label}". Trigger hotkeys live in Capture; mode hotkeys are further down.`}
       >
         <div role="radiogroup" aria-label="Processing mode selector" className="flex flex-col">
           {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode, index, arr) => {
@@ -238,16 +222,6 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
                   </span>
                 </label>
 
-                {checked && mode === "cleanup" && (
-                  <div className="pb-4 pl-7">
-                    <CleanupControls config={config} onChange={onChange} previewLaneSelected={previewLaneSelected} cleanupEnabled={cleanupEnabled} />
-                  </div>
-                )}
-                {checked && mode === "rewrite" && (
-                  <div className="pb-4 pl-7">
-                    <CleanupControls config={config} onChange={onChange} previewLaneSelected={previewLaneSelected} cleanupEnabled={cleanupEnabled} />
-                  </div>
-                )}
                 {checked && mode === "prompt_enhance" && (
                   <div className="pb-4 pl-7">
                     <FormRow
@@ -288,7 +262,7 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
                 )}
                 {checked && mode === "agent" && (
                   <div className="pb-4 pl-7">
-                    <AgentControls config={config} onChange={onChange} previewLaneSelected={previewLaneSelected} agentEnabled={agentEnabled} />
+                    <AgentControls config={config} onChange={onChange} />
                   </div>
                 )}
               </div>
@@ -298,8 +272,8 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
       </FormCard>
 
       <FormCard
-        title="AI cleanup"
-        description="Cleanup runs after speech-to-text. When on, filter fillers and rewrite phrasing tune how aggressively the transcript is corrected. The cleanup model is configured in Speech & AI."
+        title="Cleanup settings"
+        description="Global parameters for the cleanup and rewrite transform pipeline. These apply whenever the effective mode is Cleanup or Rewrite (including when Auto resolves to one of them)."
         bodyClassName="py-4"
       >
         <FormRow
@@ -331,7 +305,7 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
             />
             <FormRow
               label="Rewrite phrasing"
-              hint="Allow broader rewrites beyond simple fixes."
+              hint="Allow broader rewrites beyond simple fixes. Rewrite mode enables this implicitly."
               htmlFor="professionalize-toggle"
               divider={false}
               control={
@@ -351,106 +325,18 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
       </FormCard>
 
       <FormCard
-        title="AI agent mode"
-        description={
-          agentEnabled
-            ? "When an instruction is detected, WordScript executes it via AI instead of just transcribing."
-            : "Off. All recordings are transcribed as-is and passed through the normal cleanup pipeline."
-        }
+        title="Workspace context"
+        description="When enabled, WordScript detects the active app (IDE, browser, chat, …) and uses it as a probability signal for Auto mode routing. Enabled by default. Turn off to route based purely on transcript text."
       >
         <FormRow
-          label="Agent mode"
-          hint={'Detects spoken instructions like "Hey WordScript, write an email…".'}
-          htmlFor="agent-mode-toggle"
-          control={
-            <Toggle
-              id="agent-mode-toggle"
-              checked={agentEnabled}
-              onCheckedChange={(checked) => onChange({ agent_mode_enabled: checked })}
-            />
-          }
-        />
-        {agentEnabled && (
-          <AgentControls config={config} onChange={onChange} previewLaneSelected={previewLaneSelected} agentEnabled={agentEnabled} embedded />
-        )}
-      </FormCard>
-
-      <FormCard
-        title="Auto-detection"
-        description="When enabled, WordScript detects the active app and suggests a processing mode you can confirm in the overlay."
-      >
-        <FormRow
-          label="Extend overlay with detected app and mode suggestion"
+          label="Collect workspace context for Auto mode"
+          hint="Detects the active app category and feeds it into Auto mode routing. Off by choice only."
           htmlFor="auto-detect-toggle"
           divider={false}
           control={
             <Toggle id="auto-detect-toggle" checked={autoDetectEnabled} onCheckedChange={handleToggleAutoDetect} />
           }
         />
-      </FormCard>
-
-      <FormCard
-        title="Per-app mapping"
-        description="Maps a detected app category to a processing mode when auto-detection is on."
-      >
-        <div aria-label="Per-app mode mappings">
-          {!hasMappings ? (
-            <p className="py-3 text-[12px] text-fg-dim">
-              No custom app mappings yet. Add one below or use the overlay to auto-populate.
-            </p>
-          ) : (
-            <div className="flex flex-col">
-              {Object.entries(appMappings).map(([category, mode]) => (
-                <div
-                  key={category}
-                  className="flex items-center gap-2 border-b border-border py-2.5 last:border-b-0"
-                >
-                  <Chip>{APP_CATEGORIES.find((c) => c.value === category)?.label ?? category}</Chip>
-                  <ArrowRight className="size-3.5 shrink-0 text-fg-muted" />
-                  <Chip>{processingModeLabel(mode)}</Chip>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    className="ml-auto text-fg-muted hover:text-[var(--red)]"
-                    onClick={() => handleRemoveMapping(category)}
-                    aria-label={`Remove ${category} mapping`}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-2 border-t border-border py-3">
-            <Select
-              value={newMappingCategory}
-              onChange={(e) => setNewMappingCategory(e.target.value)}
-              aria-label="App category"
-              className="w-[140px]"
-            >
-              {APP_CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </Select>
-            <Select
-              value={newMappingMode}
-              onChange={(e) => setNewMappingMode(e.target.value as ProcessingMode)}
-              aria-label="Processing mode"
-              className="w-[170px]"
-            >
-              {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((m) => (
-                <option key={m} value={m}>
-                  {processingModeLabel(m)}
-                </option>
-              ))}
-            </Select>
-            <Button size="sm" variant="outline" onClick={handleAddMapping}>
-              Add mapping
-            </Button>
-          </div>
-        </div>
       </FormCard>
 
       <FormCard
@@ -488,92 +374,23 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
   );
 });
 
-function CleanupControls({
+function AgentControls({
   config,
   onChange,
-  previewLaneSelected,
-  cleanupEnabled,
 }: {
   config: AppConfig;
   onChange: (p: Partial<AppConfig>) => void;
-  previewLaneSelected: boolean;
-  cleanupEnabled: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border bg-surface px-3 py-3">
       <FormRow
-        label="AI cleanup"
-        hint="Tidy punctuation, grammar and phrasing after transcription."
-        htmlFor="inline-ai-cleanup-toggle"
-        divider={false}
-        control={
-          <Toggle
-            id="inline-ai-cleanup-toggle"
-            checked={cleanupEnabled}
-            onCheckedChange={(checked) => onChange({ post_process: checked })}
-          />
-        }
-      />
-      {cleanupEnabled && (
-        <>
-          <FormRow
-            label="Remove fillers"
-            hint="Strip ums, uhs and false starts."
-            htmlFor="inline-filter-fillers-toggle"
-            control={
-              <Toggle
-                id="inline-filter-fillers-toggle"
-                checked={config.filter_fillers}
-                onCheckedChange={(checked) => onChange({ filter_fillers: checked })}
-              />
-            }
-          />
-          <FormRow
-            label="Rewrite phrasing"
-            hint="Allow broader rewrites beyond simple fixes."
-            htmlFor="inline-professionalize-toggle"
-            divider={false}
-            control={
-              <Toggle
-                id="inline-professionalize-toggle"
-                checked={config.professionalize}
-                onCheckedChange={(checked) => onChange({ professionalize: checked })}
-              />
-            }
-          />
-        </>
-      )}
-      <p className="text-[12px] leading-snug text-fg-muted">
-        {previewLaneSelected ? "Local Ollama cleanup model" : "Groq cleanup model"} is selected in Speech &amp; AI.
-        {previewLaneSelected ? ` Current: ${config.local_correction_model || "llama3.2:latest"}.` : ` Current: ${config.correction_model || "llama-3.3-70b-versatile"}.`}
-      </p>
-    </div>
-  );
-}
-
-function AgentControls({
-  config,
-  onChange,
-  previewLaneSelected,
-  agentEnabled,
-  embedded,
-}: {
-  config: AppConfig;
-  onChange: (p: Partial<AppConfig>) => void;
-  previewLaneSelected: boolean;
-  agentEnabled: boolean;
-  embedded?: boolean;
-}) {
-  if (!agentEnabled) return null;
-  return (
-    <div className={cn("flex flex-col gap-3", !embedded && "rounded-md border border-border bg-surface px-3 py-3")}>
-      <FormRow
         label="Agent name"
         hint="The name you use when addressing the agent in speech."
-        htmlFor={embedded ? "embedded-agent-name-input" : "inline-agent-name-input"}
+        htmlFor="inline-agent-name-input"
+        divider={false}
         control={
           <Input
-            id={embedded ? "embedded-agent-name-input" : "inline-agent-name-input"}
+            id="inline-agent-name-input"
             type="text"
             className="w-[200px]"
             value={config.agent_name}
@@ -582,36 +399,9 @@ function AgentControls({
           />
         }
       />
-      <FormRow
-        label="Model"
-        hint={
-          previewLaneSelected
-            ? "Local Ollama model for intent + execution. Requires the local chat endpoint."
-            : "Groq model for intent classification and instruction execution."
-        }
-        htmlFor={embedded ? "embedded-agent-model-select" : "inline-agent-model-select"}
-        divider={false}
-        control={
-          <Select
-            id={embedded ? "embedded-agent-model-select" : "inline-agent-model-select"}
-            className="w-[300px]"
-            value={previewLaneSelected ? config.local_agent_model : config.agent_model}
-            onChange={(e) =>
-              onChange(
-                previewLaneSelected
-                  ? { local_agent_model: e.target.value }
-                  : { agent_model: e.target.value },
-              )
-            }
-          >
-            {(previewLaneSelected ? LOCAL_AGENT_MODEL_OPTIONS : AGENT_MODEL_OPTIONS).map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </Select>
-        }
-      />
+      <p className="text-[12px] leading-snug text-fg-muted">
+        The agent model is configured in Speech &amp; AI.
+      </p>
     </div>
   );
 }

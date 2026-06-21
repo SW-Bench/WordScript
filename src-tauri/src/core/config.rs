@@ -20,6 +20,7 @@ pub const DEFAULT_AGENT_NAME: &str = "WordScript";
 #[serde(rename_all = "snake_case")]
 pub enum ProcessingMode {
     #[default]
+    Auto,
     Cleanup,
     Rewrite,
     Agent,
@@ -30,9 +31,9 @@ pub enum ProcessingMode {
 impl ProcessingMode {
     // String form mirrors the serde snake_case representation; kept in sync with the
     // TypeScript `ProcessingMode` union and used where a stable token is needed.
-    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
+            ProcessingMode::Auto => "auto",
             ProcessingMode::Cleanup => "cleanup",
             ProcessingMode::Rewrite => "rewrite",
             ProcessingMode::Agent => "agent",
@@ -43,12 +44,28 @@ impl ProcessingMode {
 
     pub fn from_str(value: &str) -> Self {
         match value {
+            "auto" => ProcessingMode::Auto,
             "verbatim" => ProcessingMode::Verbatim,
             "rewrite" | "polished" | "professional" => ProcessingMode::Rewrite,
             "agent" => ProcessingMode::Agent,
             "prompt_enhance" => ProcessingMode::PromptEnhance,
             _ => ProcessingMode::Cleanup,
         }
+    }
+
+    /// Returns true when this mode requires an LLM to decide which concrete
+    /// processing path applies per transcription. `Auto` is the only meta-mode;
+    /// all others are concrete.
+    pub fn is_auto(&self) -> bool {
+        matches!(self, ProcessingMode::Auto)
+    }
+
+    /// Returns true when this mode routes the transcript through the cleanup /
+    /// rewrite transform pipeline (i.e. is not verbatim, agent or prompt
+    /// enhance). `Auto` is excluded because it is resolved into a concrete mode
+    /// before the transform runs.
+    pub fn is_cleanup_family(&self) -> bool {
+        matches!(self, ProcessingMode::Cleanup | ProcessingMode::Rewrite)
     }
 }
 
@@ -60,7 +77,6 @@ pub enum EnhanceSubMode {
     Expand,
 }
 
-#[allow(dead_code)]
 impl EnhanceSubMode {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -86,6 +102,28 @@ pub enum PromptTarget {
     Cursor,
     ChatGPT,
     Copilot,
+}
+
+impl PromptTarget {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PromptTarget::General => "general",
+            PromptTarget::ClaudeCode => "claude_code",
+            PromptTarget::Cursor => "cursor",
+            PromptTarget::ChatGPT => "chatgpt",
+            PromptTarget::Copilot => "copilot",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "claude_code" => PromptTarget::ClaudeCode,
+            "cursor" => PromptTarget::Cursor,
+            "chatgpt" => PromptTarget::ChatGPT,
+            "copilot" => PromptTarget::Copilot,
+            _ => PromptTarget::General,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -189,9 +227,10 @@ impl TextProfileWorkMode {
         let _ = fallback;
         match self.normalized().processing_mode {
             ProcessingMode::Cleanup | ProcessingMode::Rewrite => true,
-            ProcessingMode::Verbatim | ProcessingMode::Agent | ProcessingMode::PromptEnhance => {
-                false
-            }
+            ProcessingMode::Auto
+            | ProcessingMode::Verbatim
+            | ProcessingMode::Agent
+            | ProcessingMode::PromptEnhance => false,
         }
     }
 
@@ -199,7 +238,8 @@ impl TextProfileWorkMode {
         let _ = fallback;
         match self.normalized().processing_mode {
             ProcessingMode::Rewrite => true,
-            ProcessingMode::Cleanup
+            ProcessingMode::Auto
+            | ProcessingMode::Cleanup
             | ProcessingMode::Verbatim
             | ProcessingMode::Agent
             | ProcessingMode::PromptEnhance => false,
@@ -332,7 +372,6 @@ pub struct AppConfig {
     pub temp_audio_dir: String,
     pub history_limit: usize,
     pub history_retention_days: u32,
-    pub agent_mode_enabled: bool,
     pub agent_name: String,
     pub agent_model: String,
     pub local_agent_model: String,
@@ -345,17 +384,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub auto_detect_mode: bool,
     #[serde(default)]
-    pub workspace_app_map: HashMap<String, ProcessingMode>,
-    #[serde(default)]
-    pub processing_modes_migrated: bool,
-    #[serde(default)]
-    pub bias_policy_migrated: bool,
-    #[serde(default)]
     pub profile_health_acknowledged_flags: HashMap<String, HashSet<String>>,
     #[serde(default = "default_mode_picker_hotkey")]
     pub mode_picker_hotkey: String,
     #[serde(default = "default_mode_cycle_hotkey")]
     pub mode_cycle_hotkey: String,
+    #[serde(default = "default_mode_auto_hotkey")]
+    pub mode_auto_hotkey: String,
     #[serde(default = "default_mode_verbatim_hotkey")]
     pub mode_verbatim_hotkey: String,
     #[serde(default = "default_mode_cleanup_hotkey")]
@@ -426,20 +461,17 @@ impl Default for AppConfig {
             temp_audio_dir: String::new(),
             history_limit: 200,
             history_retention_days: 90,
-            agent_mode_enabled: false,
             agent_name: DEFAULT_AGENT_NAME.to_string(),
             agent_model: DEFAULT_AGENT_MODEL.to_string(),
             local_agent_model: DEFAULT_LOCAL_AGENT_MODEL.to_string(),
             processing_mode: ProcessingMode::default(),
             enhance_sub_mode: None,
             enhance_target: PromptTarget::default(),
-            auto_detect_mode: false,
-            workspace_app_map: HashMap::new(),
-            processing_modes_migrated: false,
-            bias_policy_migrated: false,
+            auto_detect_mode: true,
             profile_health_acknowledged_flags: HashMap::new(),
             mode_picker_hotkey: default_mode_picker_hotkey(),
             mode_cycle_hotkey: default_mode_cycle_hotkey(),
+            mode_auto_hotkey: default_mode_auto_hotkey(),
             mode_verbatim_hotkey: default_mode_verbatim_hotkey(),
             mode_cleanup_hotkey: default_mode_cleanup_hotkey(),
             mode_rewrite_hotkey: default_mode_rewrite_hotkey(),
@@ -584,8 +616,6 @@ impl AppConfig {
 
     fn normalize_for_runtime(&mut self) {
         self.normalize_text_profiles();
-        self.migrate_text_profile_processing_modes();
-        self.migrate_bias_policy();
         self.provider = normalize_provider_value(&self.provider);
         self.local_model = normalize_local_model_value(&self.local_model);
         self.local_profile = normalize_local_profile_id(&self.local_profile, &self.local_model);
@@ -638,6 +668,11 @@ impl AppConfig {
             &default_mode_cycle_hotkey(),
             true,
         );
+        self.mode_auto_hotkey = normalize_shortcut_value(
+            &self.mode_auto_hotkey,
+            &default_mode_auto_hotkey(),
+            true,
+        );
         self.mode_verbatim_hotkey = normalize_shortcut_value(
             &self.mode_verbatim_hotkey,
             &default_mode_verbatim_hotkey(),
@@ -666,58 +701,6 @@ impl AppConfig {
         self.overlay_monitor = normalize_overlay_monitor_value(&self.overlay_monitor);
         self.history_limit = self.history_limit.clamp(25, 1000);
         self.history_retention_days = self.history_retention_days.min(3650);
-    }
-
-    fn migrate_text_profile_processing_modes(&mut self) {
-        if self.processing_modes_migrated {
-            return;
-        }
-
-        let active_profile_id = if self.text_profiles.iter().any(|p| p.id == self.active_text_profile_id) {
-            self.active_text_profile_id.clone()
-        } else {
-            self.text_profiles.first().map(|p| p.id.clone()).unwrap_or_default()
-        };
-
-        for profile in &mut self.text_profiles {
-            if profile.work_mode.processing_mode != ProcessingMode::default() {
-                continue;
-            }
-
-            let legacy_mode = migrate_legacy_processing_mode(
-                &profile.work_mode,
-                false,
-            );
-
-            if self.agent_mode_enabled && profile.id == active_profile_id {
-                profile.work_mode.processing_mode = ProcessingMode::Agent;
-            } else {
-                profile.work_mode.processing_mode = legacy_mode;
-            }
-        }
-
-        self.processing_modes_migrated = true;
-    }
-
-    fn migrate_bias_policy(&mut self) {
-        if self.bias_policy_migrated {
-            return;
-        }
-
-        for profile in &mut self.text_profiles {
-            // Idempotent: Conservative + default ManualBias is the implicit pre-feature
-            // state, so profiles already in that shape need no work. Any other state
-            // (Manual, Off, or a non-default ManualBias) was already written by the
-            // running app, so we preserve it and only stamp the migration flag below.
-            if matches!(profile.work_mode.bias_mode, BiasMode::Conservative)
-                && profile.work_mode.manual_bias == ManualBias::default()
-            {
-                continue;
-            }
-            // No-op for non-default profiles; we just trust whatever the user set.
-        }
-
-        self.bias_policy_migrated = true;
     }
 
     fn normalize_text_profiles(&mut self) {
@@ -931,20 +914,6 @@ fn default_overlay_monitor() -> &'static str {
     "primary"
 }
 
-fn migrate_legacy_processing_mode(
-    work_mode: &TextProfileWorkMode,
-    agent_mode_enabled: bool,
-) -> ProcessingMode {
-    if agent_mode_enabled {
-        return ProcessingMode::Agent;
-    }
-    match work_mode.rewrite_style.as_str() {
-        "polished" | "professional" => ProcessingMode::Rewrite,
-        "verbatim" => ProcessingMode::Verbatim,
-        _ => ProcessingMode::Cleanup,
-    }
-}
-
 fn default_mode_picker_hotkey() -> String {
     if cfg!(target_os = "macos") {
         "cmd+alt_l+m".to_string()
@@ -962,6 +931,16 @@ fn default_mode_cycle_hotkey() -> String {
         "ctrl_l+alt_l+shift_l+m".to_string()
     } else {
         "ctrl_l+shift_l+f11".to_string()
+    }
+}
+
+fn default_mode_auto_hotkey() -> String {
+    if cfg!(target_os = "macos") {
+        "cmd+alt_l+0".to_string()
+    } else if cfg!(target_os = "windows") {
+        "ctrl_l+alt_l+0".to_string()
+    } else {
+        "ctrl_l+f6".to_string()
     }
 }
 
@@ -2054,36 +2033,6 @@ mod tests {
     }
 
     #[test]
-    fn processing_mode_migration_clean_to_cleanup() {
-        let work_mode = TextProfileWorkMode {
-            rewrite_style: "clean".to_string(),
-            ..TextProfileWorkMode::default()
-        };
-        let mode = migrate_legacy_processing_mode(&work_mode, false);
-        assert_eq!(mode, ProcessingMode::Cleanup);
-    }
-
-    #[test]
-    fn processing_mode_migration_polished_to_rewrite() {
-        let work_mode = TextProfileWorkMode {
-            rewrite_style: "polished".to_string(),
-            ..TextProfileWorkMode::default()
-        };
-        let mode = migrate_legacy_processing_mode(&work_mode, false);
-        assert_eq!(mode, ProcessingMode::Rewrite);
-    }
-
-    #[test]
-    fn processing_mode_migration_verbatim_is_preserved() {
-        let work_mode = TextProfileWorkMode {
-            rewrite_style: "verbatim".to_string(),
-            ..TextProfileWorkMode::default()
-        };
-        let mode = migrate_legacy_processing_mode(&work_mode, false);
-        assert_eq!(mode, ProcessingMode::Verbatim);
-    }
-
-    #[test]
     fn processing_mode_roundtrip_serde() {
         let mode = ProcessingMode::PromptEnhance;
         let serialized = serde_json::to_string(&mode).expect("serialize");
@@ -2118,7 +2067,25 @@ mod tests {
         assert_eq!(ProcessingMode::from_str("agent"), ProcessingMode::Agent);
         assert_eq!(ProcessingMode::from_str("verbatim"), ProcessingMode::Verbatim);
         assert_eq!(ProcessingMode::from_str("cleanup"), ProcessingMode::Cleanup);
+        assert_eq!(ProcessingMode::from_str("auto"), ProcessingMode::Auto);
         assert_eq!(ProcessingMode::from_str("unknown"), ProcessingMode::Cleanup);
+    }
+
+    #[test]
+    fn processing_mode_is_auto_helper() {
+        assert!(ProcessingMode::Auto.is_auto());
+        assert!(!ProcessingMode::Cleanup.is_auto());
+        assert!(!ProcessingMode::Agent.is_auto());
+    }
+
+    #[test]
+    fn processing_mode_is_cleanup_family_helper() {
+        assert!(ProcessingMode::Cleanup.is_cleanup_family());
+        assert!(ProcessingMode::Rewrite.is_cleanup_family());
+        assert!(!ProcessingMode::Auto.is_cleanup_family());
+        assert!(!ProcessingMode::Agent.is_cleanup_family());
+        assert!(!ProcessingMode::PromptEnhance.is_cleanup_family());
+        assert!(!ProcessingMode::Verbatim.is_cleanup_family());
     }
 
     #[test]
@@ -2129,7 +2096,7 @@ mod tests {
     #[test]
     fn text_profile_work_mode_has_default_processing_mode() {
         let work_mode = TextProfileWorkMode::default();
-        assert_eq!(work_mode.processing_mode, ProcessingMode::Cleanup);
+        assert_eq!(work_mode.processing_mode, ProcessingMode::Auto);
         assert_eq!(work_mode.enhance_sub_mode, None);
         assert_eq!(work_mode.target, None);
     }
@@ -2137,7 +2104,7 @@ mod tests {
     #[test]
     fn text_profile_work_mode_effective_processing_mode() {
         let mut work_mode = TextProfileWorkMode::default();
-        assert_eq!(work_mode.effective_processing_mode(), ProcessingMode::Cleanup);
+        assert_eq!(work_mode.effective_processing_mode(), ProcessingMode::Auto);
 
         work_mode.processing_mode = ProcessingMode::Rewrite;
         assert_eq!(work_mode.effective_processing_mode(), ProcessingMode::Rewrite);
@@ -2146,6 +2113,9 @@ mod tests {
     #[test]
     fn text_profile_work_mode_effective_filter_fillers_by_mode() {
         let mut work_mode = TextProfileWorkMode::default();
+
+        work_mode.processing_mode = ProcessingMode::Auto;
+        assert!(!work_mode.effective_filter_fillers(false));
 
         work_mode.processing_mode = ProcessingMode::Cleanup;
         assert!(work_mode.effective_filter_fillers(false));
@@ -2167,6 +2137,9 @@ mod tests {
     fn text_profile_work_mode_effective_professionalize_by_mode() {
         let mut work_mode = TextProfileWorkMode::default();
 
+        work_mode.processing_mode = ProcessingMode::Auto;
+        assert!(!work_mode.effective_professionalize(false));
+
         work_mode.processing_mode = ProcessingMode::Rewrite;
         assert!(work_mode.effective_professionalize(false));
 
@@ -2184,82 +2157,18 @@ mod tests {
     }
 
     #[test]
-    fn app_config_default_has_processing_mode_cleanup() {
+    fn app_config_default_has_processing_mode_auto() {
         let config = AppConfig::default();
-        assert_eq!(config.processing_mode, ProcessingMode::Cleanup);
+        assert_eq!(config.processing_mode, ProcessingMode::Auto);
         assert_eq!(config.enhance_sub_mode, None);
         assert_eq!(config.enhance_target, PromptTarget::General);
-        assert!(!config.auto_detect_mode);
-        assert!(config.workspace_app_map.is_empty());
-    }
-
-    #[test]
-    fn normalize_for_runtime_migrates_processing_mode() {
-        let mut config = AppConfig {
-            text_profiles: vec![TextProfile {
-                id: "general".to_string(),
-                label: "General".to_string(),
-                prompt: String::new(),
-                stt_hints: String::new(),
-                work_mode: TextProfileWorkMode {
-                    rewrite_style: "polished".to_string(),
-                    insert_behavior: "auto_paste".to_string(),
-                    recovery_behavior: "standard".to_string(),
-                    processing_mode: ProcessingMode::default(),
-                    enhance_sub_mode: None,
-                    target: None,
-                    bias_mode: BiasMode::Conservative,
-                    manual_bias: ManualBias::default(),
-                },
-                curation: TextProfileCuration::default(),
-                dictionary_entries: Vec::new(),
-                snippet_entries: Vec::new(),
-            }],
-            ..AppConfig::default()
-        };
-
-        config.normalize_for_runtime();
-
-        let profile = &config.text_profiles[0];
-        assert_eq!(profile.work_mode.processing_mode, ProcessingMode::Rewrite);
-        assert_eq!(profile.work_mode.rewrite_style, "polished");
-    }
-
-    #[test]
-    fn normalize_for_runtime_migrates_agent_mode() {
-        let mut config = AppConfig {
-            agent_mode_enabled: true,
-            text_profiles: vec![TextProfile {
-                id: "general".to_string(),
-                label: "General".to_string(),
-                prompt: String::new(),
-                stt_hints: String::new(),
-                work_mode: TextProfileWorkMode {
-                    rewrite_style: "clean".to_string(),
-                    insert_behavior: "auto_paste".to_string(),
-                    recovery_behavior: "standard".to_string(),
-                    processing_mode: ProcessingMode::default(),
-                    enhance_sub_mode: None,
-                    target: None,
-                    bias_mode: BiasMode::Conservative,
-                    manual_bias: ManualBias::default(),
-                },
-                curation: TextProfileCuration::default(),
-                dictionary_entries: Vec::new(),
-                snippet_entries: Vec::new(),
-            }],
-            ..AppConfig::default()
-        };
-
-        config.normalize_for_runtime();
-
-        let profile = &config.text_profiles[0];
-        assert_eq!(profile.work_mode.processing_mode, ProcessingMode::Agent);
+        assert!(config.auto_detect_mode);
     }
 
     #[test]
     fn processing_mode_as_str_roundtrip() {
         for mode in &[
+            ProcessingMode::Auto,
             ProcessingMode::Cleanup,
             ProcessingMode::Rewrite,
             ProcessingMode::Agent,

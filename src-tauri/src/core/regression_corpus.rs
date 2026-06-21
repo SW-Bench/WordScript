@@ -218,7 +218,6 @@ fn corpus_profile_health_initialization_does_not_panic() {
             acknowledged_flags: Vec::new(),
             bias_mode: None,
             processing_mode: None,
-            agent_mode_enabled: false,
             profile_id: None,
         });
     }

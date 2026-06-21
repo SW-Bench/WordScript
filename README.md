@@ -63,7 +63,7 @@ Long-term, WordScript can grow beyond dictation into a broader open voice worksp
 - smoother guided local setup so users are led through runner, model and cleanup setup instead of having to assemble the full environment by hand
 - final polish for the Settings tabs as the primary utility-app surface, especially hierarchy, calm, spacing and motion across Provider & Models, Text Rules, About and Diagnostics
 - opt-in app- or context-based activation for the now-manual work-mode profiles
-  (the underlying `mode_router` plus `workspace_context::detect_active_app` plus `auto_detect_mode` flag and `workspace_app_map` are already live; the open part is curated defaults, more workspace heuristics and the deeper opt-in UX for confirmed agent-mode work-mode profiles)
+  (the underlying `mode_router` plus `workspace_context::detect_active_app` plus `auto_detect_mode` flag are already live; the open part is curated defaults, more workspace heuristics and the deeper opt-in UX for confirmed agent-mode work-mode profiles)
 - a full live-preview and controlled-commit overlay across every delivery mode; the current overlay now has a real processing-time preview for `clipboard_only` profiles plus honest post-run `copy`, `retry`, `restore` and dismiss actions, but auto-paste modes still do not pause on a pre-commit decision path and there is still no scratchpad-open action
 - at least one second production provider plus a clearer mode model for `fast`, `quality`, `local` and `self_hosted`
 - automated local model management, install/pull actions and a smoother first-run path beyond the current local runtime preflight checklist

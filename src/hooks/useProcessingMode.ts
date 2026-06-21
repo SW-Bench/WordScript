@@ -35,14 +35,6 @@ export function useProcessingMode(initialMode: ProcessingMode) {
     }
   }, []);
 
-  const addAppMapping = useCallback(async (appCategory: string, selectedMode: ProcessingMode) => {
-    await invoke("add_workspace_app_mapping", { appCategory, mode: selectedMode });
-  }, []);
-
-  const removeAppMapping = useCallback(async (appCategory: string) => {
-    await invoke("remove_workspace_app_mapping", { appCategory });
-  }, []);
-
   useEffect(() => {
     const unlistenPromise = listen<ProcessingModeEvent>(
       MODE_EVENT_CHANNEL,
@@ -60,6 +52,5 @@ export function useProcessingMode(initialMode: ProcessingMode) {
     isOverride, autoDetected, detectedFrom,
     workspaceContext,
     setModeOverride, clearOverride, detectWorkspaceContext,
-    addAppMapping, removeAppMapping,
   };
 }

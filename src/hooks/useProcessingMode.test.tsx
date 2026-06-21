@@ -46,9 +46,9 @@ describe("useProcessingMode", () => {
   it("returns initial mode", async () => {
     const useProcessingMode = await importHook();
 
-    const { result } = renderHook(() => useProcessingMode("cleanup"));
+    const { result } = renderHook(() => useProcessingMode("auto"));
 
-    expect(result.current.mode).toBe("cleanup");
+    expect(result.current.mode).toBe("auto");
     expect(result.current.subMode).toBe("enhance");
     expect(result.current.isOverride).toBe(false);
     expect(result.current.autoDetected).toBe(false);
@@ -58,7 +58,7 @@ describe("useProcessingMode", () => {
     invokeMock.mockResolvedValue(undefined);
     const useProcessingMode = await importHook();
 
-    const { result } = renderHook(() => useProcessingMode("cleanup"));
+    const { result } = renderHook(() => useProcessingMode("auto"));
 
     await act(async () => {
       await result.current.setModeOverride("agent", "expand");
@@ -74,7 +74,7 @@ describe("useProcessingMode", () => {
     invokeMock.mockResolvedValue(undefined);
     const useProcessingMode = await importHook();
 
-    const { result } = renderHook(() => useProcessingMode("cleanup"));
+    const { result } = renderHook(() => useProcessingMode("auto"));
 
     await act(async () => {
       await result.current.setModeOverride("rewrite");
@@ -100,7 +100,7 @@ describe("useProcessingMode", () => {
     invokeMock.mockResolvedValue(mockContext);
     const useProcessingMode = await importHook();
 
-    const { result } = renderHook(() => useProcessingMode("cleanup"));
+    const { result } = renderHook(() => useProcessingMode("auto"));
 
     let context: unknown = null;
     await act(async () => {
@@ -116,7 +116,7 @@ describe("useProcessingMode", () => {
     invokeMock.mockRejectedValue(new Error("Not implemented"));
     const useProcessingMode = await importHook();
 
-    const { result } = renderHook(() => useProcessingMode("cleanup"));
+    const { result } = renderHook(() => useProcessingMode("auto"));
 
     let context: unknown = "not called";
     await act(async () => {
@@ -130,7 +130,7 @@ describe("useProcessingMode", () => {
   it("listens for mode-change events from Rust", async () => {
     const useProcessingMode = await importHook();
 
-    const { result } = renderHook(() => useProcessingMode("cleanup"));
+    const { result } = renderHook(() => useProcessingMode("auto"));
 
     await act(async () => {
       emitModeEvent({ mode: "prompt_enhance", is_override: false, auto_detected: true });
@@ -140,37 +140,6 @@ describe("useProcessingMode", () => {
       expect(result.current.mode).toBe("prompt_enhance");
       expect(result.current.autoDetected).toBe(true);
       expect(result.current.isOverride).toBe(false);
-    });
-  });
-
-  it("calls addAppMapping invoke", async () => {
-    invokeMock.mockResolvedValue(undefined);
-    const useProcessingMode = await importHook();
-
-    const { result } = renderHook(() => useProcessingMode("cleanup"));
-
-    await act(async () => {
-      await result.current.addAppMapping("ide", "prompt_enhance");
-    });
-
-    expect(invokeMock).toHaveBeenCalledWith("add_workspace_app_mapping", {
-      appCategory: "ide",
-      mode: "prompt_enhance",
-    });
-  });
-
-  it("calls removeAppMapping invoke", async () => {
-    invokeMock.mockResolvedValue(undefined);
-    const useProcessingMode = await importHook();
-
-    const { result } = renderHook(() => useProcessingMode("cleanup"));
-
-    await act(async () => {
-      await result.current.removeAppMapping("ide");
-    });
-
-    expect(invokeMock).toHaveBeenCalledWith("remove_workspace_app_mapping", {
-      appCategory: "ide",
     });
   });
 });

@@ -26,7 +26,7 @@ export type TextProfileRewriteStyle = "verbatim" | "clean" | "polished";
 export type TextProfileInsertBehavior = "auto_paste" | "clipboard_only";
 export type TextProfileRecoveryBehavior = "standard";
 
-export type ProcessingMode = "cleanup" | "rewrite" | "agent" | "prompt_enhance" | "verbatim";
+export type ProcessingMode = "auto" | "cleanup" | "rewrite" | "agent" | "prompt_enhance" | "verbatim";
 export type EnhanceSubMode = "enhance" | "expand";
 export type PromptTarget = "general" | "claude_code" | "cursor" | "chatgpt" | "copilot";
 
@@ -176,7 +176,6 @@ export interface AppConfig {
   temp_audio_dir:          string;
   history_limit:           number;
   history_retention_days:  number;
-  agent_mode_enabled:      boolean;
   agent_name:              string;
   agent_model:             string;
   local_agent_model:       string;
@@ -184,9 +183,9 @@ export interface AppConfig {
   enhance_sub_mode?:        EnhanceSubMode | null;
   enhance_target?:          PromptTarget;
   auto_detect_mode?:        boolean;
-  workspace_app_map?:       Record<string, ProcessingMode>;
   mode_picker_hotkey?:      string;
   mode_cycle_hotkey?:       string;
+  mode_auto_hotkey?:        string;
   mode_verbatim_hotkey?:    string;
   mode_cleanup_hotkey?:     string;
   mode_rewrite_hotkey?:     string;

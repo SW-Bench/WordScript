@@ -200,8 +200,6 @@ pub struct GetProfileHealthRequest {
     #[serde(default)]
     pub processing_mode: Option<String>,
     #[serde(default)]
-    pub agent_mode_enabled: bool,
-    #[serde(default)]
     pub profile_id: Option<String>,
 }
 
@@ -217,7 +215,6 @@ pub fn analyze_profile_health(
         acknowledged_flags,
         None,
         None,
-        false,
     )
 }
 
@@ -227,7 +224,6 @@ pub fn analyze_profile_health_with_policy(
     acknowledged_flags: &[String],
     bias_mode: Option<&str>,
     processing_mode: Option<&str>,
-    agent_mode_enabled: bool,
 ) -> ProfileHealthStatus {
     let mut flags = Vec::new();
 
@@ -240,7 +236,7 @@ pub fn analyze_profile_health_with_policy(
     if let Some(flag) = detect_cleanup_interference(prompt) {
         flags.push(flag);
     }
-    if let Some(flag) = detect_bias_policy_weak(bias_mode, processing_mode, agent_mode_enabled) {
+    if let Some(flag) = detect_bias_policy_weak(bias_mode, processing_mode) {
         flags.push(flag);
     }
 
@@ -291,11 +287,10 @@ fn is_red_flag(flag: &ProfileHealthFlag) -> bool {
 fn detect_bias_policy_weak(
     bias_mode: Option<&str>,
     processing_mode: Option<&str>,
-    agent_mode_enabled: bool,
 ) -> Option<ProfileHealthFlag> {
-    // BiasPolicyWeak fires only when bias_mode == Off AND the active processing mode
-    // amplifies the lack of STT bias (agent, prompt_enhance) or agent_mode is on globally.
-    // Cleanup / Rewrite / Verbatim do not need STT bias, so Off is fine for them.
+    // BiasPolicyWeak fires only when bias_mode == Off AND the active processing
+    // mode amplifies the lack of STT bias (agent, prompt_enhance). Cleanup /
+    // Rewrite / Verbatim do not need STT bias, so Off is fine for them.
     let is_off = bias_mode
         .map(|mode| mode.eq_ignore_ascii_case("off"))
         .unwrap_or(false);
@@ -308,9 +303,9 @@ fn detect_bias_policy_weak(
         Some("agent") | Some("prompt_enhance")
     );
 
-    if mode_amplifies_bias || agent_mode_enabled {
+    if mode_amplifies_bias {
         return Some(ProfileHealthFlag::BiasPolicyWeak {
-            hint: "Bias Mode is Off but the active Processing Mode (agent / prompt_enhance) or agent mode depends on STT vocabulary. Re-enable Conservative or Manual bias to keep STT quality stable.".to_string(),
+            hint: "Bias Mode is Off but the active Processing Mode (agent / prompt_enhance) depends on STT vocabulary. Re-enable Conservative or Manual bias to keep STT quality stable.".to_string(),
         });
     }
 
@@ -456,7 +451,6 @@ pub fn get_profile_health(request: GetProfileHealthRequest) -> Result<ProfileHea
         &combined,
         request.bias_mode.as_deref(),
         request.processing_mode.as_deref(),
-        request.agent_mode_enabled,
     ))
 }
 
@@ -1205,7 +1199,6 @@ mod tests {
             &[],
             None,
             None,
-            false,
         );
         assert_eq!(status.level, ProfileHealthLevel::Red);
         assert!(status.flags.iter().any(|f| matches!(f, ProfileHealthFlag::FormConflict { .. })));
@@ -1218,8 +1211,7 @@ mod tests {
             &[],
             &[],
             Some("off"),
-            Some("cleanup"),
-            true,
+            Some("agent"),
         );
         assert_eq!(status.level, ProfileHealthLevel::Red);
         assert!(status
@@ -1236,7 +1228,6 @@ mod tests {
             &[],
             Some("off"),
             Some("prompt_enhance"),
-            false,
         );
         assert_eq!(status.level, ProfileHealthLevel::Red);
         assert!(status
@@ -1260,7 +1251,6 @@ mod tests {
             &[],
             None,
             None,
-            false,
         );
         // LengthBias alone is yellow, not red.
         assert_eq!(status.level, ProfileHealthLevel::Yellow);
@@ -1285,7 +1275,6 @@ mod tests {
             &["length_bias".to_string(), "form_conflict".to_string()],
             None,
             None,
-            false,
         );
         assert_eq!(status.level, ProfileHealthLevel::Green);
     }
@@ -1298,7 +1287,6 @@ mod tests {
             &[],
             Some("off"),
             Some("cleanup"),
-            false,
         );
         assert!(
             !status
@@ -1317,7 +1305,6 @@ mod tests {
             &["bias_policy_weak".to_string()],
             Some("off"),
             Some("agent"),
-            false,
         );
         assert_eq!(status.level, ProfileHealthLevel::Green);
     }

@@ -297,7 +297,7 @@ body.overlay-window {
 
 ### 5.4 Workspace
 - Grid der Profil-Arbeitsmodi
-- Visuelle App-Zuordnung (wie `workspace_app_map`, aber mit Icons)
+- Visuelle App-Kontext-Anzeige (Workspace-Context als Wahrscheinlichkeitssignal fuer Auto-Mode, nicht als deterministisches Mapping)
 - Auto-Detect-Toggle global
 
 ### 5.5 Account

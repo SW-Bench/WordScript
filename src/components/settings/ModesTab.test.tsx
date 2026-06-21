@@ -15,35 +15,43 @@ describe("ModesTab", () => {
     onChange.mockReset();
   });
 
-  it("renders the processing mode radio selectors with cleanup as default", () => {
+  it("renders the processing mode radio selectors with one mode selected", () => {
     render(<ModesTab config={createAppConfig()} onChange={onChange} />);
 
-    expect(screen.getByText("Default processing mode")).toBeInTheDocument();
+    expect(screen.getByText("Processing mode")).toBeInTheDocument();
 
     const modeSection = screen.getByLabelText("Processing mode selector");
     const allModes = modeSection.querySelectorAll("input[type='radio']");
-    expect(allModes.length).toBe(5);
-    const cleanupInput = modeSection.querySelector("input[value='cleanup']") as HTMLInputElement;
-    expect(cleanupInput.checked).toBe(true);
+    expect(allModes.length).toBe(6);
+    const checkedInput = modeSection.querySelector("input[checked]") as HTMLInputElement | null;
+    expect(checkedInput).toBeTruthy();
+    expect(["auto", "verbatim", "cleanup", "rewrite", "agent", "prompt_enhance"]).toContain(checkedInput!.value);
   });
 
-  it("fires onChange when selecting a different processing mode", () => {
+  it("fires onChange with updated text_profiles when selecting a different processing mode", () => {
     render(<ModesTab config={createAppConfig()} onChange={onChange} />);
 
     const modeSection = screen.getByLabelText("Processing mode selector");
     const verbatimRadio = modeSection.querySelector("input[value='verbatim']") as HTMLInputElement;
     fireEvent.click(verbatimRadio);
 
-    expect(onChange).toHaveBeenCalledWith({ processing_mode: "verbatim" });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const patch = onChange.mock.calls[0][0] as Partial<AppConfig>;
+    expect(patch.text_profiles).toBeDefined();
+    const profiles = patch.text_profiles!;
+    const activeProfile = profiles.find((p) => p.id === "general");
+    expect(activeProfile).toBeDefined();
+    expect(activeProfile!.work_mode?.processing_mode).toBe("verbatim");
   });
 
   it("shows enhance sub-mode options only when prompt_enhance is selected", () => {
-    render(
-      <ModesTab
-        config={createAppConfig({ processing_mode: "prompt_enhance" })}
-        onChange={onChange}
-      />
+    const config = createAppConfig();
+    config.text_profiles = config.text_profiles.map((p) =>
+      p.id === "general"
+        ? { ...p, work_mode: { ...p.work_mode!, processing_mode: "prompt_enhance" } }
+        : p,
     );
+    render(<ModesTab config={config} onChange={onChange} />);
 
     expect(screen.getByText("Enhance sub-mode")).toBeInTheDocument();
     expect(screen.getByText("Prompt target")).toBeInTheDocument();
@@ -51,90 +59,56 @@ describe("ModesTab", () => {
   });
 
   it("hides enhance sub-mode when cleanup is selected", () => {
-    render(
-      <ModesTab
-        config={createAppConfig({ processing_mode: "cleanup" })}
-        onChange={onChange}
-      />
+    const config = createAppConfig();
+    config.text_profiles = config.text_profiles.map((p) =>
+      p.id === "general"
+        ? { ...p, work_mode: { ...p.work_mode!, processing_mode: "cleanup" } }
+        : p,
     );
+    render(<ModesTab config={config} onChange={onChange} />);
 
     expect(screen.queryByText("Enhance sub-mode")).not.toBeInTheDocument();
     expect(screen.queryByText("Prompt target")).not.toBeInTheDocument();
   });
 
-  it("toggles auto-detect checkbox", () => {
+  it("shows cleanup settings card always visible", () => {
     render(<ModesTab config={createAppConfig()} onChange={onChange} />);
 
-    const checkbox = screen.getByLabelText(/extend overlay with detected app/i);
+    expect(screen.getByText("Cleanup settings")).toBeInTheDocument();
+    expect(screen.getByLabelText(/ai cleanup/i)).toBeInTheDocument();
+  });
+
+  it("toggles auto-detect checkbox", () => {
+    render(<ModesTab config={createAppConfig({ auto_detect_mode: false })} onChange={onChange} />);
+
+    const checkbox = screen.getByLabelText(/collect workspace context/i);
     fireEvent.click(checkbox);
 
     expect(onChange).toHaveBeenCalledWith({ auto_detect_mode: true });
   });
 
-  it("renders auto-detect section", () => {
+  it("renders workspace context section", () => {
     render(<ModesTab config={createAppConfig()} onChange={onChange} />);
 
-    expect(screen.getByText("Auto-detection")).toBeInTheDocument();
-    expect(screen.getByLabelText(/extend overlay with detected app/i)).toBeInTheDocument();
+    expect(screen.getByText("Workspace context")).toBeInTheDocument();
+    expect(screen.getByLabelText(/collect workspace context/i)).toBeInTheDocument();
   });
 
-  it("renders per-app mapping section", () => {
+  it("does not render per-app mapping section", () => {
     render(<ModesTab config={createAppConfig()} onChange={onChange} />);
 
-    expect(screen.getByText("Per-app mapping")).toBeInTheDocument();
-    expect(screen.getByText("Add mapping")).toBeInTheDocument();
+    expect(screen.queryByText("Per-app mapping")).not.toBeInTheDocument();
+    expect(screen.queryByText("Add mapping")).not.toBeInTheDocument();
   });
 
-  it("shows existing app mappings", () => {
-    render(
-      <ModesTab
-        config={createAppConfig({
-          workspace_app_map: {
-            ide: "prompt_enhance",
-            browser: "cleanup",
-          },
-        })}
-        onChange={onChange}
-      />
-    );
-
-    const appMappingSection = screen.getByLabelText("Per-app mode mappings");
-    expect(appMappingSection).toBeInTheDocument();
-    const chipTexts = Array.from(appMappingSection.querySelectorAll("span")).map((c) => c.textContent);
-    expect(chipTexts).toContain("IDE");
-    expect(chipTexts).toContain("Browser");
-    expect(chipTexts).toContain("Prompt Enhance");
-    expect(chipTexts).toContain("Cleanup");
-  });
-
-  it("removes an app mapping when trash button clicked", () => {
-    render(
-      <ModesTab
-        config={createAppConfig({
-          workspace_app_map: {
-            ide: "prompt_enhance",
-          },
-        })}
-        onChange={onChange}
-      />
-    );
-
-    const removeButton = screen.getByLabelText(/remove ide mapping/i);
-    fireEvent.click(removeButton);
-
-    expect(onChange).toHaveBeenCalledWith({
-      workspace_app_map: {},
-    });
-  });
-
-  it("renders hotkey recorders", () => {
+  it("renders hotkey recorders including auto mode", () => {
     render(<ModesTab config={createAppConfig()} onChange={onChange} />);
 
     expect(screen.getByText("Hotkeys")).toBeInTheDocument();
     expect(screen.getByText("Mode picker")).toBeInTheDocument();
     expect(screen.getByText("Cycle mode")).toBeInTheDocument();
-    const hotkeyRecorderLabels = screen.getAllByText(/^(Verbatim|Cleanup|Rewrite|Agent|Prompt Enhance)$/);
-    expect(hotkeyRecorderLabels.length).toBeGreaterThanOrEqual(5);
+    const hotkeyRecorderLabels = screen.getAllByText(/^(Auto|Verbatim|Cleanup|Rewrite|Agent|Prompt Enhance)$/);
+    expect(hotkeyRecorderLabels.length).toBeGreaterThanOrEqual(6);
   });
 
   it("fires onChange for mode picker hotkey", () => {
@@ -145,5 +119,29 @@ describe("ModesTab", () => {
     fireEvent.click(modePickerRecorder);
 
     expect(screen.getByText(/press your shortcut/i)).toBeInTheDocument();
+  });
+
+  it("shows agent controls when agent mode is selected", () => {
+    const config = createAppConfig();
+    config.text_profiles = config.text_profiles.map((p) =>
+      p.id === "general"
+        ? { ...p, work_mode: { ...p.work_mode!, processing_mode: "agent" } }
+        : p,
+    );
+    render(<ModesTab config={config} onChange={onChange} />);
+
+    expect(screen.getByText("Agent name")).toBeInTheDocument();
+  });
+
+  it("does not show agent controls when cleanup is selected", () => {
+    const config = createAppConfig();
+    config.text_profiles = config.text_profiles.map((p) =>
+      p.id === "general"
+        ? { ...p, work_mode: { ...p.work_mode!, processing_mode: "cleanup" } }
+        : p,
+    );
+    render(<ModesTab config={config} onChange={onChange} />);
+
+    expect(screen.queryByText("Agent name")).not.toBeInTheDocument();
   });
 });

@@ -844,59 +844,183 @@ fn handle_audio_ready<R: Runtime + 'static>(
                 ));
                 let transformed = {
                     let app_config = pipeline_app_config.clone();
-                    if app_config.agent_mode_enabled {
-                        let agent_model = if transform_config.provider
-                            == core::providers::LOCAL_PREVIEW_PROVIDER_ID
-                        {
-                            app_config.local_agent_model.clone()
+                    let active_profile = app_config
+                        .text_profiles
+                        .iter()
+                        .find(|p| p.id == app_config.active_text_profile_id);
+
+                    // Resolve the effective processing mode. The active
+                    // profile's work_mode is the primary control surface (the
+                    // Modes tab writes into it). The global config.processing_mode
+                    // is a serde fallback for pre-migration configs. A manual
+                    // override (overlay cycle or per-mode hotkey) wins over both.
+                    let profile_mode = active_profile
+                        .map(|p| p.work_mode.effective_processing_mode())
+                        .unwrap_or_else(|| app_config.processing_mode.clone());
+                    let override_mode = core::mode_router::current_mode_override();
+                    let resolved = core::mode_router::resolve_processing_mode(
+                        profile_mode,
+                        override_mode,
+                    );
+                    let mut effective_mode = resolved.mode;
+
+                    // When Auto is active, resolve into a concrete mode using
+                    // the transcript text and (optionally) the workspace
+                    // context as signals.
+                    if effective_mode.is_auto() {
+                        let workspace_category = if app_config.auto_detect_mode {
+                            tauri::async_runtime::spawn_blocking(|| {
+                                core::workspace_context::detect_active_app().category
+                            })
+                            .await
+                            .unwrap_or_default()
                         } else {
-                            app_config.agent_model.clone()
+                            String::new()
                         };
-                        let active_profile = app_config
-                            .text_profiles
-                            .iter()
-                            .find(|p| p.id == app_config.active_text_profile_id);
-                        let agent_config = core::agent::AgentConfig {
-                            provider: transform_config.provider.clone(),
-                            agent_name: app_config.agent_name.clone(),
-                            agent_model,
-                            profile_label: active_profile
-                                .map(|p| p.label.clone())
-                                .unwrap_or_default(),
-                            profile_prompt: transform_config.profile_prompt.clone(),
-                            stt_hints: active_profile
-                                .map(|p| p.stt_hints.clone())
-                                .unwrap_or_default(),
-                            dictionary_entries: transform_config.dictionary_entries.clone(),
-                            snippet_entries: transform_config.snippet_entries.clone(),
-                        };
-                        let is_instruction = core::agent::detect_agent_intent(
+                        effective_mode = core::mode_router::resolve_auto_mode(
+                            effective_mode,
                             &response.text,
-                            &agent_config,
-                        )
-                        .await;
-                        if is_instruction {
-                            let result = core::agent::apply_agent_transform(
+                            if workspace_category.is_empty() {
+                                None
+                            } else {
+                                Some(&workspace_category)
+                            },
+                            &app_config.agent_name,
+                        );
+                    }
+
+                    core::runtime_log::record(format!(
+                        "[WordScript] Processing mode resolved effective={} auto_detected={} is_override={}",
+                        effective_mode.as_str(),
+                        resolved.auto_detected,
+                        resolved.is_override,
+                    ));
+
+                    // Adjust the transform config so the cleanup pipeline honours
+                    // the effective mode. The global toggles (post_process,
+                    // filter_fillers, professionalize) are the user's intent for
+                    // Auto/Cleanup; concrete modes override them deterministically.
+                    let mut mode_transform_config = transform_config.clone();
+                    match effective_mode {
+                        core::config::ProcessingMode::Verbatim => {
+                            mode_transform_config.post_process = false;
+                        }
+                        core::config::ProcessingMode::Cleanup => {
+                            mode_transform_config.post_process = true;
+                            mode_transform_config.filter_fillers = true;
+                            // professionalize stays as configured (off by default)
+                        }
+                        core::config::ProcessingMode::Rewrite => {
+                            mode_transform_config.post_process = true;
+                            mode_transform_config.filter_fillers = true;
+                            mode_transform_config.professionalize = true;
+                        }
+                        _ => {}
+                    }
+
+                    match effective_mode {
+                        core::config::ProcessingMode::Agent => {
+                            let agent_model = if transform_config.provider
+                                == core::providers::LOCAL_PREVIEW_PROVIDER_ID
+                            {
+                                app_config.local_agent_model.clone()
+                            } else {
+                                app_config.agent_model.clone()
+                            };
+                            let agent_config = core::agent::AgentConfig {
+                                provider: mode_transform_config.provider.clone(),
+                                agent_name: app_config.agent_name.clone(),
+                                agent_model,
+                                profile_label: active_profile
+                                    .map(|p| p.label.clone())
+                                    .unwrap_or_default(),
+                                profile_prompt: mode_transform_config.profile_prompt.clone(),
+                                stt_hints: active_profile
+                                    .map(|p| p.stt_hints.clone())
+                                    .unwrap_or_default(),
+                                dictionary_entries: mode_transform_config.dictionary_entries.clone(),
+                                snippet_entries: mode_transform_config.snippet_entries.clone(),
+                            };
+                            let is_instruction = core::agent::detect_agent_intent(
                                 &response.text,
                                 &agent_config,
                             )
                             .await;
+                            if is_instruction {
+                                let result = core::agent::apply_agent_transform(
+                                    &response.text,
+                                    &agent_config,
+                                )
+                                .await;
+                                core::transform::NativeTransformResult {
+                                    text: result.text,
+                                    corrected: result.was_agent,
+                                    applied_rules: vec!["agent_mode".to_string()],
+                                    warning: result.warning,
+                                }
+                            } else {
+                                core::transform::apply_native_transform(
+                                    &response.text,
+                                    mode_transform_config,
+                                )
+                                .await
+                            }
+                        }
+                        core::config::ProcessingMode::PromptEnhance => {
+                            let enhance_model = if mode_transform_config.provider
+                                == core::providers::LOCAL_PREVIEW_PROVIDER_ID
+                            {
+                                app_config.local_agent_model.clone()
+                            } else {
+                                app_config.agent_model.clone()
+                            };
+                            let enhance_sub_mode = active_profile
+                                .and_then(|p| p.work_mode.enhance_sub_mode.clone())
+                                .or(app_config.enhance_sub_mode.clone())
+                                .unwrap_or_default();
+                            let enhance_target = active_profile
+                                .and_then(|p| p.work_mode.target.clone())
+                                .or(Some(app_config.enhance_target.clone()))
+                                .unwrap_or_default();
+                            let workspace_ctx =
+                                if app_config.auto_detect_mode {
+                                    Some(
+                                        tauri::async_runtime::spawn_blocking(|| {
+                                            core::workspace_context::detect_active_app()
+                                        })
+                                        .await
+                                        .unwrap_or_default(),
+                                    )
+                                } else {
+                                    None
+                                };
+                            let enhance_config = core::prompt_enhance::PromptEnhanceConfig {
+                                provider: mode_transform_config.provider.clone(),
+                                model: enhance_model,
+                                sub_mode: enhance_sub_mode.as_str().to_string(),
+                                target: enhance_target.as_str().to_string(),
+                                profile_prompt: mode_transform_config.profile_prompt.clone(),
+                                workspace_context: workspace_ctx,
+                            };
+                            let result = core::prompt_enhance::apply_prompt_enhance(
+                                &response.text,
+                                &enhance_config,
+                            )
+                            .await;
                             core::transform::NativeTransformResult {
                                 text: result.text,
-                                corrected: result.was_agent,
-                                applied_rules: vec!["agent_mode".to_string()],
+                                corrected: result.enhanced,
+                                applied_rules: vec!["prompt_enhance".to_string()],
                                 warning: result.warning,
                             }
-                        } else {
+                        }
+                        _ => {
                             core::transform::apply_native_transform(
                                 &response.text,
-                                transform_config,
+                                mode_transform_config,
                             )
                             .await
                         }
-                    } else {
-                        core::transform::apply_native_transform(&response.text, transform_config)
-                            .await
                     }
                 };
                 let app_config = pipeline_app_config.clone();
@@ -1654,8 +1778,7 @@ pub fn run() {
             core::mode_router::set_processing_mode_override,
             core::mode_router::clear_processing_mode_override,
             core::mode_router::resolve_current_processing_mode,
-            core::mode_router::add_workspace_app_mapping,
-            core::mode_router::remove_workspace_app_mapping,
+            core::mode_router::set_active_profile_processing_mode,
             core::prompt_enhance::preview_prompt_enhance,
             v1_slice::v1_slice_status,
             v1_slice::start_v1_slice_capture,

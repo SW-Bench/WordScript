@@ -50,17 +50,24 @@ Wenn README, Vision oder Architektur eine aktuelle Produktaussage brauchen, soll
 
 Diese Modi sind **orthogonal** zu den Provider-Modi oben und beschreiben, was mit dem diktierten Text passiert:
 
+- `auto`: Meta-Modus; pro Transkription entscheidet ein LLM-basiertes Routing zwischen Cleanup, Prompt Enhance und Agent (basierend auf Transkript-Text, Agent-Name und optionalem Workspace-Kontext)
 - `cleanup`: Standard-Korrektur ueber den aktiven Provider; Standard fuer die meisten Diktate
-- `rewrite`: polishing-Stil mit staerkerer Umformulierung; verhaelt sich zur Legacy-Option `polished`
-- `agent`: Diktat wird als Befehl an einen Agenten interpretiert; nur aktiv, wenn `agent_mode_enabled` gesetzt und Intent-Klassifizierung bestaetigt
-- `prompt_enhance`: Diktat wird als Prompt verstanden, ueber `prompt_enhance` strukturiert oder expandiert und mit `PromptTarget` (system/developer/user) an den Provider gegeben
+- `rewrite`: polishing-Stil mit staerkerer Umformulierung; verhaelt sich zur Legacy-Option `polished`; nur manuell waehlbar (nicht auto-detektiert)
+- `agent`: Diktat wird als Befehl an den Agenten interpretiert; Intent-Klassifizierung bestaetigt vor Ausfuehrung
+- `prompt_enhance`: Diktat wird als Prompt verstanden, ueber `prompt_enhance` strukturiert oder expandiert und mit `PromptTarget` an den Provider gegeben
 - `verbatim`: Rohtext ohne Cleanup, mit `clipboard_only`-Preview vor Commit
 
 Der effektive Modus wird pro Session durch `mode_router::resolve_processing_mode` aufgeloest:
 1. manueller Override (Mode-Picker / Mode-Cycle / per-Mode-Hotkey)
 2. aktiver Profil-Work-Mode (`processing_mode` aus `AppConfig`)
-3. `workspace_app_map` (nur bei aktivem `auto_detect_mode`)
-4. Fallback: `cleanup`
+3. Fallback: `auto`
+
+Wenn der effektive Modus `auto` ist, wird er pro Transkription durch `mode_router::resolve_auto_mode` in einen konkreten Modus aufgeloest, sobald der Transkript-Text verfuegbar ist. Signale:
+- Agent-Name + imperativer Verb → `agent`
+- Imperativ + IDE-Workspace-Kontext → `prompt_enhance`
+- sonst → `cleanup`
+
+Der Workspace-Kontext ist nur ein Wahrscheinlichkeitssignal, kein deterministisches Mapping (`workspace_app_map` wurde entfernt).
 
 ### Lokale Runtime-Voraussetzungen
 

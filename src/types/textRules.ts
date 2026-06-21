@@ -22,7 +22,6 @@ export interface GetProfileHealthRequest {
   acknowledged_flags: string[];
   bias_mode?: string | null;
   processing_mode?: string | null;
-  agent_mode_enabled?: boolean;
   profile_id?: string | null;
 }
 

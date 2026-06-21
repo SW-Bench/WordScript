@@ -18,6 +18,7 @@ import "../../styles/overlay-pill.css";
 /* ── Public types ────────────────────────────────────────────────────────── */
 
 export type OverlayProcessingMode =
+  | "auto"
   | "verbatim"
   | "cleanup"
   | "rewrite"
@@ -81,6 +82,7 @@ const IDLE_BARS = [5, 7, 9, 12, 15, 17, 15, 12, 9, 7, 5];
 
 function modeShortLabel(mode: OverlayProcessingMode): string {
   switch (mode) {
+    case "auto": return "Auto";
     case "cleanup": return "Cleanup";
     case "rewrite": return "Rewrite";
     case "agent": return "Agent";

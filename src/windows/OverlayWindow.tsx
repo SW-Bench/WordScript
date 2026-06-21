@@ -1,4 +1,4 @@
-import { type MouseEvent, type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, type PointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -19,7 +19,7 @@ import "../styles/overlay-shell.css";
 const RUNTIME_EVENT_CHANNEL = "wordscript-event";
 // Order the in-overlay mode cycler rotates through. Mirrors the modes exposed in
 // Settings → Modes.
-const MODE_CYCLE: ProcessingMode[] = ["verbatim", "cleanup", "rewrite", "prompt_enhance", "agent"];
+const MODE_CYCLE: ProcessingMode[] = ["auto", "verbatim", "cleanup", "rewrite", "prompt_enhance", "agent"];
 const OVERLAY_ENTER_MS = 320;
 const OVERLAY_LEAVE_MS = 240;
 const DRAG_DISTANCE_THRESHOLD = 6;
@@ -70,19 +70,26 @@ function setOverlayDocumentState(idle: boolean) {
   });
 }
 
-// Derives the processing mode the active session actually runs in, straight from
-// runtime config. Mirrors the native migration so the pill stays honest even for
-// configs written before processing modes existed — never a guessed placeholder.
+// Derives the processing mode from runtime config as a fallback for the
+// initial render before the first `resolve_current_processing_mode` call
+// resolves. The overlay's primary source of truth is the Tauri command
+// `resolve_current_processing_mode`, kept in sync via `wordscript-mode-event`.
 function resolveOverlayProcessingMode(config: AppConfig): ProcessingMode {
   const workMode = resolveTextProfileWorkMode(resolveActiveTextProfile(config));
   const explicit = workMode.processing_mode ?? config.processing_mode;
   if (explicit) return explicit;
-  if (config.agent_mode_enabled) return "agent";
   switch (workMode.rewrite_style) {
     case "verbatim": return "verbatim";
     case "polished": return "rewrite";
-    default: return "cleanup";
+    default: return "auto";
   }
+}
+
+interface ResolvedProcessingContext {
+  mode: ProcessingMode;
+  is_override: boolean;
+  auto_detected: boolean;
+  detected_from: string | null;
 }
 
 // Collapses the native capture payload into a single perceptual level (0–1) that
@@ -125,7 +132,18 @@ export default function OverlayWindow() {
   const [actionPending, setActionPending] = useState<"commit" | "abort" | "copy" | "edit" | "insert" | null>(null);
   const [editText, setEditText] = useState("");
   const [showEditMode, setShowEditMode] = useState(false);
-  const [modeOverride, setModeOverride] = useState<ProcessingMode | null>(null);
+  // Effective processing mode from the Rust runtime (the single source of
+  // truth). Fetched via `resolve_current_processing_mode` and kept in sync
+  // through `wordscript-mode-event` events.
+  const [effectiveMode, setEffectiveMode] = useState<ProcessingMode | null>(null);
+  const fetchEffectiveMode = useCallback(async () => {
+    try {
+      const ctx = await invoke<ResolvedProcessingContext>("resolve_current_processing_mode");
+      setEffectiveMode(ctx.mode);
+    } catch {
+      setEffectiveMode(null);
+    }
+  }, []);
   const pendingPreviewResult = state.pendingResult;
   const previewResult = state.lastResult;
   const showProcessingPreview = Boolean(isProcessing && pendingPreviewResult && !showError);
@@ -414,11 +432,20 @@ export default function OverlayWindow() {
     }
   }, [isActive, overlayMotion, overlaySurface]);
 
-  const processingMode = useMemo(
+  // Fallback from local config for the very first render before the Tauri
+  // command resolves. Once effectiveMode is populated it becomes the sole
+  // source of truth.
+  const configFallbackMode = useMemo(
     () => (state.config ? resolveOverlayProcessingMode(state.config) : null),
     [state.config],
   );
-  const pillMode: OverlayProcessingMode = modeOverride ?? processingMode ?? "cleanup";
+  const pillMode: OverlayProcessingMode = effectiveMode ?? configFallbackMode ?? "auto";
+
+  // Re-fetch effective mode when config changes (e.g. after a settings save
+  // that changes the profile default).
+  useEffect(() => {
+    if (state.config) void fetchEffectiveMode();
+  }, [state.config, fetchEffectiveMode]);
 
   // Fixed per-surface window size. Dynamic pill-based sizing is unreliable on
   // WebKitGTK/GTK: set_size is applied ASYNCHRONOUSLY (one event-loop tick
@@ -482,6 +509,18 @@ export default function OverlayWindow() {
     });
     return () => { unlisten.then(fn => fn()); };
   }, [paused]);
+
+  // Listen for processing-mode events from the Rust runtime so the pill stays
+  // in sync when the mode changes from outside the overlay (per-mode hotkey,
+  // settings save, overlay cycle, auto-resolution). The effective mode is
+  // always re-fetched from the backend to keep a single source of truth.
+  useEffect(() => {
+    void fetchEffectiveMode();
+    const unlisten = listen<unknown>("wordscript-mode-event", () => {
+      void fetchEffectiveMode();
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, [fetchEffectiveMode]);
 
   // Settle the level when capture is not actively producing sound.
   useEffect(() => {
@@ -565,16 +604,19 @@ export default function OverlayWindow() {
     event.stopPropagation();
   };
 
-  // Tap-to-cycle through processing modes straight from the overlay. Uses the
-  // native session override so the change applies to the in-flight pass without
-  // permanently rewriting the active profile.
+  // Tap-to-cycle through processing modes straight from the overlay. Uses
+  // `set_active_profile_processing_mode` so the change is persisted into the
+  // active profile's work_mode (survives restarts) and takes effect
+  // immediately via the runtime override. The effective mode is then
+  // re-fetched so the pill reflects the backend's resolved state.
   const handleCycleMode = () => {
-    const current = modeOverride ?? processingMode;
+    const current = effectiveMode ?? configFallbackMode;
     if (!current) return;
     const index = MODE_CYCLE.indexOf(current);
     const next = MODE_CYCLE[(index + 1) % MODE_CYCLE.length] ?? MODE_CYCLE[0];
-    setModeOverride(next);
-    void invoke("set_processing_mode_override", { mode: next }).catch(() => {});
+    void invoke("set_active_profile_processing_mode", { mode: next })
+      .then(() => fetchEffectiveMode())
+      .catch(() => {});
   };
 
   const beginOverlayAction = (action: "commit" | "abort" | "copy" | "edit" | "insert") => {

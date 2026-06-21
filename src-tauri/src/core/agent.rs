@@ -30,7 +30,7 @@ const IMPERATIVE_VERB_STEMS: &[&str] = &[
 ];
 
 // Score threshold above which we skip the LLM classifier and route directly to agent.
-const HEURISTIC_CERTAIN_THRESHOLD: f32 = 0.75;
+pub const HEURISTIC_CERTAIN_THRESHOLD: f32 = 0.75;
 
 // Maximum characters sent to the intent-classifier LLM.
 const CLASSIFIER_INPUT_MAX_CHARS: usize = 400;
@@ -125,6 +125,29 @@ pub fn detect_agent_intent_heuristic(text: &str, agent_name: &str) -> f32 {
     }
 
     score.clamp(0.0, 1.0)
+}
+
+/// Returns true when the transcript opens with (or contains within the first
+/// few words) an imperative verb stem. Used by the auto-mode router as a
+/// lightweight signal that the user might be issuing an instruction rather
+/// than dictating prose.
+pub fn text_starts_with_imperative(text: &str) -> bool {
+    let lower = text.trim().to_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    let first_word = words.first().copied().unwrap_or("");
+    if IMPERATIVE_VERB_STEMS
+        .iter()
+        .any(|stem| first_word.starts_with(stem))
+    {
+        return true;
+    }
+    let first_10_words: String = words.iter().take(10).cloned().collect::<Vec<_>>().join(" ");
+    IMPERATIVE_VERB_STEMS
+        .iter()
+        .any(|stem| first_10_words.contains(stem))
 }
 
 /// Hybrid intent detection: heuristic first, LLM classifier only in uncertain zone.

@@ -117,7 +117,7 @@ Der aktive Produktkern sitzt in `src-tauri/src/core/`.
 
 ### Mode-Routing und Workspace
 
-- `mode_router.rs`: Aufloesung des effektiven `ProcessingMode` pro Session aus manuellem Override, aktivem Profil-Work-Mode, `auto_detect_mode` und `workspace_app_map`; exponiert den Tauri-Command `resolve_current_processing_mode`
+- `mode_router.rs`: Aufloesung des effektiven `ProcessingMode` pro Session aus manuellem Override und aktivem Profil-Work-Mode; wenn der effektive Modus `auto` ist, wird er pro Transkription durch `resolve_auto_mode` in einen konkreten Modus (cleanup/agent/prompt_enhance) aufgeloest, basierend auf Transkript-Text, Agent-Name und optionalem Workspace-Kontext; exponiert den Tauri-Command `resolve_current_processing_mode`
 - `workspace_context.rs`: Foreground-App-Detection auf macOS, Windows und Linux; nutzt `run_with_timeout` mit dedizierten Pipe-Drain-Threads (sonst bleibt `Output.stdout`/`stderr` leer), klassifiziert die App, erkennt Browser-Domain und IDE-Framework (aktuell nur macOS-Pfad produktiv, Cross-Plattform-Sniffing steht hinter `#[allow(dead_code)]` und ist Teil der naechsten Ausbau-Slice)
 - `prompt_enhance.rs`: Prompt-Strukturierung und -Expansion ueber den aktiven LLM-Pfad, Guardrail-Chain (empty, prompt_executes, language_mismatch, length_budget, semantic_drift) und Routing des bereinigten Ergebnisses in `transform.rs`
 
@@ -138,7 +138,7 @@ Der aktive Fluss sieht so aus:
 2. `capture.rs` startet die Aufnahme und emittiert Level-/Waveform-Events.
 3. Aufnahme endet durch Stop-Hotkey, Silence-Timeout, Max-Duration oder Abort.
 4. Audio wird als 16 kHz Mono-WAV fuer den Provider vorbereitet.
-5. `mode_router.rs` loest vor dem Transform den effektiven `ProcessingMode` (cleanup/rewrite/agent/prompt_enhance/verbatim) aus manuellem Override, aktivem Profil-Work-Mode, `auto_detect_mode` und `workspace_app_map` auf; der Renderer kann die effektive Mode ueber den `resolve_current_processing_mode`-Tauri-Command abfragen.
+5. `mode_router.rs` loest vor dem Transform den effektiven `ProcessingMode` (auto/cleanup/rewrite/agent/prompt_enhance/verbatim) aus manuellem Override und aktivem Profil-Work-Mode auf; bei `auto` wird der konkrete Modus pro Transkription durch `resolve_auto_mode` bestimmt (Agent-Name + imperativ → agent, imperativ + IDE-Kontext → prompt_enhance, sonst cleanup); der Renderer kann die effektive Mode ueber den `resolve_current_processing_mode`-Tauri-Command abfragen.
 6. `providers/mod.rs` loest den aktiven Provider auf und delegiert heute an `providers/groq.rs` oder `providers/local_preview.rs`.
 7. `transform.rs` prueft und bereinigt den Transkriptionsoutput und nutzt denselben Provider-Vertrag fuer AI cleanup; bei `prompt_enhance`-Mode wird der bereinigte Text zusaetzlich durch die `prompt_enhance`-Guardrail-Chain geschickt.
 

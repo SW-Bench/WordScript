@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -15,12 +14,23 @@ pub struct ProcessingContext {
     pub detected_from: Option<String>,
 }
 
+/// Resolves the effective processing mode for a session.
+///
+/// Priority:
+/// 1. Manual override (set via the overlay cycle or a per-mode hotkey)
+/// 2. Profile default (or global fallback)
+///
+/// `Auto` is returned as-is when no override is set and the profile default is
+/// `Auto`. The pipeline is responsible for resolving `Auto` into a concrete
+/// mode once the transcript is available — see [`resolve_auto_mode`].
+///
+/// The previous workspace-app-mapping layer was removed because browser and
+/// IDE detection proved too unreliable to drive deterministic mode selection.
+/// Workspace context is still collected and fed into the auto-mode intent
+/// detection as a probability signal.
 pub fn resolve_processing_mode(
     profile_mode: ProcessingMode,
     manual_override: Option<ProcessingMode>,
-    config_auto_detect: bool,
-    workspace_category: &str,
-    workspace_app_map: &HashMap<String, ProcessingMode>,
 ) -> ProcessingContext {
     if let Some(override_mode) = manual_override {
         return ProcessingContext {
@@ -31,28 +41,54 @@ pub fn resolve_processing_mode(
         };
     }
 
-    if config_auto_detect {
-        if let Some(mapped_mode) = workspace_app_map.get(workspace_category) {
-            if *mapped_mode != profile_mode {
-                return ProcessingContext {
-                    mode: mapped_mode.clone(),
-                    is_override: false,
-                    auto_detected: true,
-                    detected_from: Some(format!("workspace_map:{}", workspace_category)),
-                };
-            }
-        }
-    }
-
     ProcessingContext {
-        mode: profile_mode,
+        mode: profile_mode.clone(),
         is_override: false,
-        auto_detected: false,
+        auto_detected: profile_mode.is_auto(),
         detected_from: None,
     }
 }
 
-// Validation helper for the upcoming mode-conflict UI; exercised by unit tests.
+/// Resolves `Auto` into a concrete processing mode using the transcript text
+/// and optional workspace context as signals.
+///
+/// When the effective mode is already concrete, it is returned unchanged.
+///
+/// Detection signals (in priority order):
+/// 1. Agent-name + imperative verb → Agent
+/// 2. Imperative + IDE workspace context → Prompt Enhance
+/// 3. Otherwise → Cleanup (the safe default)
+///
+/// This is a deterministic first pass. The agent intent detection in
+/// `agent.rs` runs a second, LLM-backed classifier in the uncertain zone
+/// before the agent transform actually executes.
+pub fn resolve_auto_mode(
+    effective_mode: ProcessingMode,
+    transcript: &str,
+    workspace_category: Option<&str>,
+    agent_name: &str,
+) -> ProcessingMode {
+    if !effective_mode.is_auto() {
+        return effective_mode;
+    }
+
+    let agent_score = super::agent::detect_agent_intent_heuristic(transcript, agent_name);
+    if agent_score >= super::agent::HEURISTIC_CERTAIN_THRESHOLD {
+        return ProcessingMode::Agent;
+    }
+
+    let is_ide = workspace_category.map(|c| c == "ide").unwrap_or(false);
+    let has_imperative = super::agent::text_starts_with_imperative(transcript);
+
+    if has_imperative && is_ide {
+        return ProcessingMode::PromptEnhance;
+    }
+
+    // Default safe fallback for Auto mode.
+    ProcessingMode::Cleanup
+}
+
+// Validation helper for the mode-conflict UI; exercised by unit tests.
 #[allow(dead_code)]
 pub fn is_invalid_mode_combination(mode_a: &ProcessingMode, mode_b: &ProcessingMode) -> bool {
     matches!(
@@ -67,7 +103,9 @@ pub fn is_invalid_mode_combination(mode_a: &ProcessingMode, mode_b: &ProcessingM
 #[tauri::command]
 pub fn set_processing_mode_override(mode: String) -> Result<(), String> {
     let parsed = ProcessingMode::from_str(&mode);
-    if parsed == ProcessingMode::Cleanup && !matches!(mode.as_str(), "cleanup") {
+    // `from_str` falls back to Cleanup for unknown values. Detect that fallback
+    // and reject so the frontend gets a clear error for typos.
+    if parsed == ProcessingMode::Cleanup && !is_known_processing_mode(&mode) {
         return Err(format!("Unknown processing mode: {}", mode));
     }
     let mut override_lock = MODE_OVERRIDE.lock().map_err(|e| e.to_string())?;
@@ -86,9 +124,68 @@ pub fn current_mode_override() -> Option<ProcessingMode> {
     MODE_OVERRIDE.lock().ok().and_then(|guard| guard.clone())
 }
 
-/// Joins the active profile's mode, any manual override, and (when auto-detect is on)
-/// the workspace app map into a single resolved `ProcessingContext`. This is the seam
-/// the frontend uses to know which mode a dictation will actually run in.
+/// Persists the processing mode into the active profile's work_mode and saves
+/// to disk. Used by the overlay cycle so that a mode change sticks across
+/// sessions instead of being a transient runtime override.
+///
+/// Also sets a runtime override so the change takes effect immediately for an
+/// in-flight session without waiting for the next config load, and emits a
+/// `ready` event so the Settings window picks up the change.
+#[tauri::command]
+pub fn set_active_profile_processing_mode<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    mode: String,
+) -> Result<super::config::AppConfig, String> {
+    let parsed = ProcessingMode::from_str(&mode);
+    if parsed == ProcessingMode::Cleanup && !is_known_processing_mode(&mode) {
+        return Err(format!("Unknown processing mode: {}", mode));
+    }
+
+    let mut config = super::config::AppConfig::load_from_disk();
+
+    // Update the active profile's work_mode.
+    if let Some(profile) = config
+        .text_profiles
+        .iter_mut()
+        .find(|p| p.id == config.active_text_profile_id)
+    {
+        profile.work_mode.processing_mode = parsed.clone();
+    } else {
+        return Err("No active text profile found.".to_string());
+    }
+
+    // Also update the global fallback so it stays in sync.
+    config.processing_mode = parsed.clone();
+
+    config.save_to_disk()?;
+
+    // Set a runtime override so the change is immediate for an in-flight
+    // session (the next transcription picks it up without a config reload).
+    let mut override_lock = MODE_OVERRIDE.lock().map_err(|e| e.to_string())?;
+    *override_lock = Some(parsed);
+
+    // Emit a ready event so the Settings window syncs its form.
+    super::config::emit_ready_event(&app, &config);
+
+    Ok(config.without_secrets())
+}
+
+/// Joins the active profile's mode and any manual override into a single
+/// resolved `ProcessingContext`. This is the seam the frontend uses to know
+/// which mode a dictation will actually run in.
+///
+/// Priority:
+/// 1. Manual override (set via the overlay cycle or a per-mode hotkey)
+/// 2. Active profile work-mode (`work_mode.processing_mode`)
+/// 3. Global `config.processing_mode` (serde fallback for pre-migration configs)
+///
+/// The Modes tab writes the mode into the active profile's work_mode, so the
+/// profile is the primary control surface. The global field is only a
+/// fallback for very old configs that predate per-profile modes.
+///
+/// Note: when the resolved mode is `Auto`, the concrete mode is not yet known
+/// — it is resolved per-transcription in the pipeline once the transcript text
+/// is available. The frontend receives `auto_detected: true` in that case.
 #[tauri::command]
 pub async fn resolve_current_processing_mode() -> Result<ProcessingContext, String> {
     let config = super::config::AppConfig::load_from_disk();
@@ -101,88 +198,26 @@ pub async fn resolve_current_processing_mode() -> Result<ProcessingContext, Stri
         .unwrap_or_else(|| config.processing_mode.clone());
 
     let manual_override = current_mode_override();
-    let auto_detect = config.auto_detect_mode;
-    let workspace_app_map = config.workspace_app_map.clone();
 
-    // App detection shells out to the OS; keep it off the async runtime thread and
-    // only pay the cost when auto-detection is actually enabled.
-    let category = if auto_detect && manual_override.is_none() {
-        tauri::async_runtime::spawn_blocking(|| {
-            super::workspace_context::detect_active_app().category
-        })
-        .await
-        .map_err(|e| e.to_string())?
-    } else {
-        String::new()
-    };
-
-    Ok(resolve_processing_mode(
-        profile_mode,
-        manual_override,
-        auto_detect,
-        &category,
-        &workspace_app_map,
-    ))
+    Ok(resolve_processing_mode(profile_mode, manual_override))
 }
 
 fn is_known_processing_mode(value: &str) -> bool {
     matches!(
         value,
-        "cleanup" | "rewrite" | "agent" | "prompt_enhance" | "verbatim"
+        "auto" | "cleanup" | "rewrite" | "agent" | "prompt_enhance" | "verbatim"
     )
-}
-
-#[tauri::command]
-pub fn add_workspace_app_mapping(
-    app_category: String,
-    mode: String,
-) -> Result<super::config::AppConfig, String> {
-    let parsed_mode = ProcessingMode::from_str(&mode);
-    if parsed_mode == ProcessingMode::Cleanup && !is_known_processing_mode(&mode) {
-        return Err(format!("Unknown processing mode: {}", mode));
-    }
-
-    let valid_categories = ["ide", "browser", "chat", "mail", "notes", "terminal", "other"];
-    if !valid_categories.contains(&app_category.as_str()) {
-        return Err(format!("Unknown app category: {}", app_category));
-    }
-
-    let mut config = super::config::AppConfig::load_from_disk();
-    config.workspace_app_map.insert(app_category, parsed_mode);
-    config.save_to_disk()?;
-    Ok(config.without_secrets())
-}
-
-#[tauri::command]
-pub fn remove_workspace_app_mapping(
-    app_category: String,
-) -> Result<super::config::AppConfig, String> {
-    let mut config = super::config::AppConfig::load_from_disk();
-    config.workspace_app_map.remove(&app_category);
-    config.save_to_disk()?;
-    Ok(config.without_secrets())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn test_map() -> HashMap<String, ProcessingMode> {
-        let mut map = HashMap::new();
-        map.insert("ide".to_string(), ProcessingMode::Agent);
-        map.insert("browser".to_string(), ProcessingMode::Verbatim);
-        map.insert("chat".to_string(), ProcessingMode::PromptEnhance);
-        map
-    }
-
     #[test]
     fn manual_override_wins_over_profile_default() {
         let result = resolve_processing_mode(
             ProcessingMode::Rewrite,
             Some(ProcessingMode::Verbatim),
-            false,
-            "ide",
-            &test_map(),
         );
         assert_eq!(result.mode, ProcessingMode::Verbatim);
         assert!(result.is_override);
@@ -190,48 +225,17 @@ mod tests {
     }
 
     #[test]
-    fn auto_detect_from_workspace_map_wins_over_profile() {
-        let result = resolve_processing_mode(
-            ProcessingMode::Rewrite,
-            None,
-            true,
-            "ide",
-            &test_map(),
-        );
-        assert_eq!(result.mode, ProcessingMode::Agent);
+    fn auto_profile_default_reports_auto_detected() {
+        let result = resolve_processing_mode(ProcessingMode::Auto, None);
+        assert_eq!(result.mode, ProcessingMode::Auto);
         assert!(!result.is_override);
         assert!(result.auto_detected);
-        assert_eq!(
-            result.detected_from,
-            Some("workspace_map:ide".to_string())
-        );
     }
 
     #[test]
-    fn profile_default_used_when_no_override_and_no_match() {
-        let result = resolve_processing_mode(
-            ProcessingMode::Rewrite,
-            None,
-            true,
-            "notes",
-            &test_map(),
-        );
-        assert_eq!(result.mode, ProcessingMode::Rewrite);
-        assert!(!result.is_override);
-        assert!(!result.auto_detected);
-        assert_eq!(result.detected_from, None);
-    }
-
-    #[test]
-    fn profile_default_used_when_auto_detect_disabled() {
-        let result = resolve_processing_mode(
-            ProcessingMode::Rewrite,
-            None,
-            false,
-            "ide",
-            &test_map(),
-        );
-        assert_eq!(result.mode, ProcessingMode::Rewrite);
+    fn concrete_profile_default_not_auto_detected() {
+        let result = resolve_processing_mode(ProcessingMode::Cleanup, None);
+        assert_eq!(result.mode, ProcessingMode::Cleanup);
         assert!(!result.is_override);
         assert!(!result.auto_detected);
     }
@@ -291,10 +295,74 @@ mod tests {
     }
 
     #[test]
+    fn set_processing_mode_override_accepts_auto() {
+        let result = set_processing_mode_override("auto".to_string());
+        assert!(result.is_ok());
+        assert_eq!(current_mode_override(), Some(ProcessingMode::Auto));
+        let _ = clear_processing_mode_override();
+    }
+
+    #[test]
     fn set_processing_mode_override_accepts_aliases() {
         let result = set_processing_mode_override("polished".to_string());
         assert!(result.is_ok());
         assert_eq!(current_mode_override(), Some(ProcessingMode::Rewrite));
         let _ = clear_processing_mode_override();
+    }
+
+    #[test]
+    fn resolve_auto_mode_passes_through_concrete_mode() {
+        assert_eq!(
+            resolve_auto_mode(ProcessingMode::Verbatim, "hello", None, "WordScript"),
+            ProcessingMode::Verbatim
+        );
+        assert_eq!(
+            resolve_auto_mode(ProcessingMode::Cleanup, "hello", None, "WordScript"),
+            ProcessingMode::Cleanup
+        );
+    }
+
+    #[test]
+    fn resolve_auto_mode_detects_agent_when_name_at_start() {
+        let mode = resolve_auto_mode(
+            ProcessingMode::Auto,
+            "WordScript schreib eine E-Mail an Joe",
+            None,
+            "WordScript",
+        );
+        assert_eq!(mode, ProcessingMode::Agent);
+    }
+
+    #[test]
+    fn resolve_auto_mode_detects_prompt_enhance_in_ide() {
+        let mode = resolve_auto_mode(
+            ProcessingMode::Auto,
+            "Schreib mir eine Schleife und vereinfache sie",
+            Some("ide"),
+            "WordScript",
+        );
+        assert_eq!(mode, ProcessingMode::PromptEnhance);
+    }
+
+    #[test]
+    fn resolve_auto_mode_falls_back_to_cleanup() {
+        let mode = resolve_auto_mode(
+            ProcessingMode::Auto,
+            "Ich wollte mal fragen ob wir uns morgen treffen",
+            None,
+            "WordScript",
+        );
+        assert_eq!(mode, ProcessingMode::Cleanup);
+    }
+
+    #[test]
+    fn resolve_auto_mode_does_not_route_to_prompt_enhance_without_ide() {
+        let mode = resolve_auto_mode(
+            ProcessingMode::Auto,
+            "Schreib mir eine Schleife",
+            Some("browser"),
+            "WordScript",
+        );
+        assert_eq!(mode, ProcessingMode::Cleanup);
     }
 }

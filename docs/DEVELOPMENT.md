@@ -348,7 +348,7 @@ Wichtig fuer den aktuellen Stand:
 - `src-tauri/src/core/providers/local_preview.rs`: lokale Runtime-Lane mit `whisper-cli` fuer STT, Ollama fuer Cleanup, Runner-Probe, selected-model-Readiness und nativer Model-Discovery
 - `src-tauri/src/core/providers/mod.rs`: gemeinsamer Provider-Vertrag inklusive typed `local_setup`-Status fuer die lokale Runtime-Lane
 - `src-tauri/src/core/transform.rs`: Cleanup, aktive Profile, Work-Mode-Rewrite-Defaults, Dictionary und Snippets
-- `src-tauri/src/core/mode_router.rs`: ProcessingMode-Aufloesung pro Session (Override, Profil-Work-Mode, `auto_detect_mode`, `workspace_app_map`) und Tauri-Command `resolve_current_processing_mode`
+- `src-tauri/src/core/mode_router.rs`: ProcessingMode-Aufloesung pro Session (Override, Profil-Work-Mode) und pro-Transkription Auto-Mode-Routing (`resolve_auto_mode`); Tauri-Command `resolve_current_processing_mode`
 - `src-tauri/src/core/workspace_context.rs`: Foreground-App-Detection auf macOS/Windows/Linux; nutzt `run_with_timeout` mit dedizierten Pipe-Drain-Threads, damit `Output.stdout`/`stderr` nicht leer zurueckkommen
 - `src-tauri/src/core/prompt_enhance.rs`: Prompt-Strukturierung und -Expansion mit Guardrail-Chain (empty / prompt_executes / language_mismatch / length_budget / semantic_drift) und Routing in `transform.rs`
 - `src-tauri/src/core/insertion.rs`: Paste-Modi, Clipboard-Restore, Scratchpad und Recovery

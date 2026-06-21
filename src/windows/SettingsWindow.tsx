@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { useProvider } from "../hooks/useProvider";
 import { useRuntime } from "../hooks/useRuntime";
-import { getHotkeyValidationMessage, normalizeManualHotkey } from "../lib/hotkeys";
 import type { AppConfig } from "../types/ipc";
 import type { ProviderId } from "../types/providers";
 import type { ProfileHealthLevel, TextRulesAnalysis } from "../types/textRules";
@@ -97,11 +96,6 @@ interface ConfiguredTriggerStatus {
   registered_abort_hotkey: string | null;
 }
 
-function clampSettingsNumber(value: number, minimum: number, maximum: number, fallback: number) {
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(maximum, Math.max(minimum, Math.round(value)));
-}
-
 export default function SettingsWindow() {
   const { state, saveConfig } = useRuntime();
   const [form, setForm] = useState<AppConfig | null>(null);
@@ -142,8 +136,69 @@ export default function SettingsWindow() {
     if (state.config) setForm({ ...state.config });
   }, [state.config]);
 
-  const patch = (partial: Partial<AppConfig>) =>
-    setForm((prev) => (prev ? { ...prev, ...partial } : prev));
+  // Instant save: every patch is immediately persisted. There is no "unsaved
+  // changes" state — the form is always in sync with the runtime config.
+  // This removes the cognitive overhead of remembering to press "Save changes"
+  // and eliminates the class of bugs where a user closes the window and loses
+  // their edits. Hotkey / capture / insertion changes also trigger the native
+  // runtime reconfiguration immediately.
+  const patch = useCallback((partial: Partial<AppConfig>) => {
+    setForm((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...partial };
+
+      // Check whether this patch touches native-runtime fields that need
+      // immediate reconfiguration beyond just persisting the config.
+      const touchesHotkeys = "hotkey" in partial || "pause_hotkey" in partial || "abort_hotkey" in partial || "activation_mode" in partial;
+      const touchesCapture = "audio_device" in partial || "max_recording_seconds" in partial || "silence_timeout_seconds" in partial;
+      const touchesInsertion = "auto_paste" in partial;
+
+      void saveConfig(next)
+        .then(async (saved) => {
+          if (touchesHotkeys) {
+            try {
+              const triggerStatus = await invoke<ConfiguredTriggerStatus>("configure_native_trigger", {
+                request: {
+                  hotkey: saved.hotkey,
+                  pause_hotkey: saved.pause_hotkey,
+                  abort_hotkey: saved.abort_hotkey,
+                  activation_mode: saved.activation_mode,
+                },
+              });
+              setForm((f) => f ? {
+                ...f,
+                hotkey: triggerStatus.registered_hotkey ?? triggerStatus.hotkey,
+                pause_hotkey: triggerStatus.registered_pause_hotkey ?? triggerStatus.pause_hotkey,
+                abort_hotkey: triggerStatus.registered_abort_hotkey ?? triggerStatus.abort_hotkey,
+              } : f);
+            } catch (e) {
+              setStatus({ msg: `✗  Hotkey registration failed: ${e}`, ok: false });
+            }
+          }
+          if (touchesInsertion) {
+            try {
+              await invoke("configure_native_insertion", { request: { auto_paste: saved.auto_paste } });
+            } catch { /* non-fatal */ }
+          }
+          if (touchesCapture) {
+            try {
+              await invoke("configure_native_capture", {
+                request: {
+                  audio_device: saved.audio_device,
+                  max_recording_seconds: saved.max_recording_seconds,
+                  silence_timeout_seconds: saved.silence_timeout_seconds,
+                },
+              });
+            } catch { /* non-fatal */ }
+          }
+        })
+        .catch((e) => {
+          setStatus({ msg: `✗  Save failed: ${e}`, ok: false });
+        });
+
+      return next;
+    });
+  }, [saveConfig]);
 
   const activeArea = AREAS.find((area) => area.id === active) ?? AREAS[0];
 
@@ -190,84 +245,6 @@ export default function SettingsWindow() {
             };
 
   const laneLabel = selectedProvider === "local_preview" ? "Local runtime" : "Groq cloud";
-  const isDirty = Boolean(state.config && form && JSON.stringify(form) !== JSON.stringify(state.config));
-
-  const handleSave = async () => {
-    if (!form) return;
-    if (textRulesAnalysis?.blocking) {
-      setActive("profiles");
-      setStatus({ msg: "✗  Fix blocking text-rule issues before saving", ok: false });
-      return;
-    }
-
-    const normalizedHotkeys = {
-      hotkey: normalizeManualHotkey(form.hotkey),
-      pause_hotkey: normalizeManualHotkey(form.pause_hotkey),
-      abort_hotkey: normalizeManualHotkey(form.abort_hotkey),
-    };
-
-    const hotkeyIssues = [
-      { label: "Start / Stop Hotkey", value: normalizedHotkeys.hotkey, allowModifierOnly: true },
-      { label: "Pause / Resume Hotkey", value: normalizedHotkeys.pause_hotkey, allowModifierOnly: true },
-      { label: "Abort Hotkey", value: normalizedHotkeys.abort_hotkey, allowModifierOnly: true },
-    ];
-    const invalidHotkey = hotkeyIssues.find((item) =>
-      getHotkeyValidationMessage(item.value, { allowModifierOnly: item.allowModifierOnly }),
-    );
-
-    if (invalidHotkey) {
-      setActive("capture");
-      setStatus({
-        msg: `✗  ${invalidHotkey.label}: ${getHotkeyValidationMessage(invalidHotkey.value, {
-          allowModifierOnly: invalidHotkey.allowModifierOnly,
-        })} Use + between keys, e.g. ctrl_l+f9.`,
-        ok: false,
-      });
-      return;
-    }
-
-    const nextForm = {
-      ...form,
-      ...normalizedHotkeys,
-      audio_device: form.audio_device.trim(),
-      max_recording_seconds: clampSettingsNumber(form.max_recording_seconds, 10, 3600, 720),
-      silence_timeout_seconds: clampSettingsNumber(form.silence_timeout_seconds, 0, 300, 30),
-      result_actions_timeout_ms: clampSettingsNumber(form.result_actions_timeout_ms, 1000, 60000, 9000),
-    };
-
-    try {
-      const triggerStatus = await invoke<ConfiguredTriggerStatus>("configure_native_trigger", {
-        request: {
-          hotkey: nextForm.hotkey,
-          pause_hotkey: nextForm.pause_hotkey,
-          abort_hotkey: nextForm.abort_hotkey,
-          activation_mode: nextForm.activation_mode,
-        },
-      });
-      await invoke("configure_native_insertion", {
-        request: { auto_paste: nextForm.auto_paste },
-      });
-      await invoke("configure_native_capture", {
-        request: {
-          audio_device: nextForm.audio_device,
-          max_recording_seconds: nextForm.max_recording_seconds,
-          silence_timeout_seconds: nextForm.silence_timeout_seconds,
-        },
-      });
-      const normalizedForm = {
-        ...nextForm,
-        hotkey: triggerStatus.registered_hotkey ?? triggerStatus.hotkey,
-        pause_hotkey: triggerStatus.registered_pause_hotkey ?? triggerStatus.pause_hotkey,
-        abort_hotkey: triggerStatus.registered_abort_hotkey ?? triggerStatus.abort_hotkey,
-      };
-      setForm(normalizedForm);
-      await saveConfig(normalizedForm);
-      setStatus({ msg: "✓  Saved", ok: true });
-      setTimeout(() => setStatus(null), 1500);
-    } catch (e) {
-      setStatus({ msg: `✗  ${e}`, ok: false });
-    }
-  };
 
   const handleCancel = async () => {
     getCurrentWindow().minimize();
@@ -390,8 +367,8 @@ export default function SettingsWindow() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <StatusBadge tone={isDirty ? "warning" : "neutral"}>
-                {isDirty ? "Unsaved" : "Synced"}
+              <StatusBadge tone="success" dot>
+                Auto-saved
               </StatusBadge>
               <StatusBadge tone={readiness.ok ? "success" : "warning"} dot>
                 {readiness.label}
@@ -415,7 +392,7 @@ export default function SettingsWindow() {
             </div>
           </div>
 
-          {/* Footer save bar */}
+          {/* Footer status bar — no manual save needed, changes are instant. */}
           <footer className="flex min-w-0 shrink-0 items-center justify-between gap-4 border-t border-border px-6 py-4">
             <div className="min-w-0">
               <span
@@ -431,18 +408,13 @@ export default function SettingsWindow() {
               >
                 {status?.msg ??
                   (textRulesAnalysis?.blocking
-                    ? "Fix blocking text-rule issues before saving."
-                    : isDirty
-                      ? "Unsaved changes — they stay local until you save."
-                      : "In sync with the persisted runtime config.")}
+                    ? "Fix blocking text-rule issues in Profiles."
+                    : "Changes are saved automatically.")}
               </span>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="ghost" onClick={handleCancel}>
-                Cancel
-              </Button>
-              <Button onClick={handleSave} disabled={Boolean(textRulesAnalysis?.blocking)}>
-                Save changes
+                Close
               </Button>
             </div>
           </footer>

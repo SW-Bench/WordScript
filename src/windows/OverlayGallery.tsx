@@ -10,7 +10,7 @@ import { OverlayPill, type OverlayProcessingMode } from "../components/overlay/O
    No Tauri commands, no window resize — browser hot-reload only.
    ════════════════════════════════════════════════════════════════════════════ */
 
-const MODE_CYCLE: OverlayProcessingMode[] = ["verbatim", "cleanup", "rewrite", "prompt_enhance", "agent"];
+const MODE_CYCLE: OverlayProcessingMode[] = ["auto", "verbatim", "cleanup", "rewrite", "prompt_enhance", "agent"];
 
 const SAMPLE_RESULT = "The quarter closed strong with revenue up twelve percent year over year.";
 const SAMPLE_PREVIEW = "Ship the release notes by Friday.";

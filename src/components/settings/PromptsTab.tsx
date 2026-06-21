@@ -21,13 +21,9 @@ import type {
   AppConfig,
   BiasMode,
   DictionaryEntry,
-  EnhanceSubMode,
-  ProcessingMode,
-  PromptTarget,
   SnippetEntry,
   TextProfile,
   TextProfileInsertBehavior,
-  TextProfileRewriteStyle,
 } from "../../types/ipc";
 import {
   buildTextProfilesPatch,
@@ -35,7 +31,6 @@ import {
   cloneTextProfile,
   createTextProfile,
   createEmptyTextProfileCuration,
-  describeTextProfileWorkMode,
   displayTextProfileLabel,
   isCuratedTextProfile,
   resolveActiveTextProfile,
@@ -50,7 +45,12 @@ import type {
   TextRulesIssue,
 } from "../../types/textRules";
 
-const MODE_LABELS: Record<ProcessingMode, string> = {
+const DEFAULT_SAMPLE_TEXT = "word script follow up note";
+const ANALYSIS_DEBOUNCE_MS = 120;
+const EMPTY_ISSUES: TextRulesIssue[] = [];
+
+const MODE_LABELS: Record<string, string> = {
+  auto: "Auto",
   verbatim: "Verbatim",
   cleanup: "Cleanup",
   rewrite: "Rewrite",
@@ -58,13 +58,11 @@ const MODE_LABELS: Record<ProcessingMode, string> = {
   prompt_enhance: "Prompt Enhance",
 };
 
-const TARGET_OPTIONS: { value: PromptTarget; label: string }[] = [
-  { value: "general", label: "General" },
-  { value: "claude_code", label: "Claude Code" },
-  { value: "cursor", label: "Cursor" },
-  { value: "chatgpt", label: "ChatGPT" },
-  { value: "copilot", label: "Copilot" },
-];
+function modeLabelForProfile(profile: Pick<TextProfile, "work_mode">): string {
+  const mode = profile.work_mode?.processing_mode;
+  if (!mode) return "Auto";
+  return MODE_LABELS[mode] ?? mode;
+}
 
 interface Props {
   config: AppConfig;
@@ -72,10 +70,6 @@ interface Props {
   onValidationChange?: (analysis: TextRulesAnalysis | null) => void;
   onHealthChange?: (status: ProfileHealthStatus | null) => void;
 }
-
-const DEFAULT_SAMPLE_TEXT = "word script follow up note";
-const ANALYSIS_DEBOUNCE_MS = 120;
-const EMPTY_ISSUES: TextRulesIssue[] = [];
 
 interface RuleSummary {
   id: string;
@@ -517,7 +511,6 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
       acknowledged_flags: [...acknowledgedFlags],
       bias_mode: activeTextProfile.work_mode?.bias_mode ?? null,
       processing_mode: activeTextProfile.work_mode?.processing_mode ?? null,
-      agent_mode_enabled: config.agent_mode_enabled,
       profile_id: activeTextProfile.id,
     };
     const biasMode = activeTextProfile.work_mode?.bias_mode ?? "conservative";
@@ -564,7 +557,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [acknowledgedFlags, activeTextProfile.id, activeTextProfile.prompt, activeTextProfile.work_mode?.bias_mode, activeTextProfile.work_mode?.manual_bias?.cloud_include_profile_terms, activeTextProfile.work_mode?.manual_bias?.local_include_profile_terms, activeTextProfile.work_mode?.manual_bias?.stt_hints_override, activeTextProfile.work_mode?.processing_mode, config.agent_mode_enabled, config.local_prompt_carry, config.local_prompt_strength, dictionaryEntries, onHealthChange, onValidationChange, sampleText, snippetEntries, sttHints]);
+  }, [acknowledgedFlags, activeTextProfile.id, activeTextProfile.prompt, activeTextProfile.work_mode?.bias_mode, activeTextProfile.work_mode?.manual_bias?.cloud_include_profile_terms, activeTextProfile.work_mode?.manual_bias?.local_include_profile_terms, activeTextProfile.work_mode?.manual_bias?.stt_hints_override, activeTextProfile.work_mode?.processing_mode, config.local_prompt_carry, config.local_prompt_strength, dictionaryEntries, onHealthChange, onValidationChange, sampleText, snippetEntries, sttHints]);
 
   const applyProfiles = useCallback((nextProfiles: TextProfile[], nextActiveProfileId = activeTextProfileIdRef.current) => {
     onChange(buildTextProfilesPatch(configRef.current, nextProfiles, nextActiveProfileId));
@@ -592,7 +585,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
           rewrite_style: "clean",
           insert_behavior: "auto_paste",
           recovery_behavior: "standard",
-          processing_mode: "cleanup",
+          processing_mode: "auto",
           enhance_sub_mode: null,
           target: null,
           bias_mode: "conservative",
@@ -934,194 +927,117 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
         </FormCard>
       )}
 
-      <FormCard
-        title="Pick the profile you want to shape"
-        description="Keep switching and renaming here. Everything below edits the active profile only."
-        icon={<SquarePen />}
-        action={
-          <StatusBadge tone={isCuratedTextProfile(activeTextProfile) ? "accent" : "neutral"} dot>
-            {isCuratedTextProfile(activeTextProfile) ? (
-              <>
-                <BadgeCheck className="size-3.5" /> Included
-              </>
-            ) : (
-              "Active"
-            )}
-          </StatusBadge>
-        }
-      >
-        <FormRow
-          label="Active profile"
-          htmlFor="text-profile-select"
-          hint={profileLibrarySummary(activeTextProfile)}
-          align="start"
-          control={
-            <Select
-              id="text-profile-select"
-              aria-label="Active profile"
-              className="w-[240px]"
-              value={activeTextProfile.id}
-              onChange={(event) => applyProfiles(textProfiles, event.target.value)}
-            >
-              {textProfiles.map((profile) => {
-                const terms = (profile.dictionary_entries ?? []).length;
-                const snippets = (profile.snippet_entries ?? []).length;
-                const origin = isCuratedTextProfile(profile) ? "Included" : "User";
-                const summary = describeTextProfileWorkMode(profile);
-                return (
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <FormCard
+          title="Pick the profile you want to shape"
+          description="Keep switching and renaming here. Everything below edits the active profile only."
+          icon={<SquarePen />}
+          action={
+            <StatusBadge tone={isCuratedTextProfile(activeTextProfile) ? "accent" : "neutral"} dot>
+              {isCuratedTextProfile(activeTextProfile) ? (
+                <>
+                  <BadgeCheck className="size-3.5" /> Included
+                </>
+              ) : (
+                "Active"
+              )}
+            </StatusBadge>
+          }
+          bodyClassName="flex-1"
+        >
+          <FormRow
+            label="Active profile"
+            htmlFor="text-profile-select"
+            hint={profileLibrarySummary(activeTextProfile)}
+            align="start"
+            control={
+              <Select
+                id="text-profile-select"
+                aria-label="Active profile"
+                className="w-full"
+                value={activeTextProfile.id}
+                onChange={(event) => applyProfiles(textProfiles, event.target.value)}
+              >
+                {textProfiles.map((profile) => (
                   <option key={profile.id} value={profile.id}>
-                    {displayTextProfileLabel(profile)} — {origin} · {summary} · {terms} terms · {snippets} snippets
+                    {displayTextProfileLabel(profile)}
                   </option>
-                );
-              })}
-            </Select>
-          }
-        />
-        <FormRow
-          label="Profile label"
-          control={
-            <Input
-              aria-label="Profile label"
-              className="w-[240px]"
-              value={activeTextProfile.label}
-              onChange={(event) => updateActiveProfile({ label: event.target.value })}
-              placeholder="e.g. Support reply"
-            />
-          }
-        />
-        <div className="flex flex-wrap items-center gap-2 border-b border-border py-3">
-          <Button size="sm" variant="outline" onClick={createProfile}>
-            <Plus /> New profile
-          </Button>
-          <Button size="sm" variant="outline" onClick={duplicateProfile}>
-            <Copy /> Duplicate profile
-          </Button>
-          <Button size="sm" variant="ghost" disabled={textProfiles.length <= 1} onClick={deleteActiveProfile}>
-            <Trash2 /> Delete profile
-          </Button>
-        </div>
-        <p className="py-3 text-[12px] leading-snug text-fg-muted">
-          Each profile carries its own context, optional STT hints, dictionary, snippets and work-mode defaults. Included
-          profiles ship inside this app config on first run, and the first real edit turns them into regular user-owned
-          profiles. Preview, import/export and runtime all follow the same active profile. Switch profiles here or from
-          the sidebar footer for quick access while working elsewhere.
-        </p>
-      </FormCard>
+                ))}
+              </Select>
+            }
+          />
+          <FormRow
+            label="Profile label"
+            control={
+              <Input
+                aria-label="Profile label"
+                className="w-full"
+                value={activeTextProfile.label}
+                onChange={(event) => updateActiveProfile({ label: event.target.value })}
+                placeholder="e.g. Support reply"
+              />
+            }
+          />
+          <div className="flex flex-wrap items-center gap-2 border-b border-border py-3">
+            <Button size="sm" variant="outline" onClick={createProfile}>
+              <Plus /> New profile
+            </Button>
+            <Button size="sm" variant="outline" onClick={duplicateProfile}>
+              <Copy /> Duplicate profile
+            </Button>
+            <Button size="sm" variant="ghost" disabled={textProfiles.length <= 1} onClick={deleteActiveProfile}>
+              <Trash2 /> Delete profile
+            </Button>
+          </div>
+          <p className="py-3 text-[12px] leading-snug text-fg-muted">
+            Each profile carries its own context, optional STT hints, dictionary, snippets and processing mode.
+            Included profiles ship inside this app config on first run, and the first real edit turns them into
+            regular user-owned profiles. Switch profiles here or from the sidebar footer.
+          </p>
+        </FormCard>
 
-      <FormCard
-        title="Profile defaults"
-        description="How this profile processes dictation by default. Modes can override these per session; the active default wins when no override is set."
-        bodyClassName="py-4"
-      >
-        <FormRow
-          label="Default processing mode"
-          hint="The mode WordScript uses when no session override or auto-detection applies. Override live in Modes."
-          control={
-            <Select
-              aria-label="Default processing mode"
-              className="w-[200px]"
-              value={activeTextProfile.work_mode?.processing_mode ?? "cleanup"}
-              onChange={(event) =>
-                updateActiveProfileWorkMode((wm) => ({
-                  ...wm,
-                  processing_mode: event.target.value as ProcessingMode,
-                }))
-              }
-            >
-              {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode) => (
-                <option key={mode} value={mode}>
-                  {MODE_LABELS[mode]}
-                </option>
-              ))}
-            </Select>
-          }
-        />
-        <FormRow
-          label="Rewrite style"
-          hint="verbatim keeps the transcript; clean strips fillers; polished allows broader rewrites. Drives cleanup toggles in Modes."
-          control={
-            <Select
-              aria-label="Rewrite style"
-              className="w-[200px]"
-              value={activeTextProfile.work_mode?.rewrite_style ?? "clean"}
-              onChange={(event) =>
-                updateActiveProfileWorkMode((wm) => ({
-                  ...wm,
-                  rewrite_style: event.target.value as TextProfileRewriteStyle,
-                }))
-              }
-            >
-              <option value="verbatim">Verbatim</option>
-              <option value="clean">Clean</option>
-              <option value="polished">Polished</option>
-            </Select>
-          }
-        />
-        <FormRow
-          label="Insert behavior"
-          hint="auto_paste inserts at the cursor; clipboard_only leaves the transcript on the clipboard. Overridable in Insert & Recovery."
-          control={
-            <Select
-              aria-label="Insert behavior"
-              className="w-[200px]"
-              value={activeTextProfile.work_mode?.insert_behavior ?? "auto_paste"}
-              onChange={(event) =>
-                updateActiveProfileWorkMode((wm) => ({
-                  ...wm,
-                  insert_behavior: event.target.value as TextProfileInsertBehavior,
-                }))
-              }
-            >
-              <option value="auto_paste">Insert at cursor</option>
-              <option value="clipboard_only">Clipboard only</option>
-            </Select>
-          }
-        />
-        <FormRow
-          label="Enhance sub-mode"
-          hint="Used when the default mode is Prompt Enhance. Enhance polishes; Expand restructures fully."
-          control={
-            <Select
-              aria-label="Enhance sub-mode"
-              className="w-[200px]"
-              value={activeTextProfile.work_mode?.enhance_sub_mode ?? "enhance"}
-              onChange={(event) =>
-                updateActiveProfileWorkMode((wm) => ({
-                  ...wm,
-                  enhance_sub_mode: event.target.value as EnhanceSubMode,
-                }))
-              }
-            >
-              <option value="enhance">Enhance</option>
-              <option value="expand">Expand</option>
-            </Select>
-          }
-        />
-        <FormRow
-          label="Prompt target"
-          hint="Optimizes prompt syntax for the chosen AI tool when in Prompt Enhance mode."
-          divider={false}
-          control={
-            <Select
-              aria-label="Prompt target"
-              className="w-[200px]"
-              value={activeTextProfile.work_mode?.target ?? "general"}
-              onChange={(event) =>
-                updateActiveProfileWorkMode((wm) => ({
-                  ...wm,
-                  target: event.target.value as PromptTarget,
-                }))
-              }
-            >
-              {TARGET_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </Select>
-          }
-        />
-      </FormCard>
+        <FormCard
+          title="Profile details"
+          description={displayTextProfileLabel(activeTextProfile)}
+          bodyClassName="lg:w-[320px] lg:shrink-0"
+        >
+          {activeTextProfile.prompt.trim() && (
+            <p className="mb-3 line-clamp-3 rounded-md bg-surface px-3 py-2 text-[12px] leading-snug text-fg-dim">
+              {activeTextProfile.prompt.trim()}
+            </p>
+          )}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-fg-muted">Processing mode</span>
+              <span className="font-medium text-foreground">
+                {modeLabelForProfile(activeTextProfile)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-fg-muted">Delivery</span>
+              <span className="font-medium text-foreground">
+                {activeTextProfile.work_mode?.insert_behavior === "clipboard_only" ? "Clipboard only" : "Auto-paste"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-fg-muted">Context lines</span>
+              <span className="font-medium text-foreground">{activePromptLineCount}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-fg-muted">STT hints</span>
+              <span className="font-medium text-foreground">{activeSttHintLineCount}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-fg-muted">Dictionary terms</span>
+              <span className="font-medium text-foreground">{dictionaryEntries.length}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-fg-muted">Snippets</span>
+              <span className="font-medium text-foreground">{snippetEntries.length}</span>
+            </div>
+          </div>
+        </FormCard>
+      </div>
 
       <div className="flex flex-col gap-3">
         <div className="px-1">

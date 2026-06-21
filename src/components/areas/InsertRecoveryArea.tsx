@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { FormCard, FormRow, Select, StatusBadge, Toggle, type StatusTone } from "@/components/shell";
 import { useNativeInsertion } from "@/hooks/useNativeInsertion";
 import { relativeTime, truncate } from "@/lib/format";
+import { buildTextProfilesPatch, resolveActiveTextProfile } from "@/lib/textProfiles";
 import { cn } from "@/lib/utils";
-import type { AppConfig } from "@/types/ipc";
+import type { AppConfig, TextProfileInsertBehavior } from "@/types/ipc";
 import type {
   NativeClipboardRestoreStatus,
   NativeInsertDriver,
@@ -127,10 +128,12 @@ export function InsertRecoveryArea({ config, onChange }: Props) {
   const driverChainSummary = driverChain.length > 0
     ? driverChain.map((item) => item.label).join(" -> ")
     : "Detecting current insert chain.";
-  const deliveryLabel = config.auto_paste ? "Insert at cursor" : "Clipboard only";
-  const deliverySummary = config.auto_paste
-    ? "Direct insert copies the transcript, pastes it at the cursor and restores your previous clipboard afterwards."
-    : "Clipboard only keeps the transcript ready for manual paste and never sends a paste shortcut into the active app.";
+  const activeProfile = resolveActiveTextProfile(config);
+  const profileInsertBehavior = activeProfile.work_mode?.insert_behavior ?? "auto_paste";
+  const deliveryLabel = profileInsertBehavior === "clipboard_only" ? "Clipboard only" : "Insert at cursor";
+  const deliverySummary = profileInsertBehavior === "clipboard_only"
+    ? "Clipboard only keeps the transcript ready for manual paste and never sends a paste shortcut into the active app."
+    : "Direct insert copies the transcript, pastes it at the cursor and restores your previous clipboard afterwards.";
   const soundSummary = config.play_sounds
     ? "Native sound cues are on for start, stop, abort and runtime errors."
     : "Native sound cues are off.";
@@ -276,10 +279,18 @@ export function InsertRecoveryArea({ config, onChange }: Props) {
             <Select
               aria-label="Transcript delivery"
               className="w-[240px]"
-              value={config.auto_paste ? "direct_insert" : "clipboard_only"}
-              onChange={(event) => onChange({ auto_paste: event.target.value === "direct_insert" })}
+              value={profileInsertBehavior}
+              onChange={(event) => {
+                const nextBehavior = event.target.value as TextProfileInsertBehavior;
+                const nextProfiles = config.text_profiles.map((profile) =>
+                  profile.id === activeProfile.id
+                    ? { ...profile, work_mode: { ...profile.work_mode!, insert_behavior: nextBehavior } }
+                    : profile,
+                );
+                onChange(buildTextProfilesPatch(config, nextProfiles, activeProfile.id));
+              }}
             >
-              <option value="direct_insert">Copy and insert at cursor</option>
+              <option value="auto_paste">Copy and insert at cursor</option>
               <option value="clipboard_only">Copy to clipboard only</option>
             </Select>
           }
