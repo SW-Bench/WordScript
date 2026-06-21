@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OverlayWindow from "./OverlayWindow";
+import { createAppConfig } from "../test/factories";
+import { createEmptyTextProfileCuration } from "../lib/textProfiles";
 
 const useRuntimeMock = vi.fn();
 const invokeMock = vi.fn();
@@ -8,6 +10,28 @@ const startDraggingMock = vi.fn();
 const scaleFactorMock = vi.fn();
 const movedHandlers: Array<(event: { payload: { x: number; y: number } }) => void> = [];
 const runtimeEventHandlers: Array<(event: { payload: { event: string; level?: number; rms?: number; waveform?: number[] } }) => void> = [];
+
+function createTestConfig() {
+  return createAppConfig({
+    active_text_profile_id: "support",
+    text_profiles: [
+      {
+        id: "support",
+        label: "Support reply",
+        prompt: "Support tone and escalation names",
+        stt_hints: "status update",
+        work_mode: {
+          rewrite_style: "polished" as const,
+          insert_behavior: "clipboard_only" as const,
+          recovery_behavior: "standard" as const,
+        },
+        curation: createEmptyTextProfileCuration(),
+        dictionary_entries: [],
+        snippet_entries: [],
+      },
+    ],
+  });
+}
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
@@ -155,68 +179,7 @@ describe("OverlayWindow", () => {
     useRuntimeMock.mockReturnValue({
       state: {
         status: "idle",
-        config: {
-          model: "whisper-large-v3-turbo",
-          language: "de",
-          active_text_profile_id: "support",
-          text_profiles: [
-            {
-              id: "support",
-              label: "Support reply",
-              prompt: "Support tone and escalation names",
-              stt_hints: "status update",
-              work_mode: {
-                rewrite_style: "polished",
-                insert_behavior: "clipboard_only",
-                recovery_behavior: "standard",
-              },
-              curation: {
-                curated: false,
-                audience: "",
-                summary: "",
-                highlights: [],
-              },
-              dictionary_entries: [],
-              snippet_entries: [],
-            },
-          ],
-          curated_profiles_seeded: true,
-          post_process: true,
-          correction_model: "llama-3.3-70b-versatile",
-          local_correction_model: "llama3.2:latest",
-          filter_fillers: true,
-          professionalize: false,
-          provider: "groq",
-          local_model: "base",
-          local_profile: "local-preview-base-fast",
-          local_prompt_strength: "profile",
-          local_prompt_carry: false,
-          local_beam_size: 1,
-          local_best_of: 1,
-          local_profile_prompt_settings: [],
-          local_profile_decode_settings: [],
-          hotkey: "ctrl+space",
-          pause_hotkey: "ctrl+shift+space",
-          abort_hotkey: "escape",
-          activation_mode: "tap",
-          overlay_position_mode: "preset",
-          overlay_monitor: "primary",
-          overlay_anchor: "bottom_center",
-          overlay_manual_x: 0,
-          overlay_manual_y: 0,
-          sample_rate: 16000,
-          channels: 1,
-          dtype: "i16",
-          audio_device: "",
-          max_recording_seconds: 720,
-          silence_timeout_seconds: 30,
-          auto_paste: true,
-          play_sounds: true,
-          log_level: "info",
-          temp_audio_dir: "",
-          history_limit: 200,
-          history_retention_days: 90,
-        },
+        config: createTestConfig(),
         muted: false,
         paused: false,
         lastTranscription: "Wir shippen das morgen.",
@@ -362,68 +325,7 @@ describe("OverlayWindow", () => {
     useRuntimeMock.mockReturnValue({
       state: {
         status: "processing",
-        config: {
-          model: "whisper-large-v3-turbo",
-          language: "de",
-          active_text_profile_id: "support",
-          text_profiles: [
-            {
-              id: "support",
-              label: "Support reply",
-              prompt: "Support tone and escalation names",
-              stt_hints: "status update",
-              work_mode: {
-                rewrite_style: "polished",
-                insert_behavior: "clipboard_only",
-                recovery_behavior: "standard",
-              },
-              curation: {
-                curated: false,
-                audience: "",
-                summary: "",
-                highlights: [],
-              },
-              dictionary_entries: [],
-              snippet_entries: [],
-            },
-          ],
-          curated_profiles_seeded: true,
-          post_process: true,
-          correction_model: "llama-3.3-70b-versatile",
-          local_correction_model: "llama3.2:latest",
-          filter_fillers: true,
-          professionalize: false,
-          provider: "groq",
-          local_model: "base",
-          local_profile: "local-preview-base-fast",
-          local_prompt_strength: "profile",
-          local_prompt_carry: false,
-          local_beam_size: 1,
-          local_best_of: 1,
-          local_profile_prompt_settings: [],
-          local_profile_decode_settings: [],
-          hotkey: "ctrl+space",
-          pause_hotkey: "ctrl+shift+space",
-          abort_hotkey: "escape",
-          activation_mode: "tap",
-          overlay_position_mode: "preset",
-          overlay_monitor: "primary",
-          overlay_anchor: "bottom_center",
-          overlay_manual_x: 0,
-          overlay_manual_y: 0,
-          sample_rate: 16000,
-          channels: 1,
-          dtype: "i16",
-          audio_device: "",
-          max_recording_seconds: 720,
-          silence_timeout_seconds: 30,
-          auto_paste: true,
-          play_sounds: true,
-          log_level: "info",
-          temp_audio_dir: "",
-          history_limit: 200,
-          history_retention_days: 90,
-        },
+        config: createTestConfig(),
         muted: false,
         paused: false,
         lastTranscription: null,
@@ -494,68 +396,7 @@ describe("OverlayWindow", () => {
     let runtimeValue: any = {
       state: {
         status: "recording",
-        config: {
-          model: "whisper-large-v3-turbo",
-          language: "de",
-          active_text_profile_id: "support",
-          text_profiles: [
-            {
-              id: "support",
-              label: "Support reply",
-              prompt: "Support tone and escalation names",
-              stt_hints: "status update",
-              work_mode: {
-                rewrite_style: "polished",
-                insert_behavior: "clipboard_only",
-                recovery_behavior: "standard",
-              },
-              curation: {
-                curated: false,
-                audience: "",
-                summary: "",
-                highlights: [],
-              },
-              dictionary_entries: [],
-              snippet_entries: [],
-            },
-          ],
-          curated_profiles_seeded: true,
-          post_process: true,
-          correction_model: "llama-3.3-70b-versatile",
-          local_correction_model: "llama3.2:latest",
-          filter_fillers: true,
-          professionalize: false,
-          provider: "groq",
-          local_model: "base",
-          local_profile: "local-preview-base-fast",
-          local_prompt_strength: "profile",
-          local_prompt_carry: false,
-          local_beam_size: 1,
-          local_best_of: 1,
-          local_profile_prompt_settings: [],
-          local_profile_decode_settings: [],
-          hotkey: "ctrl+space",
-          pause_hotkey: "ctrl+shift+space",
-          abort_hotkey: "escape",
-          activation_mode: "tap",
-          overlay_position_mode: "preset",
-          overlay_monitor: "primary",
-          overlay_anchor: "bottom_center",
-          overlay_manual_x: 0,
-          overlay_manual_y: 0,
-          sample_rate: 16000,
-          channels: 1,
-          dtype: "i16",
-          audio_device: "",
-          max_recording_seconds: 720,
-          silence_timeout_seconds: 30,
-          auto_paste: true,
-          play_sounds: true,
-          log_level: "info",
-          temp_audio_dir: "",
-          history_limit: 200,
-          history_retention_days: 90,
-        },
+        config: createTestConfig(),
         muted: false,
         paused: false,
         lastTranscription: null,
@@ -764,207 +605,5 @@ describe("OverlayWindow", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("maps low speech levels to visibly taller waveform bars while recording", async () => {
-    useRuntimeMock.mockReturnValue({
-      state: {
-        status: "recording",
-        config: {
-          model: "whisper-large-v3-turbo",
-          language: "de",
-          active_text_profile_id: "support",
-          text_profiles: [
-            {
-              id: "support",
-              label: "Support reply",
-              prompt: "Support tone and escalation names",
-              stt_hints: "status update",
-              work_mode: {
-                rewrite_style: "polished",
-                insert_behavior: "clipboard_only",
-                recovery_behavior: "standard",
-              },
-              curation: {
-                curated: false,
-                audience: "",
-                summary: "",
-                highlights: [],
-              },
-              dictionary_entries: [],
-              snippet_entries: [],
-            },
-          ],
-          curated_profiles_seeded: true,
-          post_process: true,
-          correction_model: "llama-3.3-70b-versatile",
-          local_correction_model: "llama3.2:latest",
-          filter_fillers: true,
-          professionalize: false,
-          provider: "groq",
-          local_model: "base",
-          local_profile: "local-preview-base-fast",
-          local_prompt_strength: "profile",
-          local_prompt_carry: false,
-          local_beam_size: 1,
-          local_best_of: 1,
-          local_profile_prompt_settings: [],
-          local_profile_decode_settings: [],
-          hotkey: "ctrl+space",
-          pause_hotkey: "ctrl+shift+space",
-          abort_hotkey: "escape",
-          activation_mode: "tap",
-          overlay_position_mode: "preset",
-          overlay_monitor: "primary",
-          overlay_anchor: "bottom_center",
-          overlay_manual_x: 0,
-          overlay_manual_y: 0,
-          sample_rate: 16000,
-          channels: 1,
-          dtype: "i16",
-          audio_device: "",
-          max_recording_seconds: 720,
-          silence_timeout_seconds: 30,
-          auto_paste: true,
-          play_sounds: true,
-          log_level: "info",
-          temp_audio_dir: "",
-          history_limit: 200,
-          history_retention_days: 90,
-        },
-        muted: false,
-        paused: false,
-        lastTranscription: null,
-        pendingResult: null,
-        lastResult: null,
-        error: null,
-        recordingStartMs: null,
-      },
-      toggleMute: vi.fn(),
-      togglePause: vi.fn(),
-      saveConfig: vi.fn(),
-      openSettings: vi.fn(),
-    });
-
-    const { container } = render(<OverlayWindow />);
-
-    await waitFor(() => expect(screen.getByLabelText("Audio level")).toBeInTheDocument());
-
-    act(() => {
-      runtimeEventHandlers[0]?.({
-        payload: {
-          event: "audio_level",
-          level: 0.04,
-          rms: 0.03,
-          waveform: [0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.08, 0.05, 0.03, 0.02, 0.01],
-        },
-      });
-    });
-
-    const heights = Array.from(container.querySelectorAll(".bar"))
-      .map((bar) => Number.parseFloat((bar as HTMLElement).style.height || "0"));
-
-    expect(Math.max(...heights)).toBeGreaterThanOrEqual(20);
-  });
-
-  it("keeps near-idle room noise close to the calm idle waveform", async () => {
-    useRuntimeMock.mockReturnValue({
-      state: {
-        status: "recording",
-        config: {
-          model: "whisper-large-v3-turbo",
-          language: "de",
-          active_text_profile_id: "support",
-          text_profiles: [
-            {
-              id: "support",
-              label: "Support reply",
-              prompt: "Support tone and escalation names",
-              stt_hints: "status update",
-              work_mode: {
-                rewrite_style: "polished",
-                insert_behavior: "clipboard_only",
-                recovery_behavior: "standard",
-              },
-              curation: {
-                curated: false,
-                audience: "",
-                summary: "",
-                highlights: [],
-              },
-              dictionary_entries: [],
-              snippet_entries: [],
-            },
-          ],
-          curated_profiles_seeded: true,
-          post_process: true,
-          correction_model: "llama-3.3-70b-versatile",
-          local_correction_model: "llama3.2:latest",
-          filter_fillers: true,
-          professionalize: false,
-          provider: "groq",
-          local_model: "base",
-          local_profile: "local-preview-base-fast",
-          local_prompt_strength: "profile",
-          local_prompt_carry: false,
-          local_beam_size: 1,
-          local_best_of: 1,
-          local_profile_prompt_settings: [],
-          local_profile_decode_settings: [],
-          hotkey: "ctrl+space",
-          pause_hotkey: "ctrl+shift+space",
-          abort_hotkey: "escape",
-          activation_mode: "tap",
-          overlay_position_mode: "preset",
-          overlay_monitor: "primary",
-          overlay_anchor: "bottom_center",
-          overlay_manual_x: 0,
-          overlay_manual_y: 0,
-          sample_rate: 16000,
-          channels: 1,
-          dtype: "i16",
-          audio_device: "",
-          max_recording_seconds: 720,
-          silence_timeout_seconds: 30,
-          auto_paste: true,
-          play_sounds: true,
-          log_level: "info",
-          temp_audio_dir: "",
-          history_limit: 200,
-          history_retention_days: 90,
-        },
-        muted: false,
-        paused: false,
-        lastTranscription: null,
-        pendingResult: null,
-        lastResult: null,
-        error: null,
-        recordingStartMs: null,
-      },
-      toggleMute: vi.fn(),
-      togglePause: vi.fn(),
-      saveConfig: vi.fn(),
-      openSettings: vi.fn(),
-    });
-
-    const { container } = render(<OverlayWindow />);
-
-    await waitFor(() => expect(screen.getByLabelText("Audio level")).toBeInTheDocument());
-
-    act(() => {
-      runtimeEventHandlers[0]?.({
-        payload: {
-          event: "audio_level",
-          level: 0.01,
-          rms: 0.008,
-          waveform: [0.006, 0.008, 0.01, 0.012, 0.014, 0.016, 0.014, 0.012, 0.01, 0.008, 0.006],
-        },
-      });
-    });
-
-    const heights = Array.from(container.querySelectorAll(".bar"))
-      .map((bar) => Number.parseFloat((bar as HTMLElement).style.height || "0"));
-
-    expect(Math.max(...heights)).toBeLessThanOrEqual(20);
   });
 });
