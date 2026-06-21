@@ -322,7 +322,7 @@ Wichtig fuer den aktuellen Stand:
 
 ## CI
 
-- `.github/workflows/ci.yml` prueft Pull Requests und `main` auf Ubuntu, macOS und Windows mit Frontend-Tests, Frontend-Build, `cargo check` und `cargo test`
+- `.github/workflows/ci.yml` prueft Pull Requests auf Ubuntu, macOS und Windows mit Frontend-Tests, Frontend-Build, `cargo check` und `cargo test`; Pushes auf `main` triggern keine automatischen CI-Runs mehr (temporaer deaktiviert waehrend der aktiven Development-Phase, um wiederholte rote Runs zu vermeiden). Der Workflow kann manuell ueber `workflow_dispatch` mit optionalem `ref`-Input gestartet werden. Vor dem Release wird der `push: main`-Trigger wieder aktiviert.
 - `.github/workflows/release.yml` ist der aktuelle manuelle Release-Build-Up-Workflow fuer Linux, macOS und Windows; er fuehrt Frontend-Tests, Rust-Tests, Frontend-Build und danach erst das Bundling aus, aggregiert die Bundle-Ausgaben in checksummierte Handoff-Archive und kann optional einen internen Draft-Release erzeugen oder aktualisieren
 - Packaging, Signing und Updater-Arbeit sind wieder Teil des aktiven Aufbaupfads, duerfen aber erst nach dem ersten echten Release als live bezeichnet werden
 
