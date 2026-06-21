@@ -1,5 +1,10 @@
 import type {
   AppConfig,
+  LocalProfileDecodeSettings,
+  LocalProfilePromptSettings,
+  ProfileCaptureSettings,
+  ProfileModesSettings,
+  ProfileSpeechSettings,
   TextProfile,
   TextProfileCuration,
   TextProfileInsertBehavior,
@@ -75,6 +80,76 @@ export function createDefaultTextProfileWorkMode(): TextProfileWorkMode {
   return cloneTextProfileWorkMode();
 }
 
+// ── Per-Profile Settings Defaults ────────────────────────────────────────────
+
+export function createDefaultProfileSpeechSettings(): ProfileSpeechSettings {
+  return {
+    provider: "groq",
+    model: "whisper-large-v3-turbo",
+    language: "",
+    correction_model: "llama-3.3-70b-versatile",
+    local_correction_model: "llama3.2:latest",
+    agent_model: "llama-3.3-70b-versatile",
+    local_agent_model: "llama3.2:latest",
+    local_model: "base",
+    local_profile: "local-preview-base-fast",
+    local_prompt_strength: "profile",
+    local_prompt_carry: false,
+    local_beam_size: 1,
+    local_best_of: 1,
+    local_profile_prompt_settings: [],
+    local_profile_decode_settings: [],
+  };
+}
+
+export function createDefaultProfileModesSettings(): ProfileModesSettings {
+  return {
+    post_process: true,
+    filter_fillers: true,
+    professionalize: false,
+    auto_detect_mode: true,
+    agent_name: "WordScript",
+  };
+}
+
+export function createDefaultProfileCaptureSettings(): ProfileCaptureSettings {
+  return {
+    max_recording_seconds: 720,
+    silence_timeout_seconds: 30,
+  };
+}
+
+function cloneProfileSpeechSettings(settings?: ProfileSpeechSettings | null): ProfileSpeechSettings {
+  if (!settings) return createDefaultProfileSpeechSettings();
+  return {
+    ...settings,
+    local_profile_prompt_settings: settings.local_profile_prompt_settings?.map((s) => ({ ...s })) ?? [],
+    local_profile_decode_settings: settings.local_profile_decode_settings?.map((s) => ({ ...s })) ?? [],
+  };
+}
+
+function cloneProfileModesSettings(settings?: ProfileModesSettings | null): ProfileModesSettings {
+  if (!settings) return createDefaultProfileModesSettings();
+  return { ...settings };
+}
+
+function cloneProfileCaptureSettings(settings?: ProfileCaptureSettings | null): ProfileCaptureSettings {
+  if (!settings) return createDefaultProfileCaptureSettings();
+  return { ...settings };
+}
+
+export function resolveProfileSpeechSettings(profile: Pick<TextProfile, "speech">): ProfileSpeechSettings {
+  return cloneProfileSpeechSettings(profile.speech);
+}
+
+export function resolveProfileModesSettings(profile: Pick<TextProfile, "modes">): ProfileModesSettings {
+  return cloneProfileModesSettings(profile.modes);
+}
+
+export function resolveProfileCaptureSettings(profile: Pick<TextProfile, "capture">): ProfileCaptureSettings {
+  return cloneProfileCaptureSettings(profile.capture);
+}
+
 export function resolveTextProfileWorkMode(profile: Pick<TextProfile, "work_mode">): TextProfileWorkMode {
   return cloneTextProfileWorkMode(profile.work_mode);
 }
@@ -120,6 +195,9 @@ export function cloneTextProfile(profile: TextProfile, overrides: Partial<TextPr
     curation: cloneTextProfileCuration(overrides.curation ?? profile.curation),
     dictionary_entries: (overrides.dictionary_entries ?? profile.dictionary_entries).map((entry) => ({ ...entry })),
     snippet_entries: (overrides.snippet_entries ?? profile.snippet_entries).map((entry) => ({ ...entry })),
+    speech: cloneProfileSpeechSettings(overrides.speech ?? profile.speech),
+    modes: cloneProfileModesSettings(overrides.modes ?? profile.modes),
+    capture: cloneProfileCaptureSettings(overrides.capture ?? profile.capture),
   };
 }
 
@@ -165,6 +243,9 @@ export function resolveActiveTextProfile(config: AppConfig): TextProfile {
     curation: createEmptyTextProfileCuration(),
     dictionary_entries: [],
     snippet_entries: [],
+    speech: createDefaultProfileSpeechSettings(),
+    modes: createDefaultProfileModesSettings(),
+    capture: createDefaultProfileCaptureSettings(),
   };
 }
 
@@ -178,6 +259,9 @@ export function createTextProfile(): TextProfile {
     curation: createEmptyTextProfileCuration(),
     dictionary_entries: [],
     snippet_entries: [],
+    speech: createDefaultProfileSpeechSettings(),
+    modes: createDefaultProfileModesSettings(),
+    capture: createDefaultProfileCaptureSettings(),
   };
 }
 
@@ -197,6 +281,53 @@ export function buildTextProfilesPatch(
     active_text_profile_id: activeProfile.id,
     text_profiles: normalizedProfiles,
   };
+}
+
+// ── Per-Profile Settings Patch Helpers ───────────────────────────────────────
+
+export function buildProfileSpeechPatch(
+  config: AppConfig,
+  speechUpdate: Partial<ProfileSpeechSettings>,
+): Partial<AppConfig> {
+  const activeProfile = resolveActiveTextProfile(config);
+  const currentSpeech = resolveProfileSpeechSettings(activeProfile);
+  const nextSpeech = { ...currentSpeech, ...speechUpdate };
+  const nextProfiles = config.text_profiles.map((profile) =>
+    profile.id === activeProfile.id
+      ? { ...profile, speech: nextSpeech }
+      : profile,
+  );
+  return buildTextProfilesPatch(config, nextProfiles, activeProfile.id);
+}
+
+export function buildProfileModesPatch(
+  config: AppConfig,
+  modesUpdate: Partial<ProfileModesSettings>,
+): Partial<AppConfig> {
+  const activeProfile = resolveActiveTextProfile(config);
+  const currentModes = resolveProfileModesSettings(activeProfile);
+  const nextModes = { ...currentModes, ...modesUpdate };
+  const nextProfiles = config.text_profiles.map((profile) =>
+    profile.id === activeProfile.id
+      ? { ...profile, modes: nextModes }
+      : profile,
+  );
+  return buildTextProfilesPatch(config, nextProfiles, activeProfile.id);
+}
+
+export function buildProfileCapturePatch(
+  config: AppConfig,
+  captureUpdate: Partial<ProfileCaptureSettings>,
+): Partial<AppConfig> {
+  const activeProfile = resolveActiveTextProfile(config);
+  const currentCapture = resolveProfileCaptureSettings(activeProfile);
+  const nextCapture = { ...currentCapture, ...captureUpdate };
+  const nextProfiles = config.text_profiles.map((profile) =>
+    profile.id === activeProfile.id
+      ? { ...profile, capture: nextCapture }
+      : profile,
+  );
+  return buildTextProfilesPatch(config, nextProfiles, activeProfile.id);
 }
 
 export function textProfileInitials(profile: TextProfile): string {

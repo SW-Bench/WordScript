@@ -109,6 +109,10 @@ export interface TextProfile {
   curation:                TextProfileCuration;
   dictionary_entries:      DictionaryEntry[];
   snippet_entries:         SnippetEntry[];
+  // Per-profile settings (tab-oriented sub-objects)
+  speech?:                 ProfileSpeechSettings;
+  modes?:                  ProfileModesSettings;
+  capture?:                ProfileCaptureSettings;
 }
 
 export interface LocalProfileDecodeSettings {
@@ -121,6 +125,39 @@ export interface LocalProfilePromptSettings {
   profile_id:              string;
   prompt_strength:         "off" | "profile" | "profile_and_terms";
   prompt_carry:            boolean;
+}
+
+// ── Per-Profile Settings (tab-oriented sub-objects) ──────────────────────────
+
+export interface ProfileSpeechSettings {
+  provider:                string;
+  model:                   string;
+  language:                string;
+  correction_model:        string;
+  local_correction_model:  string;
+  agent_model:             string;
+  local_agent_model:       string;
+  local_model:             string;
+  local_profile:           string;
+  local_prompt_strength:   "off" | "profile" | "profile_and_terms";
+  local_prompt_carry:      boolean;
+  local_beam_size:         number;
+  local_best_of:           number;
+  local_profile_prompt_settings: LocalProfilePromptSettings[];
+  local_profile_decode_settings: LocalProfileDecodeSettings[];
+}
+
+export interface ProfileModesSettings {
+  post_process:            boolean;
+  filter_fillers:          boolean;
+  professionalize:         boolean;
+  auto_detect_mode:        boolean;
+  agent_name:              string;
+}
+
+export interface ProfileCaptureSettings {
+  max_recording_seconds:   number;
+  silence_timeout_seconds: number;
 }
 
 export type OverlayPositionMode = "preset" | "manual";

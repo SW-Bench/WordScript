@@ -6,8 +6,10 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { cn } from "../../lib/utils";
 import {
+  buildProfileModesPatch,
   buildTextProfilesPatch,
   resolveActiveTextProfile,
+  resolveProfileModesSettings,
 } from "../../lib/textProfiles";
 import type { AppConfig, ProcessingMode, EnhanceSubMode, PromptTarget, TextProfile, TextProfileWorkMode } from "../../types/ipc";
 
@@ -68,17 +70,17 @@ function processingModeLabel(mode: ProcessingMode): string {
   return MODE_LABELS[mode] ?? mode;
 }
 
-function cleanupSummary(config: AppConfig) {
-  if (!config.post_process) {
+function cleanupSummary(modes: { post_process: boolean; filter_fillers: boolean; professionalize: boolean }) {
+  if (!modes.post_process) {
     return "Off. WordScript keeps the raw speech-to-text result and only applies your text rules.";
   }
-  if (config.professionalize && config.filter_fillers) {
+  if (modes.professionalize && modes.filter_fillers) {
     return "On. Fixes errors, removes fillers, and allows broader rewrites.";
   }
-  if (config.professionalize) {
+  if (modes.professionalize) {
     return "On. Fixes errors and allows broader rewrites.";
   }
-  if (config.filter_fillers) {
+  if (modes.filter_fillers) {
     return "On. Fixes errors and removes fillers while staying close to the original phrasing.";
   }
 
@@ -88,13 +90,14 @@ function cleanupSummary(config: AppConfig) {
 export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
   const activeProfile = resolveActiveTextProfile(config);
   const activeWorkMode = activeProfile.work_mode;
-  const selectedMode: ProcessingMode = activeWorkMode?.processing_mode ?? config.processing_mode ?? "auto";
-  const selectedSubMode: EnhanceSubMode = activeWorkMode?.enhance_sub_mode ?? config.enhance_sub_mode ?? "enhance";
-  const selectedTarget: PromptTarget = activeWorkMode?.target ?? config.enhance_target ?? "general";
-  const autoDetectEnabled = config.auto_detect_mode ?? false;
+  const modes = resolveProfileModesSettings(activeProfile);
+  const selectedMode: ProcessingMode = activeWorkMode?.processing_mode ?? "auto";
+  const selectedSubMode: EnhanceSubMode = activeWorkMode?.enhance_sub_mode ?? "enhance";
+  const selectedTarget: PromptTarget = activeWorkMode?.target ?? "general";
+  const autoDetectEnabled = modes.auto_detect_mode;
   const modePickerHotkey = config.mode_picker_hotkey ?? "";
   const cycleModeHotkey = config.mode_cycle_hotkey ?? "";
-  const cleanupEnabled = config.post_process;
+  const cleanupEnabled = modes.post_process;
 
   const [resolved, setResolved] = useState<ResolvedProcessingContext | null>(null);
 
@@ -149,8 +152,8 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
   }, [updateActiveProfileWorkMode]);
 
   const handleToggleAutoDetect = useCallback((next: boolean) => {
-    onChange({ auto_detect_mode: next });
-  }, [onChange]);
+    onChange(buildProfileModesPatch(config, { auto_detect_mode: next }));
+  }, [config, onChange]);
 
   const handleModePickerHotkey = useCallback((value: string) => {
     onChange({ mode_picker_hotkey: value });
@@ -284,7 +287,7 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
             <Toggle
               id="ai-cleanup-toggle"
               checked={cleanupEnabled}
-              onCheckedChange={(checked) => onChange({ post_process: checked })}
+              onCheckedChange={(checked) => onChange(buildProfileModesPatch(config, { post_process: checked }))}
             />
           }
         />
@@ -297,9 +300,9 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
               control={
                 <Toggle
                   id="filter-fillers-toggle"
-                  checked={config.filter_fillers}
-                  disabled={!config.post_process}
-                  onCheckedChange={(checked) => onChange({ filter_fillers: checked })}
+                  checked={modes.filter_fillers}
+                  disabled={!modes.post_process}
+                  onCheckedChange={(checked) => onChange(buildProfileModesPatch(config, { filter_fillers: checked }))}
                 />
               }
             />
@@ -311,16 +314,16 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
               control={
                 <Toggle
                   id="professionalize-toggle"
-                  checked={config.professionalize}
-                  disabled={!config.post_process}
-                  onCheckedChange={(checked) => onChange({ professionalize: checked })}
+                  checked={modes.professionalize}
+                  disabled={!modes.post_process}
+                  onCheckedChange={(checked) => onChange(buildProfileModesPatch(config, { professionalize: checked }))}
                 />
               }
             />
           </>
         )}
         <p className="border-t border-border py-3 text-[12px] leading-snug text-fg-muted">
-          {cleanupSummary(config)} Choose the cleanup model in Speech &amp; AI.
+          {cleanupSummary(modes)} Choose the cleanup model in Speech &amp; AI.
         </p>
       </FormCard>
 
@@ -381,6 +384,9 @@ function AgentControls({
   config: AppConfig;
   onChange: (p: Partial<AppConfig>) => void;
 }) {
+  const activeProfile = resolveActiveTextProfile(config);
+  const modes = resolveProfileModesSettings(activeProfile);
+  
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border bg-surface px-3 py-3">
       <FormRow
@@ -393,9 +399,9 @@ function AgentControls({
             id="inline-agent-name-input"
             type="text"
             className="w-[200px]"
-            value={config.agent_name}
+            value={modes.agent_name}
             placeholder="WordScript"
-            onChange={(e) => onChange({ agent_name: e.target.value })}
+            onChange={(e) => onChange(buildProfileModesPatch(config, { agent_name: e.target.value }))}
           />
         }
       />

@@ -79,12 +79,25 @@ describe("ModesTab", () => {
   });
 
   it("toggles auto-detect checkbox", () => {
-    render(<ModesTab config={createAppConfig({ auto_detect_mode: false })} onChange={onChange} />);
+    const config = createAppConfig();
+    // Set auto_detect_mode to false in the active profile's modes settings
+    config.text_profiles = config.text_profiles.map((p) =>
+      p.id === "general"
+        ? { ...p, modes: { ...p.modes!, auto_detect_mode: false } }
+        : p,
+    );
+    render(<ModesTab config={config} onChange={onChange} />);
 
     const checkbox = screen.getByLabelText(/collect workspace context/i);
     fireEvent.click(checkbox);
 
-    expect(onChange).toHaveBeenCalledWith({ auto_detect_mode: true });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const patch = onChange.mock.calls[0][0] as Partial<AppConfig>;
+    expect(patch.text_profiles).toBeDefined();
+    const profiles = patch.text_profiles!;
+    const activeProfile = profiles.find((p) => p.id === "general");
+    expect(activeProfile).toBeDefined();
+    expect(activeProfile!.modes?.auto_detect_mode).toBe(true);
   });
 
   it("renders workspace context section", () => {

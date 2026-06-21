@@ -275,6 +275,27 @@ pub struct TextProfile {
     pub curation: TextProfileCuration,
     pub dictionary_entries: Vec<DictionaryEntry>,
     pub snippet_entries: Vec<SnippetEntry>,
+    // Per-profile settings (tab-oriented sub-objects)
+    #[serde(default)]
+    pub speech: Option<ProfileSpeechSettings>,
+    #[serde(default)]
+    pub modes: Option<ProfileModesSettings>,
+    #[serde(default)]
+    pub capture: Option<ProfileCaptureSettings>,
+}
+
+impl TextProfile {
+    pub(crate) fn resolved_speech(&self) -> ProfileSpeechSettings {
+        self.speech.clone().unwrap_or_default()
+    }
+
+    pub(crate) fn resolved_modes(&self) -> ProfileModesSettings {
+        self.modes.clone().unwrap_or_default()
+    }
+
+    pub(crate) fn resolved_capture(&self) -> ProfileCaptureSettings {
+        self.capture.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -301,6 +322,88 @@ pub struct LocalProfilePromptSettings {
     pub profile_id: String,
     pub prompt_strength: String,
     pub prompt_carry: bool,
+}
+
+// ── Per-Profile Settings (tab-oriented sub-objects) ──────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProfileSpeechSettings {
+    pub provider: String,
+    pub model: String,
+    pub language: String,
+    pub correction_model: String,
+    pub local_correction_model: String,
+    pub agent_model: String,
+    pub local_agent_model: String,
+    pub local_model: String,
+    pub local_profile: String,
+    pub local_prompt_strength: String,
+    pub local_prompt_carry: bool,
+    pub local_beam_size: u8,
+    pub local_best_of: u8,
+    pub local_profile_prompt_settings: Vec<LocalProfilePromptSettings>,
+    pub local_profile_decode_settings: Vec<LocalProfileDecodeSettings>,
+}
+
+impl Default for ProfileSpeechSettings {
+    fn default() -> Self {
+        Self {
+            provider: default_provider_id().to_string(),
+            model: "whisper-large-v3-turbo".to_string(),
+            language: String::new(),
+            correction_model: DEFAULT_CORRECTION_MODEL.to_string(),
+            local_correction_model: DEFAULT_LOCAL_CORRECTION_MODEL.to_string(),
+            agent_model: DEFAULT_AGENT_MODEL.to_string(),
+            local_agent_model: DEFAULT_LOCAL_AGENT_MODEL.to_string(),
+            local_model: "base".to_string(),
+            local_profile: "local-preview-base-fast".to_string(),
+            local_prompt_strength: "profile".to_string(),
+            local_prompt_carry: false,
+            local_beam_size: 1,
+            local_best_of: 1,
+            local_profile_prompt_settings: Vec::new(),
+            local_profile_decode_settings: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProfileModesSettings {
+    pub post_process: bool,
+    pub filter_fillers: bool,
+    pub professionalize: bool,
+    pub auto_detect_mode: bool,
+    pub agent_name: String,
+}
+
+impl Default for ProfileModesSettings {
+    fn default() -> Self {
+        Self {
+            post_process: true,
+            filter_fillers: true,
+            professionalize: false,
+            auto_detect_mode: true,
+            agent_name: DEFAULT_AGENT_NAME.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProfileCaptureSettings {
+    pub max_recording_seconds: u64,
+    pub silence_timeout_seconds: u64,
+}
+
+impl Default for ProfileCaptureSettings {
+    fn default() -> Self {
+        Self {
+            max_recording_seconds: 720,
+            silence_timeout_seconds: 30,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -766,6 +869,8 @@ impl AppConfig {
             )),
         }
 
+        should_save |= config.migrate_global_settings_to_active_profile();
+
         config.normalize_for_runtime();
         should_save |= original_provider != config.provider;
 
@@ -786,6 +891,75 @@ impl AppConfig {
         }
 
         config
+    }
+
+    /// Migrates global settings into the active profile's per-profile sub-objects.
+    /// Returns true if any migration was performed.
+    fn migrate_global_settings_to_active_profile(&mut self) -> bool {
+        let active_index = self
+            .text_profiles
+            .iter()
+            .position(|p| p.id == self.active_text_profile_id)
+            .unwrap_or(0);
+
+        if active_index >= self.text_profiles.len() {
+            return false;
+        }
+
+        let mut migrated = false;
+        let profile = &mut self.text_profiles[active_index];
+
+        // Migrate speech settings if not already present
+        if profile.speech.is_none() {
+            profile.speech = Some(ProfileSpeechSettings {
+                provider: self.provider.clone(),
+                model: self.model.clone(),
+                language: self.language.clone(),
+                correction_model: self.correction_model.clone(),
+                local_correction_model: self.local_correction_model.clone(),
+                agent_model: self.agent_model.clone(),
+                local_agent_model: self.local_agent_model.clone(),
+                local_model: self.local_model.clone(),
+                local_profile: self.local_profile.clone(),
+                local_prompt_strength: self.local_prompt_strength.clone(),
+                local_prompt_carry: self.local_prompt_carry,
+                local_beam_size: self.local_beam_size,
+                local_best_of: self.local_best_of,
+                local_profile_prompt_settings: self.local_profile_prompt_settings.clone(),
+                local_profile_decode_settings: self.local_profile_decode_settings.clone(),
+            });
+            migrated = true;
+        }
+
+        // Migrate modes settings if not already present
+        if profile.modes.is_none() {
+            profile.modes = Some(ProfileModesSettings {
+                post_process: self.post_process,
+                filter_fillers: self.filter_fillers,
+                professionalize: self.professionalize,
+                auto_detect_mode: self.auto_detect_mode,
+                agent_name: self.agent_name.clone(),
+            });
+            migrated = true;
+        }
+
+        // Migrate capture settings if not already present
+        if profile.capture.is_none() {
+            profile.capture = Some(ProfileCaptureSettings {
+                max_recording_seconds: self.max_recording_seconds,
+                silence_timeout_seconds: self.silence_timeout_seconds,
+            });
+            migrated = true;
+        }
+
+        if migrated {
+            runtime_log::record(
+                "[WordScript] Migrated global settings into active profile's per-profile sub-objects."
+                    .to_string(),
+            );
+        }
+
+        migrated
     }
 
     pub fn save_to_disk(&self) -> Result<(), String> {
@@ -1376,6 +1550,9 @@ fn default_text_profile(
         curation: TextProfileCuration::default(),
         dictionary_entries,
         snippet_entries,
+        speech: None,
+        modes: None,
+        capture: None,
     }
 }
 
@@ -1750,6 +1927,9 @@ mod tests {
                     curation: TextProfileCuration::default(),
                     dictionary_entries: Vec::new(),
                     snippet_entries: Vec::new(),
+                    speech: None,
+                    modes: None,
+                    capture: None,
                 },
                 TextProfile {
                     id: "support".to_string(),
@@ -1774,6 +1954,9 @@ mod tests {
                         trigger: "status update".to_string(),
                         expansion: "We will send the next status at 10:00.".to_string(),
                     }],
+                    speech: None,
+                    modes: None,
+                    capture: None,
                 },
             ],
             ..AppConfig::default()
@@ -1811,6 +1994,9 @@ mod tests {
                 curation: TextProfileCuration::default(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
+                    speech: None,
+                    modes: None,
+                    capture: None,
             }],
             ..AppConfig::default()
         };
@@ -1855,6 +2041,9 @@ mod tests {
                 },
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
+                    speech: None,
+                    modes: None,
+                    capture: None,
             }],
             ..AppConfig::default()
         };
@@ -1954,6 +2143,9 @@ mod tests {
                 curation: TextProfileCuration::default(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
+                    speech: None,
+                    modes: None,
+                    capture: None,
             }],
             ..AppConfig::default()
         };
@@ -2011,6 +2203,9 @@ mod tests {
                 curation: TextProfileCuration::default(),
                 dictionary_entries: Vec::new(),
                 snippet_entries: Vec::new(),
+                    speech: None,
+                    modes: None,
+                    capture: None,
             }],
             curated_profiles_seeded: true,
             ..AppConfig::default()

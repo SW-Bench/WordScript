@@ -1,6 +1,12 @@
 import type { AppConfig } from "../types/ipc";
 import { buildCuratedTextProfiles } from "../lib/textProfileTemplates";
-import { createDefaultTextProfileWorkMode, createEmptyTextProfileCuration } from "../lib/textProfiles";
+import {
+  createDefaultProfileCaptureSettings,
+  createDefaultProfileModesSettings,
+  createDefaultProfileSpeechSettings,
+  createDefaultTextProfileWorkMode,
+  createEmptyTextProfileCuration,
+} from "../lib/textProfiles";
 
 export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -17,6 +23,9 @@ export function createAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
         curation: createEmptyTextProfileCuration(),
         dictionary_entries: [],
         snippet_entries: [],
+        speech: createDefaultProfileSpeechSettings(),
+        modes: createDefaultProfileModesSettings(),
+        capture: createDefaultProfileCaptureSettings(),
       },
       ...buildCuratedTextProfiles(),
     ],

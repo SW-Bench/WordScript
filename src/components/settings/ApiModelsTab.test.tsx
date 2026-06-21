@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppConfig } from "../../test/factories";
+import type { AppConfig } from "../../types/ipc";
 import type { ProviderCommandError, ProviderStatus } from "../../types/providers";
 import { ApiModelsTab } from "./ApiModelsTab";
 
@@ -257,14 +258,25 @@ describe("ApiModelsTab", () => {
   });
 
   it("shows local runtime as a full local lane without key actions", () => {
+    const config = createAppConfig();
+    // Set provider to local_preview in the active profile's speech settings
+    config.text_profiles = config.text_profiles.map((p) =>
+      p.id === "general"
+        ? {
+            ...p,
+            speech: {
+              ...p.speech!,
+              provider: "local_preview",
+              local_model: "base",
+              local_profile: "local-preview-base-fast",
+              local_correction_model: "llama3.2:latest",
+            },
+          }
+        : p,
+    );
     render(
       <ApiModelsTab
-        config={createAppConfig({
-          provider: "local_preview",
-          local_model: "base",
-          local_profile: "local-preview-base-fast",
-          local_correction_model: "llama3.2:latest",
-        })}
+        config={config}
         onChange={vi.fn()}
         onOpenDiagnostics={vi.fn()}
       />,
@@ -335,42 +347,54 @@ describe("ApiModelsTab", () => {
       },
     } as ProviderStatus;
 
+    const config = createAppConfig();
+    // Set local preview settings in the active profile's speech settings
+    config.text_profiles = config.text_profiles.map((p) =>
+      p.id === "general"
+        ? {
+            ...p,
+            speech: {
+              ...p.speech!,
+              provider: "local_preview",
+              local_model: "large-v3-q5_0",
+              local_profile: "local-preview-large-v3-q5_0-quality",
+              local_correction_model: "qwen2.5:7b-instruct",
+              local_prompt_strength: "profile_and_terms",
+              local_prompt_carry: true,
+              local_beam_size: 5,
+              local_best_of: 5,
+              local_profile_prompt_settings: [
+                {
+                  profile_id: "local-preview-base-fast",
+                  prompt_strength: "profile",
+                  prompt_carry: false,
+                },
+                {
+                  profile_id: "local-preview-large-v3-q5_0-quality",
+                  prompt_strength: "profile_and_terms",
+                  prompt_carry: true,
+                },
+              ],
+              local_profile_decode_settings: [
+                {
+                  profile_id: "local-preview-base-fast",
+                  beam_size: 1,
+                  best_of: 1,
+                },
+                {
+                  profile_id: "local-preview-large-v3-q5_0-quality",
+                  beam_size: 5,
+                  best_of: 5,
+                },
+              ],
+            },
+          }
+        : p,
+    );
+
     render(
       <ApiModelsTab
-        config={createAppConfig({
-          provider: "local_preview",
-          local_model: "large-v3-q5_0",
-          local_profile: "local-preview-large-v3-q5_0-quality",
-          local_correction_model: "qwen2.5:7b-instruct",
-          local_prompt_strength: "profile_and_terms",
-          local_prompt_carry: true,
-          local_beam_size: 5,
-          local_best_of: 5,
-          local_profile_prompt_settings: [
-            {
-              profile_id: "local-preview-base-fast",
-              prompt_strength: "profile",
-              prompt_carry: false,
-            },
-            {
-              profile_id: "local-preview-large-v3-q5_0-quality",
-              prompt_strength: "profile_and_terms",
-              prompt_carry: true,
-            },
-          ],
-          local_profile_decode_settings: [
-            {
-              profile_id: "local-preview-base-fast",
-              beam_size: 1,
-              best_of: 1,
-            },
-            {
-              profile_id: "local-preview-large-v3-q5_0-quality",
-              beam_size: 5,
-              best_of: 5,
-            },
-          ],
-        })}
+        config={config}
         onChange={vi.fn()}
         onOpenDiagnostics={vi.fn()}
       />,
@@ -394,42 +418,53 @@ describe("ApiModelsTab", () => {
 
   it("loads stored local prompt and decode controls when the profile changes", () => {
     const onChange = vi.fn();
+    const config = createAppConfig();
+    // Set local preview settings in the active profile's speech settings
+    config.text_profiles = config.text_profiles.map((p) =>
+      p.id === "general"
+        ? {
+            ...p,
+            speech: {
+              ...p.speech!,
+              provider: "local_preview",
+              local_model: "base",
+              local_profile: "local-preview-base-fast",
+              local_prompt_strength: "off",
+              local_prompt_carry: false,
+              local_beam_size: 3,
+              local_best_of: 4,
+              local_profile_prompt_settings: [
+                {
+                  profile_id: "local-preview-base-fast",
+                  prompt_strength: "off",
+                  prompt_carry: false,
+                },
+                {
+                  profile_id: "local-preview-base-quality",
+                  prompt_strength: "profile_and_terms",
+                  prompt_carry: true,
+                },
+              ],
+              local_profile_decode_settings: [
+                {
+                  profile_id: "local-preview-base-fast",
+                  beam_size: 3,
+                  best_of: 4,
+                },
+                {
+                  profile_id: "local-preview-base-quality",
+                  beam_size: 7,
+                  best_of: 6,
+                },
+              ],
+            },
+          }
+        : p,
+    );
 
     render(
       <ApiModelsTab
-        config={createAppConfig({
-          provider: "local_preview",
-          local_model: "base",
-          local_profile: "local-preview-base-fast",
-          local_prompt_strength: "off",
-          local_prompt_carry: false,
-          local_beam_size: 3,
-          local_best_of: 4,
-          local_profile_prompt_settings: [
-            {
-              profile_id: "local-preview-base-fast",
-              prompt_strength: "off",
-              prompt_carry: false,
-            },
-            {
-              profile_id: "local-preview-base-quality",
-              prompt_strength: "profile_and_terms",
-              prompt_carry: true,
-            },
-          ],
-          local_profile_decode_settings: [
-            {
-              profile_id: "local-preview-base-fast",
-              beam_size: 3,
-              best_of: 4,
-            },
-            {
-              profile_id: "local-preview-base-quality",
-              beam_size: 7,
-              best_of: 6,
-            },
-          ],
-        })}
+        config={config}
         onChange={onChange}
         onOpenDiagnostics={vi.fn()}
       />,
@@ -439,38 +474,18 @@ describe("ApiModelsTab", () => {
       target: { value: "local-preview-base-quality" },
     });
 
-    expect(onChange).toHaveBeenCalledWith({
-      local_profile: "local-preview-base-quality",
-      local_model: "base",
-      local_prompt_strength: "profile_and_terms",
-      local_prompt_carry: true,
-      local_beam_size: 7,
-      local_best_of: 6,
-      local_profile_prompt_settings: [
-        {
-          profile_id: "local-preview-base-fast",
-          prompt_strength: "off",
-          prompt_carry: false,
-        },
-        {
-          profile_id: "local-preview-base-quality",
-          prompt_strength: "profile_and_terms",
-          prompt_carry: true,
-        },
-      ],
-      local_profile_decode_settings: [
-        {
-          profile_id: "local-preview-base-fast",
-          beam_size: 3,
-          best_of: 4,
-        },
-        {
-          profile_id: "local-preview-base-quality",
-          beam_size: 7,
-          best_of: 6,
-        },
-      ],
-    });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const patch = onChange.mock.calls[0][0] as Partial<AppConfig>;
+    expect(patch.text_profiles).toBeDefined();
+    const profiles = patch.text_profiles!;
+    const activeProfile = profiles.find((p) => p.id === "general");
+    expect(activeProfile).toBeDefined();
+    expect(activeProfile!.speech?.local_profile).toBe("local-preview-base-quality");
+    expect(activeProfile!.speech?.local_model).toBe("base");
+    expect(activeProfile!.speech?.local_prompt_strength).toBe("profile_and_terms");
+    expect(activeProfile!.speech?.local_prompt_carry).toBe(true);
+    expect(activeProfile!.speech?.local_beam_size).toBe(7);
+    expect(activeProfile!.speech?.local_best_of).toBe(6);
   });
 
   it("shows the recovery action for classified provider errors", () => {

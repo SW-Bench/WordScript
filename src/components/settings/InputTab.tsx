@@ -8,6 +8,11 @@ import { Input } from "../ui/input";
 import { cn } from "../../lib/utils";
 import type { AppConfig } from "../../types/ipc";
 import { HotkeyRecorder } from "./HotkeyRecorder";
+import {
+  buildProfileCapturePatch,
+  resolveActiveTextProfile,
+  resolveProfileCaptureSettings,
+} from "../../lib/textProfiles";
 
 type ShortcutField = "hotkey" | "pause_hotkey" | "abort_hotkey";
 
@@ -84,6 +89,10 @@ export function InputTab({ config, onChange }: Props) {
   const pauseNativeTrigger = () => { void invoke("pause_native_trigger").catch(() => {}); };
   const resumeNativeTrigger = () => { void invoke("resume_native_trigger").catch(() => {}); };
 
+  // Read capture settings from active profile
+  const activeProfile = resolveActiveTextProfile(config);
+  const capture = resolveProfileCaptureSettings(activeProfile);
+
   const refreshAudioSetup = useCallback(async () => {
     setIsRefreshingAudio(true);
 
@@ -125,8 +134,8 @@ export function InputTab({ config, onChange }: Props) {
     () => audioDevices.find((device) => device.is_default) ?? null,
     [audioDevices],
   );
-  const maxRecordingSeconds = clampCaptureNumber(config.max_recording_seconds, 10, 3600, 720);
-  const silenceTimeoutSeconds = clampCaptureNumber(config.silence_timeout_seconds, 0, 300, 30);
+  const maxRecordingSeconds = clampCaptureNumber(capture.max_recording_seconds, 10, 3600, 720);
+  const silenceTimeoutSeconds = clampCaptureNumber(capture.silence_timeout_seconds, 0, 300, 30);
   const hasExplicitAudioDevice = Boolean(config.audio_device.trim());
   const selectedAudioDeviceAvailable = !hasExplicitAudioDevice || audioDevices.some((device) => device.name === config.audio_device);
   const selectedAudioDeviceLabel = hasExplicitAudioDevice
@@ -260,12 +269,12 @@ export function InputTab({ config, onChange }: Props) {
           label="Max recording"
           control={
             <Stepper
-              value={config.max_recording_seconds}
+              value={capture.max_recording_seconds}
               min={10}
               max={3600}
               step={5}
               suffix={formatDurationCompact(maxRecordingSeconds)}
-              onChange={(value) => onChange({ max_recording_seconds: value })}
+              onChange={(value) => onChange(buildProfileCapturePatch(config, { max_recording_seconds: value }))}
               aria-label="Max recording"
             />
           }
@@ -276,12 +285,12 @@ export function InputTab({ config, onChange }: Props) {
           divider={false}
           control={
             <Stepper
-              value={config.silence_timeout_seconds}
+              value={capture.silence_timeout_seconds}
               min={0}
               max={300}
               step={1}
               suffix={silenceTimeoutSeconds > 0 ? formatDurationCompact(silenceTimeoutSeconds) : "Disabled"}
-              onChange={(value) => onChange({ silence_timeout_seconds: value })}
+              onChange={(value) => onChange(buildProfileCapturePatch(config, { silence_timeout_seconds: value }))}
               aria-label="Silence timeout"
             />
           }

@@ -16,7 +16,7 @@ import {
 import type { StatusTone } from "../shell";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-import type { AppConfig } from "../../types/ipc";
+import type { AppConfig, ProfileSpeechSettings } from "../../types/ipc";
 import type {
   LocalProviderIssueCode,
   LocalProviderSetupStatus,
@@ -24,6 +24,11 @@ import type {
   ProviderId,
   ProviderProfile,
 } from "../../types/providers";
+import {
+  buildProfileSpeechPatch,
+  resolveActiveTextProfile,
+  resolveProfileSpeechSettings,
+} from "../../lib/textProfiles";
 
 interface Props {
   config: AppConfig;
@@ -124,10 +129,10 @@ function defaultLocalDecodeSettingsForProfileId(profileId: string | null | undef
 }
 
 function defaultLocalPromptSettingsForProfileId() {
-  return { promptStrength: "profile" as AppConfig["local_prompt_strength"], promptCarry: false };
+  return { promptStrength: "profile" as ProfileSpeechSettings["local_prompt_strength"], promptCarry: false };
 }
 
-function localProfilePromptSettingsForProfile(config: AppConfig, profileId: string | null | undefined) {
+function localProfilePromptSettingsForProfile(speech: ProfileSpeechSettings, profileId: string | null | undefined) {
   const fallback = defaultLocalPromptSettingsForProfileId();
   const normalizedProfileId = profileId?.trim();
 
@@ -135,7 +140,7 @@ function localProfilePromptSettingsForProfile(config: AppConfig, profileId: stri
     return fallback;
   }
 
-  const stored = config.local_profile_prompt_settings.find((entry) => entry.profile_id === normalizedProfileId);
+  const stored = speech.local_profile_prompt_settings.find((entry) => entry.profile_id === normalizedProfileId);
   if (!stored) {
     return fallback;
   }
@@ -147,11 +152,11 @@ function localProfilePromptSettingsForProfile(config: AppConfig, profileId: stri
 }
 
 function upsertLocalProfilePromptSettings(
-  settings: AppConfig["local_profile_prompt_settings"],
+  settings: ProfileSpeechSettings["local_profile_prompt_settings"],
   profileId: string,
-  promptStrength: AppConfig["local_prompt_strength"],
+  promptStrength: ProfileSpeechSettings["local_prompt_strength"],
   promptCarry: boolean,
-): AppConfig["local_profile_prompt_settings"] {
+): ProfileSpeechSettings["local_profile_prompt_settings"] {
   const nextEntry = {
     profile_id: profileId,
     prompt_strength: promptStrength,
@@ -168,7 +173,7 @@ function upsertLocalProfilePromptSettings(
   return next;
 }
 
-function localProfileDecodeSettingsForProfile(config: AppConfig, profileId: string | null | undefined) {
+function localProfileDecodeSettingsForProfile(speech: ProfileSpeechSettings, profileId: string | null | undefined) {
   const fallback = defaultLocalDecodeSettingsForProfileId(profileId);
   const normalizedProfileId = profileId?.trim();
 
@@ -176,7 +181,7 @@ function localProfileDecodeSettingsForProfile(config: AppConfig, profileId: stri
     return fallback;
   }
 
-  const stored = config.local_profile_decode_settings.find((entry) => entry.profile_id === normalizedProfileId);
+  const stored = speech.local_profile_decode_settings.find((entry) => entry.profile_id === normalizedProfileId);
   if (!stored) {
     return fallback;
   }
@@ -188,11 +193,11 @@ function localProfileDecodeSettingsForProfile(config: AppConfig, profileId: stri
 }
 
 function upsertLocalProfileDecodeSettings(
-  settings: AppConfig["local_profile_decode_settings"],
+  settings: ProfileSpeechSettings["local_profile_decode_settings"],
   profileId: string,
   beamSize: number,
   bestOf: number,
-): AppConfig["local_profile_decode_settings"] {
+): ProfileSpeechSettings["local_profile_decode_settings"] {
   const nextEntry = {
     profile_id: profileId,
     beam_size: beamSize,
@@ -242,18 +247,18 @@ function localSetupIssueLabel(issueCode: LocalProviderIssueCode | null | undefin
   }
 }
 
-function localCleanupModelOptions(config: AppConfig, availableModels: string[] | undefined) {
+function localCleanupModelOptions(speech: ProfileSpeechSettings, availableModels: string[] | undefined) {
   return Array.from(new Set([
-    config.local_correction_model.trim() || "llama3.2:latest",
+    speech.local_correction_model.trim() || "llama3.2:latest",
     ...(availableModels ?? []),
     ...LOCAL_RUNTIME_CORRECTION_MODELS,
   ]));
 }
 
-function localAgentModelOptions(config: AppConfig, availableModels: string[] | undefined): Array<{ value: string; label: string }> {
+function localAgentModelOptions(speech: ProfileSpeechSettings, availableModels: string[] | undefined): Array<{ value: string; label: string }> {
   const knownValues = new Set(LOCAL_AGENT_MODEL_OPTIONS.map((o) => o.value));
   const extra = Array.from(new Set([
-    config.local_agent_model.trim() || "llama3.2:latest",
+    speech.local_agent_model.trim() || "llama3.2:latest",
     ...(availableModels ?? []),
   ])).filter((v) => !knownValues.has(v));
   return [
@@ -266,7 +271,7 @@ function issueMatches(issueCode: LocalProviderIssueCode | null | undefined, code
   return Boolean(issueCode && codes.includes(issueCode));
 }
 
-function localRuntimeSetupSteps(localSetup: LocalProviderSetupStatus | null, config: AppConfig) {
+function localRuntimeSetupSteps(localSetup: LocalProviderSetupStatus | null, speech: ProfileSpeechSettings) {
   const issueCode = localSetup?.issue_code ?? null;
   const cleanupEndpointBlocked = issueMatches(issueCode, ["invalid_chat_endpoint", "chat_backend_unavailable"]);
   const cleanupModelBlocked = issueMatches(issueCode, ["invalid_chat_endpoint", "chat_backend_unavailable", "missing_chat_model", "chat_model_not_found"]);
@@ -303,7 +308,7 @@ function localRuntimeSetupSteps(localSetup: LocalProviderSetupStatus | null, con
       label: "Cleanup model",
       ready: cleanupModelReady,
       state: cleanupModelReady ? "Ready" : localSetupIssueLabel(issueCode),
-      detail: localSetup?.resolved_chat_model ?? (config.local_correction_model.trim() || "Install a local Ollama cleanup model."),
+      detail: localSetup?.resolved_chat_model ?? (speech.local_correction_model.trim() || "Install a local Ollama cleanup model."),
       action: cleanupModelReady ? "Model available" : "Pull cleanup model",
     },
   ];
@@ -345,10 +350,15 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [configPath, setConfigPath] = useState<string | null>(null);
-  const selectedProvider: ProviderId = config.provider === "local_preview" ? "local_preview" : "groq";
+  
+  // Read speech settings from active profile
+  const activeProfile = resolveActiveTextProfile(config);
+  const speech = resolveProfileSpeechSettings(activeProfile);
+  
+  const selectedProvider: ProviderId = speech.provider === "local_preview" ? "local_preview" : "groq";
   const previewLaneSelected = selectedProvider === "local_preview";
-  const selectedLocalModel = previewLaneSelected ? config.local_model : null;
-  const selectedCleanupModel = previewLaneSelected ? config.local_correction_model : config.correction_model;
+  const selectedLocalModel = previewLaneSelected ? speech.local_model : null;
+  const selectedCleanupModel = previewLaneSelected ? speech.local_correction_model : speech.correction_model;
   const providerLabel = previewLaneSelected ? "Local runtime" : "Groq cloud";
   const {
     status,
@@ -377,30 +387,30 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const providerRequiresKey = providerCapabilities.requires_api_key;
   const localSetup = previewLaneSelected ? status?.local_setup ?? null : null;
   const activeLocalProfileId = previewLaneSelected
-    ? config.local_profile || providerProfiles.find((profile) => profile.default)?.id || "local-preview-base-fast"
+    ? speech.local_profile || providerProfiles.find((profile) => profile.default)?.id || "local-preview-base-fast"
     : null;
   const activeProviderProfile = previewLaneSelected
     ? providerProfiles.find((profile) => profile.id === activeLocalProfileId)
       ?? providerProfiles.find((profile) => profile.default)
       ?? providerProfiles[0]
-    : providerProfiles.find((profile) => profile.model === config.model)
+    : providerProfiles.find((profile) => profile.model === speech.model)
       ?? providerProfiles.find((profile) => profile.default)
       ?? providerProfiles[0];
   const previewReady = localSetup?.readiness === "ready";
   const hasTypedKey = pendingKey.trim().length > 0;
   const storedKey = previewLaneSelected ? previewReady : status?.credential.configured ?? false;
   const activeModel = previewLaneSelected
-    ? activeProviderProfile?.model || config.local_model || "base"
-    : config.model || activeProviderProfile?.model || "whisper-large-v3-turbo";
+    ? activeProviderProfile?.model || speech.local_model || "base"
+    : speech.model || activeProviderProfile?.model || "whisper-large-v3-turbo";
   const activeMode = activeProviderProfile?.mode ?? (previewLaneSelected ? "fast" : "fast");
-  const activeLocalPrompt = localProfilePromptSettingsForProfile(config, activeLocalProfileId);
+  const activeLocalPrompt = localProfilePromptSettingsForProfile(speech, activeLocalProfileId);
   const activeLocalPromptStrength = activeLocalPrompt.promptStrength;
   const activeLocalPromptCarry = activeLocalPrompt.promptCarry;
-  const activeLocalDecode = localProfileDecodeSettingsForProfile(config, activeLocalProfileId);
+  const activeLocalDecode = localProfileDecodeSettingsForProfile(speech, activeLocalProfileId);
   const activeLocalBeamSize = activeLocalDecode.beamSize;
   const activeLocalBestOf = activeLocalDecode.bestOf;
-  const localCleanupModels = localCleanupModelOptions(config, localSetup?.available_chat_models);
-  const localSetupSteps = previewLaneSelected ? localRuntimeSetupSteps(localSetup, config) : [];
+  const localCleanupModels = localCleanupModelOptions(speech, localSetup?.available_chat_models);
+  const localSetupSteps = previewLaneSelected ? localRuntimeSetupSteps(localSetup, speech) : [];
   const validationState = previewLaneSelected
     ? storedKey
       ? "ok"
@@ -445,36 +455,36 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
   const handleProviderChange = (provider: ProviderId) => {
     setLocalError(null);
     setStatusMessage(null);
-    const nextLocalProfile = config.local_profile.trim() || "local-preview-base-fast";
-    const nextLocalPrompt = localProfilePromptSettingsForProfile(config, nextLocalProfile);
-    const nextLocalDecode = localProfileDecodeSettingsForProfile(config, nextLocalProfile);
-    onChange({
+    const nextLocalProfile = speech.local_profile.trim() || "local-preview-base-fast";
+    const nextLocalPrompt = localProfilePromptSettingsForProfile(speech, nextLocalProfile);
+    const nextLocalDecode = localProfileDecodeSettingsForProfile(speech, nextLocalProfile);
+    onChange(buildProfileSpeechPatch(config, {
       provider,
       ...(provider === "local_preview"
         ? {
-            local_model: config.local_model.trim() || "base",
-          local_correction_model: config.local_correction_model.trim() || "llama3.2:latest",
+            local_model: speech.local_model.trim() || "base",
+            local_correction_model: speech.local_correction_model.trim() || "llama3.2:latest",
             local_profile: nextLocalProfile,
             local_prompt_strength: nextLocalPrompt.promptStrength,
             local_prompt_carry: nextLocalPrompt.promptCarry,
             local_beam_size: nextLocalDecode.beamSize,
             local_best_of: nextLocalDecode.bestOf,
             local_profile_prompt_settings: upsertLocalProfilePromptSettings(
-              config.local_profile_prompt_settings,
+              speech.local_profile_prompt_settings,
               nextLocalProfile,
               nextLocalPrompt.promptStrength,
               nextLocalPrompt.promptCarry,
             ),
             local_profile_decode_settings: upsertLocalProfileDecodeSettings(
-              config.local_profile_decode_settings,
+              speech.local_profile_decode_settings,
               nextLocalProfile,
               nextLocalDecode.beamSize,
               nextLocalDecode.bestOf,
             ),
           }
         : {}),
-      ...(provider === "groq" && !config.model.trim() ? { model: "whisper-large-v3-turbo" } : {}),
-    });
+      ...(provider === "groq" && !speech.model.trim() ? { model: "whisper-large-v3-turbo" } : {}),
+    }));
   };
 
   const handleProfileChange = (value: string) => {
@@ -484,10 +494,10 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
         return;
       }
 
-      const storedPrompt = localProfilePromptSettingsForProfile(config, selectedProfile.id);
-      const storedDecode = localProfileDecodeSettingsForProfile(config, selectedProfile.id);
+      const storedPrompt = localProfilePromptSettingsForProfile(speech, selectedProfile.id);
+      const storedDecode = localProfileDecodeSettingsForProfile(speech, selectedProfile.id);
 
-      onChange({
+      onChange(buildProfileSpeechPatch(config, {
         local_profile: selectedProfile.id,
         local_model: selectedProfile.model,
         local_prompt_strength: storedPrompt.promptStrength,
@@ -495,22 +505,22 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
         local_beam_size: storedDecode.beamSize,
         local_best_of: storedDecode.bestOf,
         local_profile_prompt_settings: upsertLocalProfilePromptSettings(
-          config.local_profile_prompt_settings,
+          speech.local_profile_prompt_settings,
           selectedProfile.id,
           storedPrompt.promptStrength,
           storedPrompt.promptCarry,
         ),
         local_profile_decode_settings: upsertLocalProfileDecodeSettings(
-          config.local_profile_decode_settings,
+          speech.local_profile_decode_settings,
           selectedProfile.id,
           storedDecode.beamSize,
           storedDecode.bestOf,
         ),
-      });
+      }));
       return;
     }
 
-    onChange({ model: value });
+    onChange(buildProfileSpeechPatch(config, { model: value }));
   };
 
   const resolveConfigPath = async () => {
@@ -844,8 +854,8 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
             <Select
               id="language-select"
               className="w-[160px]"
-              value={config.language || "Auto"}
-              onChange={(e) => onChange({ language: e.target.value === "Auto" ? "" : e.target.value })}
+              value={speech.language || "Auto"}
+              onChange={(e) => onChange(buildProfileSpeechPatch(config, { language: e.target.value === "Auto" ? "" : e.target.value }))}
             >
               {LANGUAGES.map((l) => (
                 <option key={l}>{l}</option>
@@ -865,17 +875,17 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
                   className="w-[200px]"
                   value={activeLocalPromptStrength}
                   onChange={(e) => {
-                    const nextPromptStrength = e.target.value as AppConfig["local_prompt_strength"];
+                    const nextPromptStrength = e.target.value as ProfileSpeechSettings["local_prompt_strength"];
                     const profileId = activeLocalProfileId ?? "local-preview-base-fast";
-                    onChange({
+                    onChange(buildProfileSpeechPatch(config, {
                       local_prompt_strength: nextPromptStrength,
                       local_profile_prompt_settings: upsertLocalProfilePromptSettings(
-                        config.local_profile_prompt_settings,
+                        speech.local_profile_prompt_settings,
                         profileId,
                         nextPromptStrength,
                         activeLocalPromptCarry,
                       ),
-                    });
+                    }));
                   }}
                 >
                   {LOCAL_PROMPT_STRENGTH_OPTIONS.map((option) => (
@@ -896,15 +906,15 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
                   checked={activeLocalPromptCarry}
                   onCheckedChange={(nextPromptCarry) => {
                     const profileId = activeLocalProfileId ?? "local-preview-base-fast";
-                    onChange({
+                    onChange(buildProfileSpeechPatch(config, {
                       local_prompt_carry: nextPromptCarry,
                       local_profile_prompt_settings: upsertLocalProfilePromptSettings(
-                        config.local_profile_prompt_settings,
+                        speech.local_profile_prompt_settings,
                         profileId,
                         activeLocalPromptStrength,
                         nextPromptCarry,
                       ),
-                    });
+                    }));
                   }}
                 />
               }
@@ -925,15 +935,15 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
                   onChange={(e) => {
                     const nextBeamSize = Number(e.target.value);
                     const profileId = activeLocalProfileId ?? "local-preview-base-fast";
-                    onChange({
+                    onChange(buildProfileSpeechPatch(config, {
                       local_beam_size: nextBeamSize,
                       local_profile_decode_settings: upsertLocalProfileDecodeSettings(
-                        config.local_profile_decode_settings,
+                        speech.local_profile_decode_settings,
                         profileId,
                         nextBeamSize,
                         activeLocalBestOf,
                       ),
-                    });
+                    }));
                   }}
                 >
                   {LOCAL_DECODE_OPTIONS.map((value) => (
@@ -955,15 +965,15 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
                   onChange={(e) => {
                     const nextBestOf = Number(e.target.value);
                     const profileId = activeLocalProfileId ?? "local-preview-base-fast";
-                    onChange({
+                    onChange(buildProfileSpeechPatch(config, {
                       local_best_of: nextBestOf,
                       local_profile_decode_settings: upsertLocalProfileDecodeSettings(
-                        config.local_profile_decode_settings,
+                        speech.local_profile_decode_settings,
                         profileId,
                         activeLocalBeamSize,
                         nextBestOf,
                       ),
-                    });
+                    }));
                   }}
                 >
                   {LOCAL_DECODE_OPTIONS.map((value) => (
@@ -999,12 +1009,12 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
             <Select
               id="correction-model-select"
               className="w-[260px]"
-              value={previewLaneSelected ? config.local_correction_model : config.correction_model}
+              value={previewLaneSelected ? speech.local_correction_model : speech.correction_model}
               onChange={(e) =>
                 onChange(
-                  previewLaneSelected
+                  buildProfileSpeechPatch(config, previewLaneSelected
                     ? { local_correction_model: e.target.value }
-                    : { correction_model: e.target.value },
+                    : { correction_model: e.target.value })
                 )
               }
             >
@@ -1033,17 +1043,17 @@ export function ApiModelsTab({ config, onChange, onOpenDiagnostics }: Props) {
             <Select
               id="agent-model-select"
               className="w-[300px]"
-              value={previewLaneSelected ? config.local_agent_model : config.agent_model}
+              value={previewLaneSelected ? speech.local_agent_model : speech.agent_model}
               onChange={(e) =>
                 onChange(
-                  previewLaneSelected
+                  buildProfileSpeechPatch(config, previewLaneSelected
                     ? { local_agent_model: e.target.value }
-                    : { agent_model: e.target.value },
+                    : { agent_model: e.target.value })
                 )
               }
             >
               {(previewLaneSelected
-                ? localAgentModelOptions(config, localSetup?.available_chat_models)
+                ? localAgentModelOptions(speech, localSetup?.available_chat_models)
                 : AGENT_MODEL_OPTIONS
               ).map((m) => (
                 <option key={m.value} value={m.value}>

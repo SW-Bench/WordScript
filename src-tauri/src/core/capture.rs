@@ -91,45 +91,51 @@ impl NativeCaptureConfig {
         let app_config = AppConfig::load_from_disk();
         let active_profile = app_config.active_text_profile();
         let work_mode = app_config.resolved_active_text_profile_work_mode();
+        
+        // Read per-profile settings
+        let speech = active_profile.resolved_speech();
+        let modes = active_profile.resolved_modes();
+        let capture = active_profile.resolved_capture();
+        
         let filter_fillers = app_config.active_text_profile_filter_fillers();
         let professionalize = app_config.active_text_profile_professionalize();
-        let provider = app_config.provider.clone();
+        let provider = speech.provider.clone();
         let local_provider_selected = provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID;
         let model = if provider == super::providers::LOCAL_PREVIEW_PROVIDER_ID {
-            if app_config.local_model.trim().is_empty() {
+            if speech.local_model.trim().is_empty() {
                 "base".to_string()
             } else {
-                app_config.local_model
+                speech.local_model
             }
         } else {
-            app_config.model
+            speech.model
         };
 
         Self {
             provider,
             model,
-            local_profile: app_config.local_profile,
-            local_prompt_strength: app_config.local_prompt_strength,
-            local_prompt_carry: app_config.local_prompt_carry,
-            local_beam_size: app_config.local_beam_size,
-            local_best_of: app_config.local_best_of,
-            language: app_config.language,
+            local_profile: speech.local_profile,
+            local_prompt_strength: speech.local_prompt_strength,
+            local_prompt_carry: speech.local_prompt_carry,
+            local_beam_size: speech.local_beam_size,
+            local_best_of: speech.local_best_of,
+            language: speech.language,
             prompt: active_profile.prompt,
             stt_hints: active_profile.stt_hints,
             work_mode,
             dictionary_entries: active_profile.dictionary_entries,
             snippet_entries: active_profile.snippet_entries,
-            post_process: app_config.post_process,
+            post_process: modes.post_process,
             correction_model: if local_provider_selected {
-                app_config.local_correction_model
+                speech.local_correction_model
             } else {
-                app_config.correction_model
+                speech.correction_model
             },
             filter_fillers,
             professionalize,
             audio_device: app_config.audio_device,
-            max_recording_seconds: app_config.max_recording_seconds,
-            silence_timeout_seconds: app_config.silence_timeout_seconds,
+            max_recording_seconds: capture.max_recording_seconds,
+            silence_timeout_seconds: capture.silence_timeout_seconds,
             temp_audio_dir: app_config.temp_audio_dir,
         }
     }
