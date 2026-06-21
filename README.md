@@ -8,7 +8,7 @@ WordScript is a community-built desktop dictation app for one job: trigger recor
 
 It is being built in public under SW forge, the open-source brand of SW labs, where tools like WordScript are built with contributors instead of behind a closed product paywall.
 
-## Interface (Overlay screenshots were squeezed through an image-upscaler)
+## Interface
 
 ![WordScript settings UI](assets/settings-ui-speech-ai.png)
 
