@@ -34,7 +34,7 @@ export function StatTiles({ items, columns = 3, className }: StatTilesProps) {
       {items.map((item, index) => (
         <div
           key={index}
-          className="min-w-0 rounded-lg border border-border bg-card px-4 py-3.5 shadow-card"
+          className="min-w-0 rounded-lg border border-border bg-card px-4 py-3.5"
         >
           <div className="text-[11px] font-medium uppercase tracking-[0.04em] text-fg-muted">
             {item.label}

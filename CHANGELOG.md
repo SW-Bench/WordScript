@@ -29,22 +29,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -->
 
-## [Unreleased] — 2026-06-20
+## [Unreleased] — 2026-06-21
 
 ### Added
 
 - KWin-Script für Always-on-Top auf KDE Plasma 6 / Wayland (`packaging/kwin-wordscript-overlay/`) — setzt `client.layer = 4` (OverlayLayer) für das WordScript-Overlay-Fenster. Install: `kpackagetool6 --type=KWin/Script -i packaging/kwin-wordscript-overlay && qdbus org.kde.KWin /KWin reconfigure`
+- `WORDSCRIPT_DISABLE_WEBKIT_COMPOSITING=1` Opt-out Environment-Variable — stellt den Cairo-Software-Rendering-Pfad wieder her für Hardware, auf der das Overlay mit GPU-Compositing Black-Blocks zeigt.
 
 ### Changed
 
+- **GPU-Compositing standardmäßig aktiviert.** `WEBKIT_DISABLE_COMPOSITING_MODE=1` wurde aus `src-tauri/src/main.rs` entfernt. Die Variable zwang WebKitGTK in den Cairo-Software-Rendering-Pfad, was das Overlay vor Black-Blocks schützte, aber jedes Scrollen im Settings-Fenster CPU-gebunden und ruckelig machte — besonders bei Fenster-Skalierung auf 27-Zoll-Monitoren. Der Overlay-Shadow-Fix (`--ov-shadow: none`) und `WEBKIT_DISABLE_DMABUF_RENDERER=1` halten das Overlay auch mit GPU-Compositor korrekt. Alte `WORDSCRIPT_ENABLE_WEBKIT_COMPOSITING`-Variable entfernt (invertiert und verwirrend).
 - Linux Overlay-Größe auf fixe 440×60 (flat) / 460×164 (edit) — dynamisches pill-basiertes Resize ist auf WebKitGTK/GTK nicht zuverlässig (`set_size` ist asynchron, Fenster hinkt einen Tick hinterher). Beide invoke-Pfade (base surface sync + useLayoutEffect) nutzen jetzt dieselbe Größe → kein Konflikt mehr.
 - `resizable: true` in `tauri.conf.json` (GTK ignorierte `set_size` bei `resizable: false`).
 - `park_overlay_window` ruft jetzt `window.hide()` auf → Reveal läuft durch den Hidden→Visible-Zweig (Drag-Schutz `set_position` nur bei Hidden→Visible funktioniert wieder).
 - `set_background_color` wird bei jedem Reveal aufgerufen (nicht nur bei `size_changed`) → erzwingt Repaint, verhindert dass WebKitGTK die alte compositing-Layer behält (States überlagern sich sonst beim Wechsel).
 - XWayland-default (`GDK_BACKEND=x11`) mit `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in für nativ Wayland.
+- **Settings-Karten ohne Drop-Shadows.** `shadow-card` wurde von FormCard, StatTile, Rule-Cards und Workspace-Tabs entfernt. Elevation kommt jetzt nur durch `bg-card` (heller als body) + `border`. Drop-Shadows waren der dominante per-Frame-Compositing-Cost bei fullscreen.
+- **`.material`-Klasse ohne `backdrop-filter`.** `backdrop-filter: blur(12px) saturate(140%)` wurde entfernt und durch solid `background: var(--surface-2)` + inset shadows ersetzt. `backdrop-filter` ist eine der teuersten CSS-Operationen auf WebKitGTK.
+- **`body` background-gradient auf `background-attachment: fixed`.** Verhindert dass der Gradient bei jedem Scroll-Frame neu compositet wird.
+- **Scroll-Container-Optimierungen.** `contain: layout paint` + `overscroll-contain` + `scrollbar-gutter: stable` + `will-change: scroll-position` auf dem Scroll-Container, `contain: content` auf dem Content-Wrapper, `contain: layout paint` auf FormCard.
+- **`transition-colors` auf Scroll-Containern entfernt.** Rule-Cards, Profile-Buttons, Tab-Buttons und Recent-Dictations haben jetzt sofortiges Hover-Feedback statt animiert.
+- **History-Refresh-Interval von 1.5s auf 5s erhöht.** Reduziert Re-Renders während des Scrollens. Manueller Refresh über den Refresh-Button bleibt verfügbar.
+- **Tab-Wechsel-Animation entfernt.** `animate-in fade-in-50 duration-150` wurde aus `SettingsWindow.tsx` entfernt. Tab-Wechsel sind jetzt sofort.
 
 ### Fixed
 
+- **Scroll-Ruckeln in Settings (alle Tabs, besonders History und Profiles):** `WEBKIT_DISABLE_COMPOSITING_MODE=1` zwang WebKitGTK in den Cairo-Software-Rendering-Pfad. Fix: GPU-Compositing standardmäßig aktiviert + CSS-Kostenreduktion (shadows, backdrop-filter, background-attachment, contain, transition-colors). Siehe `docs/handoffs/SETTINGS_SCROLL_PERFORMANCE_HANDOFF.md`.
 - **Schwarzer Block:** WebKitGTK malt outer `box-shadow` opak → `--ov-shadow: none` + `--ov-shadow-recording: none` in `overlay-pill.css`.
 - **Drag + Button-Click (Input-taub):** `pointer-events: none` auf overlay-roots macht Pill auf WebKitGTK taub → `pointer-events: auto` auf `.ov-scope`.
 - **Clipping (Pill-Enden abgeschnitten):** Zwei konkurrierende invoke-Pfade + GTK-async `set_size` → Fenster bleibt bei 256/388. Fix: Rust `OverlaySurface::dimensions()` auf fixe 440×60 (flat) / 460×164 (edit), beide Pfade konsistent.
@@ -54,6 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- `WORDSCRIPT_ENABLE_WEBKIT_COMPOSITING` Environment-Variable — ersetzt durch `WORDSCRIPT_DISABLE_WEBKIT_COMPOSITING` (invertierte Semantik, intuitiver).
+- `shadow-card` von allen Settings-Karten (FormCard, StatTile, Rule-Cards, Workspace-Tabs).
+- `backdrop-filter: blur(12px) saturate(140%)` von der `.material`-Klasse.
+- `animate-in fade-in-50 duration-150` Tab-Wechsel-Animation aus `SettingsWindow.tsx`.
+- `transition-colors` von Scroll-Containern (PromptsTab Rule-Cards/Profile-Buttons/Tab-Buttons, HomeRecentList).
 - Dynamisches pill-basiertes Resize (ResizeObserver + offsetWidth-Measuring) — nicht zuverlässig auf GTK.
 - `transform: scale(0.87)` bleibt, aber `will-change: opacity` entfernt (reduziert Layer-Cache).
 - Unused Konstanten `OVERLAY_COMPACT_WINDOW_WIDTH`, `OVERLAY_PROCESSING_PREVIEW_WINDOW_WIDTH`, `OVERLAY_RESULT_ACTIONS_WINDOW_WIDTH`, `OVERLAY_EDIT_MODE_WINDOW_WIDTH`, `OVERLAY_EDIT_MODE_WINDOW_HEIGHT`, `OVERLAY_WINDOW_HEIGHT`.

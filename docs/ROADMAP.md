@@ -56,6 +56,7 @@ Bewusst ausserhalb der aktuellen Phasen-Pipeline:
 - Home-Screen v2.1 mit 3 expliziten Background-Layern (`--bg-base` / `--bg-surface` / `--bg-elevated`), 5-Stufen-Type-Scale (12/14/16/20/28px), 4-Point-Spacing und einzelnen `StatusDot`-Primitiven (`f70aae4`).
 - CSS @layer base Fix: universeller Reset in `@layer base` gewrappt, damit Tailwind-Utilities nicht mehr ueberschrieben werden (`9acf6ce`).
 - Content-Visibility-Utilities (`content-visibility: auto`, `contain-intrinsic-size`) fuer lange Listen wie Diagnostics-History und Text-Rules-Karten (`8b647d0`).
+- Scroll-Performance-Fix: GPU-Compositing standardmaessig aktiviert (`WEBKIT_DISABLE_COMPOSITING_MODE` entfernt), `shadow-card` von Settings-Karten entfernt, `backdrop-filter` von `.material`-Klasse entfernt, `body` background-gradient auf `background-attachment: fixed`, `contain: layout paint` auf FormCard und Scroll-Container, `transition-colors` auf Scroll-Containern entfernt, History-Refresh-Interval von 1.5s auf 5s, Tab-Wechsel-Animation entfernt. Opt-out via `WORDSCRIPT_DISABLE_WEBKIT_COMPOSITING=1`.
 - Wordmark-Sidebar-Header statt separatem Icon + Text (`391dfd8`).
 - Standardisierte Border-Radius und Component-Spacing (`f1ac34a`).
 - Overlay-Refinement: fixe Linux-Fenster-Groessen (440x60 flat / 460x164 edit), Black-Block-Fix, Compositing-Fixes, Drag/Button/Clipping zuverlaessig (`544673e` bis `3e06fd2`).

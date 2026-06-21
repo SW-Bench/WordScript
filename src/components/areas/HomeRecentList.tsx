@@ -48,7 +48,7 @@ export function HomeRecentList({ entries, onNavigate }: HomeRecentListProps) {
               return (
                 <li
                   key={entry.id}
-                  className="ws-list-item-compact group flex min-h-[44px] items-start gap-3 rounded-lg px-2 py-3 transition-colors hover:bg-bg-elevated"
+                  className="ws-list-item-compact group flex min-h-[44px] items-start gap-3 rounded-lg px-2 py-3 hover:bg-bg-elevated"
                 >
                   <StatusDot
                     tone={tone}

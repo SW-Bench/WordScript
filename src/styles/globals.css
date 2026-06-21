@@ -71,7 +71,7 @@
   --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.36);
   --shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.2);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.30), 0 6px 16px -6px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.40);
 
   /* ── Radius ── */
   --radius-control: var(--radius-button);
@@ -235,12 +235,15 @@ body {
 
 /* ── Main Window Background ── */
 /* Calm, flat-ish surface (macOS System Settings) with only a whisper of brand
-   warmth at the very top so it never reads as a busy "glow". */
+   warmth at the very top so it never reads as a busy "glow".
+   background-attachment: fixed prevents the gradient from scrolling with the
+   content, so WebKitGTK composites it once instead of every scroll frame. */
 body:not(.overlay-window) {
   background-color: var(--bg);
   background-image:
     radial-gradient(120% 55% at 50% -12%, rgba(230, 137, 0, 0.04), transparent 60%),
     linear-gradient(180deg, #0b0f13 0%, #090c10 100%);
+  background-attachment: fixed;
 }
 
 /* ── Overlay Window (transparent fuer Glassmorphism) ── */
@@ -256,11 +259,12 @@ body.overlay-window {
 
 /* ── Long-list scroll performance ─────────────────────────────────────────────
    content-visibility: auto lets the WebKit compositor skip paint/layout/style
-   work for list items scrolled out of view. Per scroll frame, the dominant
-   cost was compositing every currently-rendered card (with its shadow-card
-   drop shadows + hairline borders) across the whole viewport — which scales
-   with the visible viewport area, exactly why scrolling stuttered badly in
-   fullscreen but not in a small window.
+   work for list items scrolled out of view. The dominant scroll cost scales
+   with the visible viewport area (more cards visible in fullscreen = more
+   compositing per frame), exactly why scrolling stuttered badly in fullscreen
+   but not in a small window. Card drop-shadows were removed and `contain:
+   layout paint` added to FormCard to keep the per-frame cost flat regardless
+   of viewport size.
 
    `contain-intrinsic-size: auto <fallback>` keeps the scrollbar stable: the
    browser uses the fallback for unmeasured items, then caches the real size
@@ -486,7 +490,11 @@ body.overlay-window {
 }
 
 /* ── Material Utilities (macOS-Native) ───────────────────────────────────────── */
+/* backdrop-filter removed: too expensive for WebKitGTK compositing, caused
+   scroll jank in the settings window. Solid background + inset shadows keep
+   the material look without the blur cost. */
 .material {
+  background: var(--surface-2);
   box-shadow:
     inset 0 1px 0 var(--specular),
     inset 0 -1px 0 var(--pressed);
@@ -504,9 +512,4 @@ body.overlay-window {
   box-shadow:
     inset 0 1px 0 var(--specular),
     0 8px 32px rgba(0, 0, 0, 0.35);
-}
-
-.material {
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
 }

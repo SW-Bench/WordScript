@@ -7,7 +7,7 @@ import type {
   TranscriptionHistoryStorageStatus,
 } from "../types/history";
 
-const REFRESH_INTERVAL_MS = 1500;
+const REFRESH_INTERVAL_MS = 5000;
 
 function areHistoryEntriesEqual(current: TranscriptionHistoryEntry[], next: TranscriptionHistoryEntry[]) {
   if (current.length !== next.length) return false;

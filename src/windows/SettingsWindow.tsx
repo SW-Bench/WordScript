@@ -393,10 +393,10 @@ export default function SettingsWindow() {
           </header>
 
           {/* Scrollable content area (relative so an Inspector slide-over can anchor here) */}
-          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-            <div className="h-full overflow-y-auto overflow-x-hidden">
-              <div className="flex w-full flex-col gap-8 px-8 py-6 pb-12">
-                <div key={active} className="animate-in fade-in-50 duration-150">
+          <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden contain-layout contain-paint">
+            <div className="h-full overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-gutter:stable] [will-change:scroll-position]">
+              <div className="flex w-full flex-col gap-8 px-8 py-6 pb-12 [contain:content]">
+                <div key={active}>
                   {renderArea()}
                 </div>
               </div>

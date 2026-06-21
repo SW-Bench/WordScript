@@ -46,7 +46,7 @@
 |-------|-------|
 | `packaging/kwin-wordscript-overlay/` | KWin-Script für Always-on-Top (metadata.json + contents/code/main.js) |
 | `src-tauri/src/lib.rs` | Rust-Logik: `park→hide`, fixe `dimensions()`, `set_background_color` immer, min/max-Pin |
-| `src-tauri/src/main.rs` | XWayland-default (`GDK_BACKEND=x11`), `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in |
+| `src-tauri/src/main.rs` | XWayland-default (`GDK_BACKEND=x11`), `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in, GPU-Compositing standardmäßig aktiviert (`WORDSCRIPT_DISABLE_WEBKIT_COMPOSITING=1` opt-out), `WEBKIT_DISABLE_DMABUF_RENDERER=1` |
 | `src-tauri/tauri.conf.json` | `resizable: true`, `width: 440, height: 60`, `focus: false` |
 | `src/styles/overlay-pill.css` | `--ov-shadow: none`, `pointer-events: auto`, `will-change` entfernt |
 | `src/windows/OverlayWindow.tsx` | Fixe Größe useLayoutEffect (440×60 flat, 460×164 edit), DEV-Logs (`[ov-dom]`, `[ov-reveal]`-Listener) |

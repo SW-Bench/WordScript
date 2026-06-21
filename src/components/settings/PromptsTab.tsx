@@ -243,7 +243,7 @@ function ruleCardClass(isActive: boolean, issues: TextRulesIssue[]) {
     // its first paint, so long Dictionary / Snippet lists stay smooth even in
     // fullscreen. Safe with focus management: DOM stays intact, only off-screen
     // rendering is skipped.
-    "ws-list-item-tall rounded-lg border bg-card px-4 py-3.5 shadow-card transition-colors",
+    "ws-list-item-tall rounded-lg border bg-card px-4 py-3.5",
     hasSeverity(issues, "error")
       ? "border-[var(--red)]"
       : hasSeverity(issues, "warning")
@@ -1115,7 +1115,7 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                 key={template.id}
                 type="button"
                 className={cn(
-                  "flex flex-col gap-1.5 rounded-lg border bg-surface px-3 py-2.5 text-left transition-colors hover:border-border-strong",
+                  "flex flex-col gap-1.5 rounded-lg border bg-surface px-3 py-2.5 text-left hover:border-border-strong",
                   selected ? "border-brand ring-1 ring-brand/40" : "border-border",
                 )}
                 aria-label={`Select ${template.label} profile`}
@@ -1193,8 +1193,8 @@ export function PromptsTab({ config, onChange, onValidationChange, onHealthChang
                 aria-selected={active}
                 onClick={() => setActiveWorkspacePanel(tab.id)}
                 className={cn(
-                  "flex flex-col items-start gap-0.5 rounded-[7px] px-3 py-2 text-left transition-colors",
-                  active ? "bg-card shadow-card" : "hover:bg-[rgba(255,255,255,0.04)]",
+                  "flex flex-col items-start gap-0.5 rounded-[7px] px-3 py-2 text-left",
+                  active ? "bg-card" : "hover:bg-[rgba(255,255,255,0.04)]",
                 )}
               >
                 <span className={cn("text-[13px] font-medium", active ? "text-foreground" : "text-fg-dim")}>

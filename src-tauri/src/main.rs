@@ -25,24 +25,27 @@ fn main() {
                 }
             }
 
-            // Transparent, undecorated overlay windows only composite correctly on
-            // Linux/WebKitGTK when the GPU compositor is OFF. With compositing ON +
-            // DMABUF disabled (the previous default), WebKitGTK on Nvidia hybrid GPUs
-            // paints the rounded/transparent areas of the window solid black — the
-            // overlay pill's soft box-shadow turns into an opaque dark block
-            // (tauri-apps/tauri#14924, "rounded corners become solid black squares").
-            // Disabling the GPU compositor falls back to the cairo path, which honours
-            // per-pixel alpha; the earliest working build (cc94f19) used exactly this.
-            // Cost: no GPU-accelerated webview compositing — negligible for a tiny
-            // overlay plus a static settings UI. Opt back into GPU compositing on
-            // hardware where it works via WORDSCRIPT_ENABLE_WEBKIT_COMPOSITING.
-            if std::env::var_os("WORDSCRIPT_ENABLE_WEBKIT_COMPOSITING").is_some() {
-                std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");
-                // DMA-BUF renderer breaks larger XWayland webviews on some setups
-                // (`Failed to create GBM buffer ...`); keep it off while compositing on.
-                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-            } else {
+            // GPU compositing is now ON by default. The previous default
+            // (WEBKIT_DISABLE_COMPOSITING_MODE=1) forced WebKitGTK into the cairo
+            // software-rendering path, which fixed the overlay black-block bug on
+            // Nvidia hybrid GPUs (tauri-apps/tauri#14924) but made every scroll in
+            // the settings window CPU-bound and janky, especially on window resize.
+            // The overlay's shadow fix (overlay-pill.css) together with the DMABUF
+            // renderer disable below now keeps the overlay rendering correctly even
+            // with the GPU compositor enabled, so hardware-accelerated scrolling
+            // works across all windows.
+            //
+            // DMA-BUF renderer breaks larger XWayland webviews on some setups
+            // (`Failed to create GBM buffer ...`); keep it off while compositing on.
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
+            // Opt out of GPU compositing on hardware where the overlay still shows
+            // black blocks or other rendering artefacts. This restores the old cairo
+            // software-rendering path.
+            if std::env::var_os("WORDSCRIPT_DISABLE_WEBKIT_COMPOSITING").is_some() {
                 std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+            } else {
+                std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");
             }
         }
     }

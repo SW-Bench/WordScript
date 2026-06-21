@@ -31,13 +31,14 @@ Die Shell-Ueberarbeitung ist umgesetzt. Verbindliche Entscheidungen, die aeltere
 
 - **Stack:** Tailwind CSS v4 (`@tailwindcss/vite`) + shadcn/ui (new-york), auf den bestehenden v2-Tokens in `src/styles/globals.css` ueber `@theme inline`. Tokens bleiben Single Source of Truth.
 - **Chrome:** **Native Titelleiste auf jedem OS** (`decorations: true`). Kein frameless Fenster, kein `titleBarStyle: "Overlay"`, kein `macOSPrivateApi`, keine fake Traffic-Lights. Das "macOS-Gefuehl" entsteht ausschliesslich aus dem Content-Design (Sidebar-Rhythmus, gruppierte Form-Cards, Controls, Typo, Motion).
-- **Motion:** React bleibt 18 → Tab-/Area-Wechsel ueber `useTransition` + CSS-Crossfade (`animate-in fade-in`), nicht die React-19-ViewTransition-API.
-- **Form-Kit (`src/components/shell/`):** `Sidebar`, `FormCard`/`FormRow`, `DisclosureRow`, `Inspector`, `SegmentControl`, `Stepper`, `StatusBadge`, `Toggle`, `Select`, `ProfileSwitcher` — das System-Settings-Grouped-Form-Idiom als wiederverwendbare Bausteine.
+- **Motion:** React bleibt 18 → Tab-/Area-Wechsel ueber `useTransition` ohne CSS-Crossfade-Animation (die fruhere `animate-in fade-in` wurde entfernt, weil sie auf WebKitGTK Scroll-Ruckeln verursachte). Tab-Wechsel sind jetzt sofort.
+- **Form-Kit (`src/components/shell/`):** `Sidebar`, `FormCard`/`FormRow`, `DisclosureRow`, `Inspector`, `SegmentControl`, `Stepper`, `StatusBadge`, `Toggle`, `Select`, `ProfileSwitcher` — das System-Settings-Grouped-Form-Idiom als wiederverwendbare Bausteine. FormCards verwenden `contain: layout paint` fuer unabhaengiges Compositing und keine Drop-Shadows mehr (Elevation nur durch Background + Border).
 - **Overlay:** echtes Glassmorphism via `backdrop-filter`, mit `@supports`-Solid-Fallback fuer Linux/Wayland-Compositors ohne Blur, plus orangefarbener Recording-Glow.
 - **Storybook v2** (`2026-06-10`): Overlay + Tokens + Components als visuelle Regression-Basis; Liquid Glass Polish fuer Overlay und Settings.
 - **Home-Screen v2.1** (`2026-06-15`): 3 explizite Background-Layer (`--bg-base` / `--bg-surface` / `--bg-elevated`), 5-Stufen-Type-Scale (12/14/16/20/28px), 4-Point-Spacing (20px card padding, 32px between sections), einzelne `StatusDot`-Primitive. SW-labs orange nur fuer den Capture-Button.
 - **CSS @layer base** (`2026-06-17`): universeller Reset (`*, *::before, *::after`) in `@layer base` gewrappt, damit Tailwind-Utilities nicht ueberschrieben werden.
-- **Content-Visibility** (`2026-06-18`): `content-visibility: auto` und `contain-intrinsic-size` fuer lange Listen (Diagnostics-History, Text-Rules-Karten) via `src/styles/utilities/scroll.css`.
+- **Content-Visibility** (`2026-06-18`): `content-visibility: auto` und `contain-intrinsic-size` fuer lange Listen (Diagnostics-History, Text-Rules-Karten) via `@utility ws-list-item-*` in `src/styles/globals.css`.
+- **Scroll-Performance** (`2026-06-21`): GPU-Compositing standardmaessig aktiviert (`WEBKIT_DISABLE_COMPOSITING_MODE` entfernt). `shadow-card` von allen Settings-Karten entfernt, `backdrop-filter` von der `.material`-Klasse entfernt, `body` background-gradient auf `background-attachment: fixed`, `contain: layout paint` auf FormCard und Scroll-Container, `transition-colors` auf Scroll-Containern entfernt, `will-change: scroll-position` auf Scroll-Container, `contain: content` auf Content-Wrapper. History-Refresh-Interval von 1.5s auf 5s erhoeht. Opt-out via `WORDSCRIPT_DISABLE_WEBKIT_COMPOSITING=1`.
 
 ## UI-Donoren und Stilreferenzen
 

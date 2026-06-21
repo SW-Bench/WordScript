@@ -1,6 +1,6 @@
 # Bug: Overlay Ghosting / State Bleeding
 
-**Status:** Offener Bug, noch nicht gefixt  
+**Status:** Offener Bug, noch nicht gefixt. GPU-Compositing wurde am 2026-06-21 standardmäßig aktiviert (siehe Update unten), der Black-Block-Bug tritt nicht mehr auf, das Ghosting bleibt aber sichtbar (evtl. marginal verstaerkt).  
 **Erstmals berichtet:** Phase 2 Follow-up, nach 12h real-world use  
 **Betrifft:** Linux Overlay (WebKitGTK), alle Oberflächen-Übergänge
 
@@ -17,6 +17,8 @@ Wenn ein neues Recording gestartet wird, während die vorherige Overlay-Pille no
 ### Bug-Klasse: (B) Composited-Layer-Cache
 
 Detaillierte Analyse durch Research-Agents und Code-Inspektion bestätigt: **Es ist kein DOM-Leak** (es existiert immer nur ein `<OverlayPill>` Element im DOM), **kein State-Machine-Race** (die `overlayMotion`-Zustandsmaschine hat korrekte Guards), sondern ein **WebKitGTK Compositing-Layer-Cache-Problem**.
+
+> **Update 2026-06-21:** GPU-Compositing ist jetzt standardmäßig aktiviert (`src-tauri/src/main.rs`). Der Black-Block-Bug tritt mit dem Overlay-Shadow-Fix (`--ov-shadow: none`) und `WEBKIT_DISABLE_DMABUF_RENDERER=1` nicht mehr auf. Der Ghosting-Bug bleibt offen und sollte mit aktiviertem GPU-Compositor neu evaluiert werden – die Compositor-Layer-Cache-Hypothese könnte sich anders verhalten als im deaktivierten Modus.
 
 ### Root Causes (drei konvergierende Faktoren)
 

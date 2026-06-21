@@ -123,6 +123,14 @@ Optionaler lokaler Runtime-Pfad:
 - Linux-Overlay: `--ov-shadow: none` und `--ov-shadow-recording: none` in `overlay-pill.css` sind Pflicht; WebKitGTK malt outer `box-shadow` opak
 - Linux-Overlay: `will-change: opacity` wurde entfernt (reduziert Layer-Cache, verhindert States-Ueberlagerung)
 - Linux-Overlay: XWayland-Default (`GDK_BACKEND=x11`) mit `WORDSCRIPT_NATIVE_WAYLAND=1` opt-in fuer nativ Wayland. `resizable: true` in `tauri.conf.json` ist Pflicht (GTK ignorierte `set_size` bei `resizable: false`)
+- Linux-Settings: GPU-Compositing ist standardmaessig aktiviert. `WEBKIT_DISABLE_COMPOSITING_MODE=1` wurde entfernt, weil es das Scrollen im Settings-Fenster CPU-gebunden und ruckelig machte. Opt-out via `WORDSCRIPT_DISABLE_WEBKIT_COMPOSITING=1` fuer Hardware, auf der das Overlay dennoch Black-Blocks zeigt. `WEBKIT_DISABLE_DMABUF_RENDERER=1` bleibt aktiv (verhindert GBM buffer errors)
+- Linux-Settings: Settings-Karten verwenden keine Drop-Shadows mehr (`shadow-card` entfernt). Elevation kommt nur durch `bg-card` (heller als body) + `border`. Drop-Shadows waren der dominante per-Frame-Compositing-Cost bei fullscreen, besonders auf 27-Zoll-Monitoren
+- Linux-Settings: `.material`-Klasse hat kein `backdrop-filter` mehr. Solid `background: var(--surface-2)` + inset shadows ersetzen den Blur. `backdrop-filter` ist eine der teuersten CSS-Operationen auf WebKitGTK
+- Linux-Settings: `body` background-gradient verwendet `background-attachment: fixed`, damit der Gradient nicht pro Scroll-Frame neu compositet wird
+- Linux-Settings: Scroll-Container verwenden `contain: layout paint` + `overscroll-contain` + `scrollbar-gutter: stable` + `will-change: scroll-position`. Content-Wrapper verwendet `contain: content`
+- Linux-Settings: `transition-colors` wurde von Scroll-Containern entfernt (Rule-Cards, Profile-Buttons, Tab-Buttons, Recent-Dictations). Hover-Feedback ist jetzt sofort statt animiert
+- Linux-Settings: History-Refresh-Interval ist 5s (war 1.5s). Manueller Refresh ueber den Refresh-Button bleibt verfuegbar
+- Linux-Settings: Tab-Wechsel-Animation (`animate-in fade-in-50`) wurde entfernt. Tab-Wechsel sind sofort
 - KDE Plasma 6 Always-on-Top: KWin-Script in `packaging/kwin-wordscript-overlay/` setzt `client.layer = 4` (OverlayLayer). Install: `kpackagetool6 --type=KWin/Script -i packaging/kwin-wordscript-overlay && qdbus org.kde.KWin /KWin reconfigure`
 
 ### 1. Am owning surface anfangen
