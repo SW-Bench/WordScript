@@ -1,12 +1,12 @@
 ![WordScript](assets/OG.png)
 
-![SW bench](assets/logos/sw-forge-logo-transparent.png)
+![SW forge](assets/logos/sw-forge-logo-transparent.png)
 
 # WordScript
 
 WordScript is a community-built desktop dictation app for one job: trigger recording, speak, and get usable text back into the current text field without losing your flow.
 
-It is being built in public under SW bench, the open-source brand of SW labs, where tools like WordScript are built with contributors instead of behind a closed product paywall.
+It is being built in public under SW forge, the open-source brand of SW labs, where tools like WordScript are built with contributors instead of behind a closed product paywall.
 
 ## Interface (Overlay screenshots were squeezed through an image-upscaler)
 
@@ -132,7 +132,7 @@ powershell -ExecutionPolicy Bypass -File .\setup-tauri.ps1
 macOS and Linux:
 
 ```bash
-git clone https://github.com/SW-Bench/WordScript.git
+git clone https://github.com/sw-forge-org/WordScript.git
 cd WordScript
 npm install
 npm run tauri dev
@@ -141,7 +141,7 @@ npm run tauri dev
 Windows PowerShell:
 
 ```powershell
-git clone https://github.com/SW-Bench/WordScript.git
+git clone https://github.com/sw-forge-org/WordScript.git
 cd WordScript
 npm install
 npm run tauri dev
