@@ -862,6 +862,24 @@ export default function OverlayWindow() {
     return null;
   })();
 
+  // Force a native repaint whenever the pill KIND changes — even when the
+  // surface stays the same (e.g. recording→processing both render "compact"). On
+  // WebKitGTK/XWayland the React DOM swap alone (keyed remount) does not
+  // invalidate the `.ov-pill-shell` wrapper layer's cached raster, so the
+  // previous pill ghosts through ("Recording blitzt beim Transcribing durch").
+  // A reveal here triggers reveal_overlay_window → the flat-height oscillation
+  // forces a backing-store reallocation → a full repaint that clears the cached
+  // raster before the new kind paints. (plan 1782750354086, §5)
+  useLayoutEffect(() => {
+    if (!isActive) return;
+    if (overlayMotionRef.current === "leaving") return;
+    if (dragSessionActiveRef.current) return;
+    void invoke("sync_overlay_window_visibility", {
+      visible: true,
+      surface: overlaySurfaceRef.current,
+    }).catch(() => {});
+  }, [pillState?.kind, isActive]);
+
   return (
     <div
       ref={shellRef}

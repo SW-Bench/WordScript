@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Mutex,
     },
     time::Duration,
@@ -51,6 +51,18 @@ const TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS: u64 = 800;
 // surface paints. The 1px oscillation is invisible: the window is transparent,
 // decorationless, and the 40px pill is centred. (plan 1782750354086, §5 follow-up)
 static OVERLAY_FLAT_REVEAL_TICK: AtomicU8 = AtomicU8::new(0);
+
+// Authoritative visibility tracker for the overlay window. `window.is_visible()`
+// is UNRELIABLE on XWayland (it can return false while the window is shown, just
+// like `outer_size()` reports 0×0). reveal_overlay_window repositions ONLY on the
+// hidden→visible transition (`if !was_visible`); if is_visible() lies, every
+// reveal repositions → different overlay states land on different monitors within
+// ONE session (recording on monitor A, result-actions on monitor B). Tracking
+// visibility ourselves — true when reveal calls show(), false when park calls
+// hide() — makes the hidden→visible gate deterministic: within a session the
+// window stays shown, so states keep their (single, shared) position; only a
+// genuine park→reveal (between sessions) repositions. (plan 1782750354086)
+static OVERLAY_WINDOW_SHOWN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -457,7 +469,11 @@ fn reveal_overlay_window<R: Runtime>(
         let window_width = width_override.unwrap_or(default_width);
         let mut window_height = height_override.unwrap_or(default_height);
         let scale = window.scale_factor().unwrap_or(1.0);
-        let was_visible = window.is_visible().unwrap_or(false);
+        // Authoritative visibility (see OVERLAY_WINDOW_SHOWN) instead of
+        // window.is_visible(), which is unreliable on XWayland and caused every
+        // reveal to reposition → overlay states jumping between monitors within
+        // a session.
+        let was_visible = OVERLAY_WINDOW_SHOWN.load(Ordering::Relaxed);
 
         // Flat-surface backing-store reallocation (see OVERLAY_FLAT_REVEAL_TICK).
         // Edit-mode keeps free sizing; only the flat family (compact /
@@ -538,6 +554,9 @@ fn reveal_overlay_window<R: Runtime>(
             } else {
                 let _ = window.show();
             }
+            // Record authoritative visibility so subsequent in-session reveals
+            // (surface/kind swaps while the window stays shown) do NOT reposition.
+            OVERLAY_WINDOW_SHOWN.store(true, Ordering::Relaxed);
         }
     }
 }
@@ -556,6 +575,8 @@ fn park_overlay_window<R: Runtime>(app: &AppHandle<R>) {
         // guard (drag-snap protection) skips re-positioning — the overlay then
         // vanishes from the 2nd transcription onward.
         let _ = window.hide();
+        // Clear authoritative visibility so the next reveal repositions + shows.
+        OVERLAY_WINDOW_SHOWN.store(false, Ordering::Relaxed);
     }
 }
 
