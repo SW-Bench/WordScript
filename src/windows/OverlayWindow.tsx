@@ -862,14 +862,26 @@ export default function OverlayWindow() {
     return null;
   })();
 
-  // Force a native repaint whenever the pill KIND changes — even when the
-  // surface stays the same (e.g. recording→processing both render "compact"). On
-  // WebKitGTK/XWayland the React DOM swap alone (keyed remount) does not
-  // invalidate the `.ov-pill-shell` wrapper layer's cached raster, so the
-  // previous pill ghosts through ("Recording blitzt beim Transcribing durch").
-  // A reveal here triggers reveal_overlay_window → the flat-height oscillation
-  // forces a backing-store reallocation → a full repaint that clears the cached
-  // raster before the new kind paints. (plan 1782750354086, §5)
+  // Visual identity epoch: every value that changes the pill's APPEARANCE
+  // without necessarily changing its `kind` or `surface`. The mode cycler
+  // (`handleCycleMode`) flips `pillMode` but keeps `kind === "recording"`, so a
+  // `kind`-only dep would NOT fire — WebKitGTK then keeps the previous mode's
+  // cached raster and the new mode overlaps the old one ("jeder neue Mode
+  // überlappt das darunterliegende"). `muted`/`paused`/`actionPending`/
+  // `showEditMode` likewise change appearance within a kind. Bundling them into
+  // one epoch string and keying the native repaint on it forces a reveal
+  // (→ flat-height oscillation → backing-store reallocation → full repaint)
+  // on EVERY visual change, not just kind/surface swaps.
+  const pillVisualEpoch = `${pillState?.kind ?? ""}|${pillMode}|${muted ? "m" : ""}|${paused ? "p" : ""}|${showEditMode ? "e" : ""}|${actionPending ?? ""}|${Boolean(previewClipboardOnly && renderResultPreview)}`;
+
+  // Force a native repaint whenever the pill VISUAL IDENTITY changes — even
+  // when the surface AND kind stay the same (mode-cycle within "recording",
+  // mute/pause toggles, action-pending spinner). On WebKitGTK/XWayland the
+  // React DOM update alone does not invalidate the `.ov-pill-shell` wrapper
+  // layer's cached raster, so the previous visual ghosts through. A reveal here
+  // triggers reveal_overlay_window → the flat-height oscillation forces a
+  // backing-store reallocation → a full repaint that clears the cached raster
+  // before the new visual paints. (plan 1782750354086, §5)
   useLayoutEffect(() => {
     if (!isActive) return;
     if (overlayMotionRef.current === "leaving") return;
@@ -878,7 +890,7 @@ export default function OverlayWindow() {
       visible: true,
       surface: overlaySurfaceRef.current,
     }).catch(() => {});
-  }, [pillState?.kind, isActive]);
+  }, [pillVisualEpoch, isActive]);
 
   return (
     <div
