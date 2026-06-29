@@ -606,4 +606,123 @@ describe("OverlayWindow", () => {
       vi.useRealTimers();
     }
   });
+
+  // ── Atomic surface swap (plan 1782750354086) ──────────────────────────────
+  // A new trigger must make the previous epoch's idle surface (result/error/
+  // edit) vanish in the SAME render the recording surface appears. RECORDING_
+  // STARTED flips status and clears lastResult/pendingResult/error in one
+  // reducer commit; the derived/gated visibility in pillState consumes that in
+  // a single render, so no surface overlaps.
+
+  function buildIdleResultState(overrides: Record<string, unknown> = {}) {
+    return {
+      state: {
+        status: "idle",
+        config: createTestConfig(),
+        muted: false,
+        paused: false,
+        lastTranscription: "Wir shippen das morgen.",
+        pendingResult: null,
+        lastResult: {
+          provider: "groq",
+          active_profile: "Support reply",
+          work_mode: {
+            rewrite_style: "polished",
+            insert_behavior: "clipboard_only",
+            recovery_behavior: "standard",
+          },
+          raw_text: "ähm wir shippen das morgen",
+          final_text: "Wir shippen das morgen.",
+          corrected: true,
+          transform: { applied_rules: ["removed_fillers"], warning: null },
+          history: null,
+          insertion: null,
+          occurred_at_ms: 1716500000000,
+        },
+        error: null,
+        recordingStartMs: null,
+        ...overrides,
+      },
+      toggleMute: vi.fn(),
+      togglePause: vi.fn(),
+      saveConfig: vi.fn(),
+      openSettings: vi.fn(),
+    };
+  }
+
+  function buildRecordingState() {
+    return buildIdleResultState({
+      status: "recording",
+      lastTranscription: null,
+      lastResult: null,
+      pendingResult: null,
+      error: null,
+      recordingStartMs: 1716500005000,
+    });
+  }
+
+  it("clears a visible result-actions surface in the same render a new recording starts", async () => {
+    let runtimeValue = buildIdleResultState();
+    useRuntimeMock.mockImplementation(() => runtimeValue);
+    const { rerender } = render(<OverlayWindow />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument());
+    expect(screen.queryByLabelText("Audio level")).not.toBeInTheDocument();
+
+    runtimeValue = buildRecordingState();
+    useRuntimeMock.mockImplementation(() => runtimeValue);
+    rerender(<OverlayWindow />);
+
+    expect(screen.getByLabelText("Audio level")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+    expect(invokeMock).toHaveBeenCalledWith("sync_overlay_window_visibility", { visible: true, surface: "compact" });
+  });
+
+  it("clears a hanging error surface instead of being blocked by error priority", async () => {
+    let runtimeValue = buildIdleResultState({ error: "Transcription failed.", lastResult: null });
+    useRuntimeMock.mockImplementation(() => runtimeValue);
+    const { rerender } = render(<OverlayWindow />);
+
+    await waitFor(() => expect(screen.getByText("Transcription failed.")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Audio level")).not.toBeInTheDocument();
+
+    runtimeValue = buildRecordingState();
+    useRuntimeMock.mockImplementation(() => runtimeValue);
+    rerender(<OverlayWindow />);
+
+    expect(screen.getByLabelText("Audio level")).toBeInTheDocument();
+    expect(screen.queryByText("Transcription failed.")).not.toBeInTheDocument();
+  });
+
+  it("clears an active edit-mode surface when a new recording starts", async () => {
+    let runtimeValue = buildIdleResultState();
+    useRuntimeMock.mockImplementation(() => runtimeValue);
+    const { rerender } = render(<OverlayWindow />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(screen.getByLabelText("Edit transcription text")).toBeInTheDocument();
+
+    runtimeValue = buildRecordingState();
+    useRuntimeMock.mockImplementation(() => runtimeValue);
+    rerender(<OverlayWindow />);
+
+    expect(screen.getByLabelText("Audio level")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Edit transcription text")).not.toBeInTheDocument();
+  });
+
+  it("re-enters the recording surface without the dismissed result resurfacing", async () => {
+    let runtimeValue = buildIdleResultState();
+    useRuntimeMock.mockImplementation(() => runtimeValue);
+    const { rerender } = render(<OverlayWindow />);
+
+    const dismissButton = await screen.findByRole("button", { name: "Dismiss" });
+    fireEvent.click(dismissButton);
+
+    runtimeValue = buildRecordingState();
+    useRuntimeMock.mockImplementation(() => runtimeValue);
+    rerender(<OverlayWindow />);
+
+    expect(screen.getByLabelText("Audio level")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+  });
 });

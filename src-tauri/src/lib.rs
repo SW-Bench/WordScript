@@ -1,4 +1,10 @@
-use std::{sync::Mutex, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Mutex,
+    },
+    time::Duration,
+};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::utils::config::Color;
@@ -31,6 +37,20 @@ const OVERLAY_PARK_MARGIN: f64 = 72.0;
 const MIN_TRANSCRIPTION_TIMEOUT_MS: u64 = 18_000;
 const MAX_TRANSCRIPTION_TIMEOUT_MS: u64 = 35_000;
 const TRANSCRIPTION_TIMEOUT_PER_AUDIO_SECOND_MS: u64 = 800;
+
+// Flat overlay surfaces all share one window size (440×60). On WebKitGTK/XWayland
+// with GPU compositing, a `set_size` to the SAME size the window already has is a
+// no-op: the backing store is not reallocated, so retained compositor layers of
+// the previous surface (animated bars/spinner + the scaled `.ov-pill-shell`
+// wrapper) are NOT torn down — the old pill ghosts behind the new one until
+// WebKitGTK eventually drops them ("alte States verschwinden verzögert"). The
+// 2026-06-24 `set_background_color`-every-reveal fix (handoff §5) was also a
+// no-op because it always set the identical RGBA. Alternating the flat window
+// height by 1px on every reveal forces a genuine backing-store reallocation → a
+// full repaint that deterministically clears every retained layer before the new
+// surface paints. The 1px oscillation is invisible: the window is transparent,
+// decorationless, and the 40px pill is centred. (plan 1782750354086, §5 follow-up)
+static OVERLAY_FLAT_REVEAL_TICK: AtomicU8 = AtomicU8::new(0);
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -230,6 +250,7 @@ fn overlay_monitor_label(monitor: &tauri::Monitor, index: usize, is_primary: boo
 fn resolve_overlay_monitor<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     monitor_id: &str,
+    config: &AppConfig,
 ) -> Option<tauri::Monitor> {
     let primary = window.primary_monitor().ok().flatten();
     if monitor_id == "primary" {
@@ -237,17 +258,76 @@ fn resolve_overlay_monitor<R: Runtime>(
     }
 
     let monitors = window.available_monitors().ok()?;
-    monitors
+    let monitors_with_ids: Vec<(String, tauri::Monitor)> = monitors
         .into_iter()
-        .find(|monitor| overlay_monitor_id(monitor) == monitor_id)
+        .map(|monitor| (overlay_monitor_id(&monitor), monitor))
+        .collect();
+
+    let chosen_id = resolve_overlay_monitor_id(
+        monitors_with_ids
+            .iter()
+            .map(|(id, monitor)| (id.clone(), overlay_monitor_work_area(monitor))),
+        monitor_id,
+        config.overlay_position_mode.clone(),
+        config.overlay_manual_x as f64,
+        config.overlay_manual_y as f64,
+    );
+
+    chosen_id
+        .and_then(|id| {
+            monitors_with_ids
+                .into_iter()
+                .find(|(candidate, _)| candidate == &id)
+        })
+        .map(|(_, monitor)| monitor)
         .or(primary)
+}
+
+// Pure decision core of [`resolve_overlay_monitor`]: given the available
+// monitors (as (id, work-area) pairs), the saved monitor identity, and the
+// persisted Manual drag reference, returns the chosen monitor id — or `None`
+// to let the caller fall back to primary.
+//
+// Order: (1) exact identity match (name/work-area fingerprint); (2) on
+// identity-miss, rederive by coordinate containment in Manual mode (the saved
+// logical drag reference survives a monitor reconnect/sleep/driver re-
+// enumeration that invalidated the name); (3) `None` (Preset mode without an
+// identity match has no persisted reference point). When the reference lies
+// outside every monitor, step (2) picks the nearest one (reusing the already
+// tested [`overlay_monitor_id_for_logical_point`]) so the overlay stays close
+// to its last position instead of snapping to primary. (plan 1782308448580)
+fn resolve_overlay_monitor_id<I>(
+    monitors: I,
+    saved_monitor_id: &str,
+    position_mode: OverlayPositionMode,
+    manual_x: f64,
+    manual_y: f64,
+) -> Option<String>
+where
+    I: IntoIterator<Item = (String, (f64, f64, f64, f64))>,
+{
+    let monitors: Vec<(String, (f64, f64, f64, f64))> = monitors.into_iter().collect();
+
+    if let Some((id, _)) = monitors.iter().find(|(id, _)| id == saved_monitor_id) {
+        return Some(id.clone());
+    }
+
+    if position_mode == OverlayPositionMode::Manual {
+        if let Some(redrived) =
+            overlay_monitor_id_for_logical_point(monitors.iter().cloned(), manual_x, manual_y)
+        {
+            return Some(redrived);
+        }
+    }
+
+    None
 }
 
 fn overlay_work_area_for_config<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     config: &AppConfig,
 ) -> Option<(f64, f64, f64, f64)> {
-    let monitor = resolve_overlay_monitor(window, &config.overlay_monitor)?;
+    let monitor = resolve_overlay_monitor(window, &config.overlay_monitor, config)?;
     Some(overlay_monitor_work_area(&monitor))
 }
 
@@ -375,9 +455,19 @@ fn reveal_overlay_window<R: Runtime>(
         let config = AppConfig::load_from_disk();
         let (default_width, default_height) = surface.dimensions();
         let window_width = width_override.unwrap_or(default_width);
-        let window_height = height_override.unwrap_or(default_height);
+        let mut window_height = height_override.unwrap_or(default_height);
         let scale = window.scale_factor().unwrap_or(1.0);
         let was_visible = window.is_visible().unwrap_or(false);
+
+        // Flat-surface backing-store reallocation (see OVERLAY_FLAT_REVEAL_TICK).
+        // Edit-mode keeps free sizing; only the flat family (compact /
+        // processing-preview / result-actions) oscillates 1px so each reveal
+        // forces a real `set_size` change and therefore a full repaint.
+        let is_flat = !matches!(surface, OverlaySurface::EditMode);
+        if is_flat {
+            let tick = OVERLAY_FLAT_REVEAL_TICK.fetch_add(1, Ordering::Relaxed);
+            window_height = default_height + f64::from(tick & 1);
+        }
 
         let size_changed = window
             .outer_size()
@@ -389,10 +479,11 @@ fn reveal_overlay_window<R: Runtime>(
             })
             .unwrap_or(true);
         // Always re-assert transparency + force a repaint on every reveal. On
-        // flat→flat surface transitions (same 440x60, size_changed=false) WebKitGTK
-        // keeps the previous pill's composited layer and renders the new pill on
-        // top → stale overlap that only clears after a repaint. Re-asserting the
-        // background invalidates the layer.
+        // flat→flat surface transitions WebKitGTK keeps the previous pill's
+        // composited layer and renders the new pill on top → stale overlap that
+        // only clears after a repaint. Re-asserting the background invalidates
+        // the layer; the 1px height oscillation above guarantees a real size
+        // change (and thus a full backing-store reallocation) on flat surfaces.
         let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
         if size_changed {
             let _ = window.set_size(LogicalSize::new(window_width, window_height));
@@ -1983,6 +2074,87 @@ mod tests {
                     (-1080.0, 0.0, 1080.0, 1880.0),
                 ),
             ],
+            -1124.0,
+            260.0,
+        );
+
+        assert_eq!(selected.as_deref(), Some("workarea:-1080:0:1080:1880"));
+    }
+
+    #[test]
+    fn resolve_overlay_monitor_id_returns_the_identity_match_when_present() {
+        let selected = resolve_overlay_monitor_id(
+            [
+                ("name:Primary".to_string(), (0.0, 0.0, 1920.0, 1040.0)),
+                ("name:HDMI-2".to_string(), (-1080.0, 0.0, 1080.0, 1880.0)),
+            ],
+            "name:HDMI-2",
+            OverlayPositionMode::Manual,
+            -320.0,
+            240.0,
+        );
+
+        assert_eq!(selected.as_deref(), Some("name:HDMI-2"));
+    }
+
+    #[test]
+    fn resolve_overlay_monitor_id_redrives_by_containment_on_identity_miss_in_manual_mode() {
+        // Saved identity ("name:HDMI-2") is gone after a reconnect, but the
+        // saved Manual reference point (-320, 240) still lies on the secondary's
+        // work-area → secondary is rederived instead of snapping to primary.
+        let selected = resolve_overlay_monitor_id(
+            [
+                ("name:Primary".to_string(), (0.0, 0.0, 1920.0, 1040.0)),
+                (
+                    "workarea:-1080:0:1080:1880".to_string(),
+                    (-1080.0, 0.0, 1080.0, 1880.0),
+                ),
+            ],
+            "name:HDMI-2",
+            OverlayPositionMode::Manual,
+            -320.0,
+            240.0,
+        );
+
+        assert_eq!(selected.as_deref(), Some("workarea:-1080:0:1080:1880"));
+    }
+
+    #[test]
+    fn resolve_overlay_monitor_id_skips_rederivation_in_preset_mode() {
+        // Preset mode has no persisted Manual reference; identity-miss must not
+        // rederive → caller falls back to primary.
+        let selected = resolve_overlay_monitor_id(
+            [
+                ("name:Primary".to_string(), (0.0, 0.0, 1920.0, 1040.0)),
+                (
+                    "workarea:-1080:0:1080:1880".to_string(),
+                    (-1080.0, 0.0, 1080.0, 1880.0),
+                ),
+            ],
+            "name:HDMI-2",
+            OverlayPositionMode::Preset,
+            -320.0,
+            240.0,
+        );
+
+        assert_eq!(selected, None);
+    }
+
+    #[test]
+    fn resolve_overlay_monitor_id_redrives_to_nearest_when_manual_reference_is_outside_all_monitors(
+    ) {
+        // Reference beyond every work-area → nearest monitor wins (keeps the
+        // overlay near its last position rather than falling to primary).
+        let selected = resolve_overlay_monitor_id(
+            [
+                ("name:Primary".to_string(), (0.0, 0.0, 1920.0, 1040.0)),
+                (
+                    "workarea:-1080:0:1080:1880".to_string(),
+                    (-1080.0, 0.0, 1080.0, 1880.0),
+                ),
+            ],
+            "name:HDMI-2",
+            OverlayPositionMode::Manual,
             -1124.0,
             260.0,
         );

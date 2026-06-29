@@ -65,6 +65,18 @@
 
 /* ── Pill root ─────────────────────────────────────────────────────────────── */
 
+/* Persistent wrapper that owns the pill's compositor layer. The .pill itself
+   stays transform-free so that on a surface (kind) change React can swap the
+   inner .pill subtree inside this stable layer — WebKitGTK no longer retains
+   an orphaned promoted pill layer (the flat→flat ghost/bleed). The visual
+   0.87 scale lives here. .overlay-shell stays transform-free on purpose
+   (see overlay-shell.css: window-sizing measurement). (plan 1782308448580) */
+.ov-scope .ov-pill-shell {
+  display: inline-flex;
+  transform: scale(0.87);
+  transform-origin: center;
+}
+
 .ov-scope .pill {
   box-sizing: border-box;
   display: inline-flex;
@@ -80,8 +92,6 @@
   color: var(--ov-text);
   user-select: none;
   position: relative;
-  transform: scale(0.87);
-  transform-origin: center;
   transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
 }
 
@@ -114,7 +124,9 @@
 }
 
 .ov-scope .pill--error {
-  transform: translateY(-2px);
+  /* No transform here: any transform promotes .pill to its own layer and
+     re-introduces the bleed on swap. The error pill sits at the scaled
+     baseline like the other pills (the visual 0.87 scale is on .ov-pill-shell). */
   border-color: var(--ov-red-border);
   box-shadow:
     var(--ov-highlight),

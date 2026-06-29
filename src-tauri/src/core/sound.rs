@@ -102,6 +102,12 @@ pub fn play(cue: SoundCue) {
     // (PulseAudio/PipeWire suspend, JACK disconnect, Bluetooth headset sleep,
     // etc.). A short-lived stream per cue is slightly more work but far more
     // resilient.
+    //
+    // Side effect of the per-cue design: rapid back-to-back triggers (e.g.
+    // Start → Stop → Abort within a few hundred ms) play on independent
+    // threads/streams and therefore overlap acoustically. This is accepted by
+    // design — interrupting a previous cue would add cross-thread cancellation
+    // state for a cosmetic gain. See plan 1782750354086, Phase 5.1.
     thread::spawn(move || {
         let sample_count = samples.len();
         let mut stream = match OutputStreamBuilder::open_default_stream() {

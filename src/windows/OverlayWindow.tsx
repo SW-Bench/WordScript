@@ -126,7 +126,11 @@ export default function OverlayWindow() {
   const suppressMovedPersistenceUntilRef = useRef(0);
   const suppressNextResultActionsRef = useRef(false);
   const lastVisibleSurfaceRef = useRef<OverlaySurface>("compact");
-  const [showError, setShowError] = useState(false);
+  // `errorHidden` only owns the 4.2 s auto-dismiss of an error pill; it never
+  // owns visibility. Error visibility is derived (see `showError` below) so a
+  // new trigger atomically hides a previous epoch's error instead of the old
+  // hard-priority `showError` blocking the new recording surface.
+  const [errorHidden, setErrorHidden] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [overlayMotion, setOverlayMotion] = useState<OverlayMotion>("idle");
   const [actionPending, setActionPending] = useState<"commit" | "abort" | "copy" | "edit" | "insert" | null>(null);
@@ -144,6 +148,15 @@ export default function OverlayWindow() {
       setEffectiveMode(null);
     }
   }, []);
+  // Derived error visibility. Atomic against a new trigger: RECORDING_STARTED
+  // clears `error` AND flips `status` to "recording" in a single reducer
+  // commit (useRuntime.ts), so this evaluates to false in the SAME render that
+  // the recording surface appears. Previously `showError` was independent
+  // useState with hard priority over `isRecording` and only reset in the next
+  // effect commit, which let a previous epoch's error block the new trigger
+  // (plan 1782750354086, Phase 1.1/1.2).
+  const showError = Boolean(error) && status === "idle" && !errorHidden;
+
   const pendingPreviewResult = state.pendingResult;
   const previewResult = state.lastResult;
   const showProcessingPreview = Boolean(isProcessing && pendingPreviewResult && !showError);
@@ -318,12 +331,17 @@ export default function OverlayWindow() {
     };
   }, []);
 
+  // Auto-dismiss the error pill after 4.2 s. `errorHidden` only suppresses the
+  // display; visibility stays derived (see `showError`), so a new trigger
+  // atomically hides the error even mid-countdown. Resetting on `error` going
+  // null re-arms auto-dismiss for the next error instance.
   useEffect(() => {
-    if (!error) return;
-
+    if (!error) {
+      setErrorHidden(false);
+      return;
+    }
     setShowPreview(false);
-    setShowError(true);
-    const timeout = window.setTimeout(() => setShowError(false), 4200);
+    const timeout = window.setTimeout(() => setErrorHidden(true), 4200);
     return () => window.clearTimeout(timeout);
   }, [error]);
 
@@ -374,11 +392,21 @@ export default function OverlayWindow() {
     };
   }, [showResultPreview, actionPending, showEditMode, state.config?.result_actions_timeout_ms]);
 
+  // Atomic surface reset on session start. The atomic SWAP itself is already
+  // guaranteed by the derived/gated visibility used in `pillState`; this effect
+  // clears the lingering local interaction flags (so they cannot flash back
+  // when the session ends) and cancels the result auto-close timer so a late
+  // fire cannot dismiss a future surface (plan Phase 1.3/3.1).
   useEffect(() => {
     if (status === "recording" || (status === "processing" && !pendingPreviewResult)) {
       setShowPreview(false);
       setShowEditMode(false);
       setEditText("");
+      setActionPending(null);
+      if (autoCloseResultTimerRef.current) {
+        window.clearTimeout(autoCloseResultTimerRef.current);
+        autoCloseResultTimerRef.current = null;
+      }
     }
   }, [pendingPreviewResult, status]);
 
@@ -397,6 +425,11 @@ export default function OverlayWindow() {
       void getCurrentWindow().setBackgroundColor([0, 0, 0, 0]).catch(() => {});
       void getCurrentWebview().setBackgroundColor([0, 0, 0, 0]).catch(() => {});
       setOverlayDocumentState(false);
+      // Trigger-during-leave guarantee (plan Phase 2): a new trigger arriving
+      // while the overlay is mid-"leaving" flips isActive back to true and
+      // transitions leaving→entering here directly. The leaving timer is then
+      // cancelled by the effect cleanup below (deps include overlayMotion), so
+      // the overlay re-enters without an idle/park dip and without flicker.
       if (overlayMotionRef.current !== "open" && overlayMotionRef.current !== "entering") {
         applyOverlayMotion("entering");
       }
@@ -467,7 +500,7 @@ export default function OverlayWindow() {
         ? { width: 460, height: 164 }
         : { width: 440, height: 60 };
     if (import.meta.env.DEV) {
-      const pill = shellRef.current?.querySelector<HTMLElement>(".pill");
+      const pill = shellRef.current?.querySelector<HTMLElement>(".ov-pill-shell");
       console.warn(
         `[ov-dom] surface=${surface} reqW=${width} innerW=${window.innerWidth} innerH=${window.innerHeight} pillOffsetW=${pill?.offsetWidth ?? "n/a"}`,
       );
@@ -758,10 +791,53 @@ export default function OverlayWindow() {
         : undefined;
 
   const pillState: OverlayPillState | null = (() => {
+    // An active session ALWAYS wins. RECORDING_STARTED flips `status` and
+    // clears lastResult/pendingResult/error in one reducer commit, so the
+    // recording/processing surface appears in the SAME render that any
+    // previous epoch's idle surface (error/result/edit) vanishes — no overlap,
+    // no hard-priority block. This reordering is the atomic-swap guarantee
+    // (plan 1782750354086, Phase 1.2). All non-session surfaces below are
+    // additionally gated on `status === "idle"` (derived) as defense.
+    if (renderProcessingPreview && activePreviewResult) {
+      return {
+        kind: "processing",
+        mode: pillMode,
+        elapsedSec: elapsed,
+        preview: { text: finalPreviewText, clipboardOnly: previewClipboardOnly },
+        pending: previewPending,
+        onCommit: () => void handleCommitPreview(),
+        onAbort: () => void handleAbortPreview(),
+        onCycleMode: handleCycleMode,
+      };
+    }
+    if (isRecording) {
+      return {
+        kind: "recording",
+        mode: pillMode,
+        muted,
+        paused,
+        level: audioLevel,
+        elapsedSec: elapsed,
+        onMuteToggle: () => toggleMute(),
+        onPauseToggle: () => togglePause(),
+        onCycleMode: handleCycleMode,
+      };
+    }
+    if (isProcessing) {
+      return {
+        kind: "processing",
+        mode: pillMode,
+        elapsedSec: elapsed,
+        onCycleMode: handleCycleMode,
+      };
+    }
+    // Idle-phase surfaces. Each is gated on `status === "idle"` via the
+    // derived `showError`/`showResultPreview` and an explicit idle guard on
+    // edit-mode, so a stale local flag can never bleed into a new session.
     if (showError && error) {
       return { kind: "error", message: error };
     }
-    if (showEditMode && previewResult) {
+    if (showEditMode && status === "idle" && previewResult) {
       return {
         kind: "edit-mode",
         text: editText,
@@ -783,39 +859,6 @@ export default function OverlayWindow() {
         onDismiss: handleDismissPreview,
       };
     }
-    if (renderProcessingPreview && activePreviewResult) {
-      return {
-        kind: "processing",
-        mode: pillMode,
-        elapsedSec: elapsed,
-        preview: { text: finalPreviewText, clipboardOnly: previewClipboardOnly },
-        pending: previewPending,
-        onCommit: () => void handleCommitPreview(),
-        onAbort: () => void handleAbortPreview(),
-        onCycleMode: handleCycleMode,
-      };
-    }
-    if (isProcessing) {
-      return {
-        kind: "processing",
-        mode: pillMode,
-        elapsedSec: elapsed,
-        onCycleMode: handleCycleMode,
-      };
-    }
-    if (isRecording) {
-      return {
-        kind: "recording",
-        mode: pillMode,
-        muted,
-        paused,
-        level: audioLevel,
-        elapsedSec: elapsed,
-        onMuteToggle: () => toggleMute(),
-        onPauseToggle: () => togglePause(),
-        onCycleMode: handleCycleMode,
-      };
-    }
     return null;
   })();
 
@@ -827,7 +870,27 @@ export default function OverlayWindow() {
       onPointerDownCapture={handleOverlayPointerDownCapture}
       onClickCapture={handleInteractiveClickCapture}
     >
-      {pillState && <OverlayPill state={pillState} />}
+      {pillState && (
+        // .ov-pill-shell is a persistent wrapper: it never unmounts across a
+        // surface (kind) change (recording→processing→result→error), only the
+        // inner <OverlayPill> subtree swaps. The compositor layer that the
+        // visual scale promotes therefore belongs to this stable element, not
+        // to .pill.
+        //
+        // The `key={pillState.kind}` forces React to FULLY remount the
+        // <OverlayPill> subtree on every surface change. On WebKitGTK/XWayland
+        // the previous surface's animated children (ov-shimmer bars, ov-spin
+        // spinner) are promoted to their own compositor layers; without a
+        // remount those layers orphan and ghost behind the new surface
+        // ("alte States verschwinden verzögert"). A keyed remount unmounts
+        // those children (releasing their layers) and mounts fresh ones.
+        // Combined with the native 1px backing-store reallocation in
+        // reveal_overlay_window this gives a deterministic clear-before-paint
+        // swap. (plan 1782750354086, §5 follow-up)
+        <div className="ov-pill-shell">
+          <OverlayPill key={pillState.kind} state={pillState} />
+        </div>
+      )}
     </div>
   );
 }
