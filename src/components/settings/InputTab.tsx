@@ -134,8 +134,8 @@ export function InputTab({ config, onChange }: Props) {
     () => audioDevices.find((device) => device.is_default) ?? null,
     [audioDevices],
   );
-  const maxRecordingSeconds = clampCaptureNumber(capture.max_recording_seconds, 10, 3600, 720);
-  const silenceTimeoutSeconds = clampCaptureNumber(capture.silence_timeout_seconds, 0, 300, 30);
+  const maxRecordingSeconds = clampCaptureNumber(capture.max_recording_seconds, 60, 1800, 720);
+  const silenceTimeoutSeconds = clampCaptureNumber(capture.silence_timeout_seconds, 0, 60, 30);
   const hasExplicitAudioDevice = Boolean(config.audio_device.trim());
   const selectedAudioDeviceAvailable = !hasExplicitAudioDevice || audioDevices.some((device) => device.name === config.audio_device);
   const selectedAudioDeviceLabel = hasExplicitAudioDevice
@@ -267,29 +267,30 @@ export function InputTab({ config, onChange }: Props) {
         />
         <FormRow
           label="Max recording"
+          hint="Maximum recording length in minutes (1–30). Enforced in the native capture monitor — keeps working after this window is closed."
           control={
             <Stepper
-              value={capture.max_recording_seconds}
-              min={10}
-              max={3600}
-              step={5}
-              suffix={formatDurationCompact(maxRecordingSeconds)}
-              onChange={(value) => onChange(buildProfileCapturePatch(config, { max_recording_seconds: value }))}
+              value={Math.round(capture.max_recording_seconds / 60)}
+              min={1}
+              max={30}
+              step={1}
+              suffix="min"
+              onChange={(value) => onChange(buildProfileCapturePatch(config, { max_recording_seconds: value * 60 }))}
               aria-label="Max recording"
             />
           }
         />
         <FormRow
           label="Silence timeout"
-          hint="Max recording and silence timeout are enforced in the native capture monitor, not just in the UI. They keep working after this window is closed."
+          hint="Auto-stop after this many seconds of silence (0 = disabled, max 60). Enforced in the native capture monitor — keeps working after this window is closed."
           divider={false}
           control={
             <Stepper
               value={capture.silence_timeout_seconds}
               min={0}
-              max={300}
+              max={60}
               step={1}
-              suffix={silenceTimeoutSeconds > 0 ? formatDurationCompact(silenceTimeoutSeconds) : "Disabled"}
+              suffix={silenceTimeoutSeconds > 0 ? "s" : "Disabled"}
               onChange={(value) => onChange(buildProfileCapturePatch(config, { silence_timeout_seconds: value }))}
               aria-label="Silence timeout"
             />

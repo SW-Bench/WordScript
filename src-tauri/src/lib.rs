@@ -79,6 +79,7 @@ enum OverlaySurface {
     ProcessingPreview,
     ResultActions,
     EditMode,
+    ModePicker,
 }
 
 impl Default for OverlaySurface {
@@ -101,6 +102,7 @@ impl OverlaySurface {
             Self::ProcessingPreview => (440.0, 60.0),
             Self::ResultActions => (440.0, 60.0),
             Self::EditMode => (460.0, 164.0),
+            Self::ModePicker => (440.0, 60.0),
         }
     }
 
@@ -730,6 +732,27 @@ fn apply_trigger_effect<R: Runtime>(app: &AppHandle<R>, effect: TriggerEffect) {
                     apply_trigger_effect(&app, effect);
                 }
             });
+        }
+        TriggerEffect::ModeSelect => {
+            // Emit a toggle signal. The frontend owns the overlay visibility +
+            // positioning — it decides: if the mode-select surface is closed
+            // → open it (via its own isActive/sync_overlay_window_visibility
+            // path, which respects the saved manual position); if open →
+            // cycle to the next mode (persistently). Rust does NOT reveal the
+            // window directly here to avoid racing the frontend's own
+            // visibility state machine (which would park the overlay again
+            // before the React listener processes the event).
+            let _ = app.emit(
+                "wordscript-mode-select",
+                serde_json::json!({ "event": "toggle" }),
+            );
+        }
+        TriggerEffect::SetModeDirect(mode) => {
+            if let Err(error) = core::mode_router::set_mode_override_and_emit(app, mode) {
+                core::runtime_log::record(format!(
+                    "[WordScript] Per-mode hotkey failed: {error}"
+                ));
+            }
         }
     }
 }
@@ -1873,7 +1896,6 @@ pub fn run() {
             core::capture::toggle_native_capture_mute,
             core::capture::toggle_native_capture_pause,
             core::insertion::native_insertion_status,
-            core::insertion::configure_native_insertion,
             core::insertion::insert_text_native,
             core::insertion::restore_last_transcript,
             core::insertion::clear_native_scratchpad,

@@ -19,7 +19,7 @@ import "../styles/overlay-shell.css";
 const RUNTIME_EVENT_CHANNEL = "wordscript-event";
 // Order the in-overlay mode cycler rotates through. Mirrors the modes exposed in
 // Settings → Modes.
-const MODE_CYCLE: ProcessingMode[] = ["auto", "verbatim", "cleanup", "rewrite", "prompt_enhance", "agent"];
+const MODE_CYCLE: ProcessingMode[] = ["auto", "verbatim", "cleanup", "rewrite", "agent", "prompt_enhance"];
 const OVERLAY_ENTER_MS = 320;
 const OVERLAY_LEAVE_MS = 240;
 const DRAG_DISTANCE_THRESHOLD = 6;
@@ -37,7 +37,7 @@ const SHELL_PADDING = 4;
 const MEASURE_BUFFER = 12;
 
 type OverlayMotion = "idle" | "entering" | "open" | "leaving";
-type OverlaySurface = "compact" | "processing_preview" | "result_actions" | "edit_mode";
+type OverlaySurface = "compact" | "processing_preview" | "result_actions" | "edit_mode" | "mode_picker";
 
 // Proven per-surface widths, mirrored from OverlaySurface::dimensions() in
 // src-tauri/src/lib.rs. Used as a floor under the live measurement: if WebKitGTK
@@ -47,6 +47,7 @@ const SURFACE_MIN_WIDTH: Record<OverlaySurface, number> = {
   processing_preview: 300,
   result_actions: 388,
   edit_mode: 420,
+  mode_picker: 256,
 };
 
 interface AudioLevelEvent {
@@ -121,6 +122,7 @@ export default function OverlayWindow() {
   const dragSessionActiveRef = useRef(false);
   const dragSessionEndTimeoutRef = useRef<number | null>(null);
   const autoCloseResultTimerRef = useRef<number | null>(null);
+  const autoCloseModePickerTimerRef = useRef<number | null>(null);
   const suppressNextClickRef = useRef(false);
   const suppressClickUntilRef = useRef(0);
   const suppressMovedPersistenceUntilRef = useRef(0);
@@ -136,6 +138,10 @@ export default function OverlayWindow() {
   const [actionPending, setActionPending] = useState<"commit" | "abort" | "copy" | "edit" | "insert" | null>(null);
   const [editText, setEditText] = useState("");
   const [showEditMode, setShowEditMode] = useState(false);
+  // Mode-select surface — opened by the `mode_picker_hotkey` global shortcut.
+  // Reuses the compact pill geometry; the frontend switches the pill into a
+  // selector mode via the `wordscript-mode-select` runtime event.
+  const [showModePicker, setShowModePicker] = useState(false);
   // Effective processing mode from the Rust runtime (the single source of
   // truth). Fetched via `resolve_current_processing_mode` and kept in sync
   // through `wordscript-mode-event` events.
@@ -162,13 +168,18 @@ export default function OverlayWindow() {
   const showProcessingPreview = Boolean(isProcessing && pendingPreviewResult && !showError);
   const showResultPreview = Boolean(showPreview && previewResult && status === "idle" && !showError);
   const showAnyPreview = showProcessingPreview || showResultPreview;
+  // Mode select is only relevant in idle — during an active session the
+  // recording/processing surface wins and the picker is dismissed.
+  const renderModePicker = showModePicker && status === "idle" && !showError && !showAnyPreview;
   const overlaySurface: OverlaySurface = showEditMode
     ? "edit_mode"
     : showResultPreview
       ? "result_actions"
       : showProcessingPreview
         ? "processing_preview"
-        : "compact";
+        : renderModePicker
+          ? "mode_picker"
+          : "compact";
   const holdPreviewDuringClose = !showAnyPreview
     && !showError
     && status === "idle"
@@ -378,7 +389,7 @@ export default function OverlayWindow() {
       return;
     }
 
-    const autoCloseMs = state.config?.result_actions_timeout_ms ?? 9000;
+    const autoCloseMs = (state.config?.result_actions_timeout_s ?? 9) * 1000;
     autoCloseResultTimerRef.current = window.setTimeout(() => {
       autoCloseResultTimerRef.current = null;
       setShowPreview(false);
@@ -390,7 +401,7 @@ export default function OverlayWindow() {
         autoCloseResultTimerRef.current = null;
       }
     };
-  }, [showResultPreview, actionPending, showEditMode, state.config?.result_actions_timeout_ms]);
+  }, [showResultPreview, actionPending, showEditMode, state.config?.result_actions_timeout_s]);
 
   // Atomic surface reset on session start. The atomic SWAP itself is already
   // guaranteed by the derived/gated visibility used in `pillState`; this effect
@@ -401,16 +412,53 @@ export default function OverlayWindow() {
     if (status === "recording" || (status === "processing" && !pendingPreviewResult)) {
       setShowPreview(false);
       setShowEditMode(false);
+      setShowModePicker(false);
       setEditText("");
       setActionPending(null);
       if (autoCloseResultTimerRef.current) {
         window.clearTimeout(autoCloseResultTimerRef.current);
         autoCloseResultTimerRef.current = null;
       }
+      if (autoCloseModePickerTimerRef.current) {
+        window.clearTimeout(autoCloseModePickerTimerRef.current);
+        autoCloseModePickerTimerRef.current = null;
+      }
     }
   }, [pendingPreviewResult, status]);
 
-  const isActive = status === "recording" || status === "processing" || showError || showAnyPreview;
+  const isActive = status === "recording" || status === "processing" || showError || showAnyPreview || renderModePicker;
+
+  // Dismiss the mode-select surface when the overlay leaves the active state (user
+  // dismissed it or lost focus). Prevents a stale picker from reappearing on
+  // the next idle phase.
+  useEffect(() => {
+    if (!isActive) {
+      setShowModePicker(false);
+    }
+  }, [isActive]);
+
+  // Auto-dismiss the mode-select picker after a short idle window so it never
+  // stays stuck in a stale state. The timeout resets every time the effective
+  // mode changes (cycle press) or the picker reopens.
+  useEffect(() => {
+    if (!showModePicker) {
+      if (autoCloseModePickerTimerRef.current) {
+        window.clearTimeout(autoCloseModePickerTimerRef.current);
+        autoCloseModePickerTimerRef.current = null;
+      }
+      return;
+    }
+    autoCloseModePickerTimerRef.current = window.setTimeout(() => {
+      autoCloseModePickerTimerRef.current = null;
+      setShowModePicker(false);
+    }, (state.config?.mode_select_timeout_s ?? 6) * 1000);
+    return () => {
+      if (autoCloseModePickerTimerRef.current) {
+        window.clearTimeout(autoCloseModePickerTimerRef.current);
+        autoCloseModePickerTimerRef.current = null;
+      }
+    };
+  }, [showModePicker, effectiveMode]);
 
   useEffect(() => {
     if (isActive) {
@@ -473,6 +521,13 @@ export default function OverlayWindow() {
     [state.config],
   );
   const pillMode: OverlayProcessingMode = effectiveMode ?? configFallbackMode ?? "auto";
+
+  // Refs mirroring the effective/fallback mode so the stable mode-select
+  // listener can read the current value without re-subscribing every render.
+  const effectiveModeRef = useRef(pillMode);
+  useEffect(() => { effectiveModeRef.current = pillMode; }, [pillMode]);
+  const configFallbackModeRef = useRef(configFallbackMode);
+  useEffect(() => { configFallbackModeRef.current = configFallbackMode; }, [configFallbackMode]);
 
   // Re-fetch effective mode when config changes (e.g. after a settings save
   // that changes the profile default).
@@ -543,6 +598,25 @@ export default function OverlayWindow() {
     return () => { unlisten.then(fn => fn()); };
   }, [paused]);
 
+  // Session lifecycle events (aborted, empty, error, recording_started) arrive
+  // on the native-event channel, not the wordscript-event channel. Dismiss the
+  // mode-select picker whenever one fires so the overlay never lingers in a
+  // stale picker state after an abort or a new recording start. This includes
+  // the abort hotkey — it emits `aborted` via the native session event path.
+  useEffect(() => {
+    const unlisten = listen<{ event: string }>("wordscript-native-event", ({ payload }) => {
+      if (
+        payload.event === "aborted" ||
+        payload.event === "empty" ||
+        payload.event === "error" ||
+        payload.event === "recording_started"
+      ) {
+        setShowModePicker(false);
+      }
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
+
   // Listen for processing-mode events from the Rust runtime so the pill stays
   // in sync when the mode changes from outside the overlay (per-mode hotkey,
   // settings save, overlay cycle, auto-resolution). The effective mode is
@@ -551,6 +625,36 @@ export default function OverlayWindow() {
     void fetchEffectiveMode();
     const unlisten = listen<unknown>("wordscript-mode-event", () => {
       void fetchEffectiveMode();
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, [fetchEffectiveMode]);
+
+  // Mode-select hotkey: the Rust runtime emits `wordscript-mode-select` when
+  // the configured select shortcut fires. Toggle behavior:
+  //   1. If the mode-select surface is closed → open it (shows current mode,
+  //      user can tap to cycle or use per-mode hotkeys).
+  //   2. If already open → cycle to the next mode (persistent) so rapid
+  //      repeated presses walk through the modes without reopening.
+  // A ref mirrors `showModePicker` so the stable listener can read the current
+  // toggle state without re-subscribing on every render.
+  const showModePickerRef = useRef(false);
+  useEffect(() => { showModePickerRef.current = showModePicker; }, [showModePicker]);
+
+  useEffect(() => {
+    const unlisten = listen<unknown>("wordscript-mode-select", () => {
+      if (showModePickerRef.current) {
+        // Already open → cycle to the next mode.
+        const current = effectiveModeRef.current ?? configFallbackModeRef.current;
+        if (!current) return;
+        const index = MODE_CYCLE.indexOf(current);
+        const next = MODE_CYCLE[(index + 1) % MODE_CYCLE.length] ?? MODE_CYCLE[0];
+        void invoke("set_active_profile_processing_mode", { mode: next })
+          .then(() => fetchEffectiveMode())
+          .catch(() => {});
+      } else {
+        // Closed → open the mode-select surface.
+        setShowModePicker(true);
+      }
     });
     return () => { unlisten.then(fn => fn()); };
   }, [fetchEffectiveMode]);
@@ -837,6 +941,20 @@ export default function OverlayWindow() {
     if (showError && error) {
       return { kind: "error", message: error };
     }
+    if (renderModePicker) {
+      // Mode-picker surface: a compact pill showing the current mode chip.
+      // Tapping the chip cycles (same handler as in-session), per-mode hotkeys
+      // jump directly, and dismissing the overlay closes the picker.
+      return {
+        kind: "recording",
+        mode: pillMode,
+        muted: false,
+        paused: false,
+        level: 0,
+        elapsedSec: 0,
+        onCycleMode: handleCycleMode,
+      };
+    }
     if (showEditMode && status === "idle" && previewResult) {
       return {
         kind: "edit-mode",
@@ -851,7 +969,7 @@ export default function OverlayWindow() {
         kind: "result-actions",
         text: finalPreviewText,
         clipboardOnly: previewClipboardOnly,
-        autoCloseSec: Math.round((state.config?.result_actions_timeout_ms ?? 9000) / 1000),
+        autoCloseSec: state.config?.result_actions_timeout_s ?? 9,
         pending: resultPending,
         onCopy: () => void handleCopyResult(),
         onEdit: handleEditOpen,

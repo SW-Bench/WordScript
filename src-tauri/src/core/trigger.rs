@@ -11,11 +11,78 @@ use tauri_plugin_global_shortcut::{
 };
 
 use super::capture::NativeCaptureState;
-use super::config::AppConfig;
+use super::config::{AppConfig, ProcessingMode};
 use super::sessions::{NativeSessionStage, NativeSessionState};
 
 const DEFAULT_DEBOUNCE_MS: u64 = 300;
 const DEFAULT_HOLD_MIN_MS: u64 = 300;
+
+/// Processing-mode hotkeys sourced from `AppConfig`. Each entry is either a
+/// normalized shortcut string (e.g. `"Ctrl+Alt+M"`) or empty when the user has
+/// disabled that particular hotkey.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModeHotkeys {
+    pub picker: String,
+    pub auto: String,
+    pub verbatim: String,
+    pub cleanup: String,
+    pub rewrite: String,
+    pub agent: String,
+    pub prompt_enhance: String,
+}
+
+impl ModeHotkeys {
+    /// Loads all mode hotkeys from a persisted `AppConfig`. The values
+    /// are already normalized on save, but normalization is idempotent so we
+    /// re-run it defensively against the platform defaults (empty strings pass
+    /// through as empty — meaning "disabled").
+    fn from_app_config(config: &AppConfig) -> Self {
+        Self {
+            picker: config.mode_picker_hotkey.clone(),
+            auto: config.mode_auto_hotkey.clone(),
+            verbatim: config.mode_verbatim_hotkey.clone(),
+            cleanup: config.mode_cleanup_hotkey.clone(),
+            rewrite: config.mode_rewrite_hotkey.clone(),
+            agent: config.mode_agent_hotkey.clone(),
+            prompt_enhance: config.mode_prompt_enhance_hotkey.clone(),
+        }
+    }
+
+    /// Returns the hotkey string for a direct per-mode jump.
+    fn for_mode(&self, mode: ProcessingMode) -> &str {
+        match mode {
+            ProcessingMode::Auto => &self.auto,
+            ProcessingMode::Verbatim => &self.verbatim,
+            ProcessingMode::Cleanup => &self.cleanup,
+            ProcessingMode::Rewrite => &self.rewrite,
+            ProcessingMode::Agent => &self.agent,
+            ProcessingMode::PromptEnhance => &self.prompt_enhance,
+        }
+    }
+
+    /// Iterates over all non-empty mode hotkeys together with a label describing
+    /// their semantic role. Used by the registration loop and the idempotency /
+    /// collision checks.
+    fn entries(&self) -> Vec<(&'static str, &str)> {
+        let mut out = Vec::new();
+        if !self.picker.is_empty() {
+            out.push(("mode_picker", self.picker.as_str()));
+        }
+        for (mode, hotkey) in [
+            (ProcessingMode::Auto, &self.auto),
+            (ProcessingMode::Verbatim, &self.verbatim),
+            (ProcessingMode::Cleanup, &self.cleanup),
+            (ProcessingMode::Rewrite, &self.rewrite),
+            (ProcessingMode::Agent, &self.agent),
+            (ProcessingMode::PromptEnhance, &self.prompt_enhance),
+        ] {
+            if !hotkey.is_empty() {
+                out.push((mode.as_str(), hotkey.as_str()));
+            }
+        }
+        out
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -43,6 +110,8 @@ pub struct NativeTriggerConfig {
     pub enabled: bool,
     pub debounce_ms: u64,
     pub hold_min_ms: u64,
+    #[serde(default)]
+    pub mode_hotkeys: ModeHotkeys,
 }
 
 impl Default for NativeTriggerConfig {
@@ -55,6 +124,7 @@ impl Default for NativeTriggerConfig {
             enabled: true,
             debounce_ms: DEFAULT_DEBOUNCE_MS,
             hold_min_ms: DEFAULT_HOLD_MIN_MS,
+            mode_hotkeys: ModeHotkeys::default(),
         }
     }
 }
@@ -62,12 +132,14 @@ impl Default for NativeTriggerConfig {
 impl NativeTriggerConfig {
     pub fn load_from_disk() -> Self {
         let app_config = AppConfig::load_from_disk();
+        let mode_hotkeys = ModeHotkeys::from_app_config(&app_config);
 
         Self {
             hotkey: app_config.hotkey,
             pause_hotkey: app_config.pause_hotkey,
             abort_hotkey: app_config.abort_hotkey,
             activation_mode: NativeActivationMode::from_config(&app_config.activation_mode),
+            mode_hotkeys,
             ..Self::default()
         }
     }
@@ -95,6 +167,17 @@ pub struct NativeTriggerStatus {
     pub activation_mode: NativeActivationMode,
     pub last_error: Option<String>,
     pub owner: String,
+    /// Labels of mode hotkeys currently registered with the OS, together with
+    /// their display string. Empty when no mode hotkeys are active. Lets the
+    /// frontend show runtime truth instead of assuming registration succeeded.
+    #[serde(default)]
+    pub registered_mode_hotkeys: Vec<ModeHotkeyStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModeHotkeyStatus {
+    pub label: String,
+    pub display: String,
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +193,13 @@ pub enum TriggerEffect {
     TogglePause,
     AbortCapture,
     DeferredStop { hold_session: u64, delay_ms: u64 },
+    /// Mode-select hotkey: toggle signal for the overlay. First press opens
+    /// the overlay in the mode-select surface (current mode shown, tap to
+    /// cycle). Second press cycles to the next mode persistently. The frontend
+    /// owns the toggle state — Rust just emits the signal.
+    ModeSelect,
+    /// Jump directly to a specific processing mode (per-mode hotkey).
+    SetModeDirect(ProcessingMode),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +218,13 @@ pub struct NativeTriggerState {
     hotkey_ids: Vec<u32>,
     pause_hotkey_ids: Vec<u32>,
     abort_hotkey_ids: Vec<u32>,
+    /// Maps each mode-hotkey label (e.g. `"mode_picker"`, or a
+    /// processing-mode token like `"agent"`) to the registered shortcut IDs.
+    /// Empty when no mode hotkeys are configured / registered.
+    mode_hotkey_ids: std::collections::HashMap<String, Vec<u32>>,
+    /// Mirrors `mode_hotkey_ids` but stores the human-readable display string
+    /// for status reporting and idempotency checks.
+    registered_mode_hotkeys: std::collections::HashMap<String, String>,
     paused: bool,
     hotkey_active: bool,
     tap_hotkey_down: bool,
@@ -157,6 +254,8 @@ impl NativeTriggerState {
             hotkey_ids: Vec::new(),
             pause_hotkey_ids: Vec::new(),
             abort_hotkey_ids: Vec::new(),
+            mode_hotkey_ids: std::collections::HashMap::new(),
+            registered_mode_hotkeys: std::collections::HashMap::new(),
             paused: false,
             hotkey_active: false,
             tap_hotkey_down: false,
@@ -185,6 +284,14 @@ impl NativeTriggerState {
             activation_mode: self.config.activation_mode.clone(),
             last_error: self.last_error.clone(),
             owner: "native_tauri_global_shortcut".to_string(),
+            registered_mode_hotkeys: self
+                .registered_mode_hotkeys
+                .iter()
+                .map(|(label, display)| ModeHotkeyStatus {
+                    label: label.clone(),
+                    display: display.clone(),
+                })
+                .collect(),
         }
     }
 }
@@ -203,6 +310,15 @@ pub fn configure_native_trigger(
     request: ConfigureNativeTriggerRequest,
     state: State<'_, Mutex<NativeTriggerState>>,
 ) -> Result<NativeTriggerStatus, String> {
+    // Preserve the existing mode hotkeys — configure_native_trigger only
+    // changes the base capture hotkeys. Mode hotkeys are managed via the
+    // config file (Settings → Modes) and re-loaded on the next startup or
+    // config-reload registration call.
+    let existing_mode_hotkeys = {
+        let lock = state.lock().map_err(|error| error.to_string())?;
+        lock.config.mode_hotkeys.clone()
+    };
+
     let config = NativeTriggerConfig {
         hotkey: request.hotkey,
         pause_hotkey: request.pause_hotkey,
@@ -211,6 +327,7 @@ pub fn configure_native_trigger(
         enabled: true,
         debounce_ms: DEFAULT_DEBOUNCE_MS,
         hold_min_ms: DEFAULT_HOLD_MIN_MS,
+        mode_hotkeys: existing_mode_hotkeys,
     };
 
     register_native_shortcuts(&app, state.inner(), config)
@@ -251,6 +368,33 @@ pub fn register_native_shortcuts<R: Runtime>(
     if pause_hotkey.display == hotkey.display || pause_hotkey.display == abort_hotkey.display {
         return Err("Pause hotkey must differ from Start / Stop and Abort hotkeys.".to_string());
     }
+
+    // Reserved display strings (start / pause / abort). Mode hotkeys must not
+    // collide with any of them.
+    let reserved = [hotkey.display.clone(), pause_hotkey.display.clone(), abort_hotkey.display.clone()];
+
+    // Parse all non-empty mode hotkeys and reject collisions with the reserved
+    // set and with each other. Empty strings are skipped (hotkey disabled).
+    let mut mode_bindings: Vec<(&'static str, RegisteredShortcutBinding)> = Vec::new();
+    let mut seen_mode_displays: Vec<String> = Vec::new();
+    for (label, raw) in config.mode_hotkeys.entries() {
+        let binding = build_shortcut_binding(raw, true)?;
+        if reserved.contains(&binding.display) {
+            return Err(format!(
+                "Mode hotkey '{}' ({}): must differ from Start / Stop / Pause / Abort hotkeys.",
+                label, binding.display
+            ));
+        }
+        if seen_mode_displays.contains(&binding.display) {
+            return Err(format!(
+                "Mode hotkey '{}' ({}): duplicate of another mode hotkey.",
+                label, binding.display
+            ));
+        }
+        seen_mode_displays.push(binding.display.clone());
+        mode_bindings.push((label, binding));
+    }
+
     let config = NativeTriggerConfig {
         hotkey: hotkey.display.clone(),
         pause_hotkey: pause_hotkey.display.clone(),
@@ -263,12 +407,21 @@ pub fn register_native_shortcuts<R: Runtime>(
     // would be silently dropped) on every concurrent startup call from multiple windows.
     {
         let current = state.lock().map_err(|error| error.to_string())?;
-        let shortcuts_unchanged = current.registered_hotkey.as_deref()
+        let base_unchanged = current.registered_hotkey.as_deref()
             == Some(hotkey.display.as_str())
             && current.registered_pause_hotkey.as_deref() == Some(pause_hotkey.display.as_str())
             && current.registered_abort_hotkey.as_deref() == Some(abort_hotkey.display.as_str())
             && !current.hotkey_ids.is_empty();
-        if shortcuts_unchanged {
+
+        let mode_unchanged = mode_bindings.iter().all(|(label, binding)| {
+            current
+                .registered_mode_hotkeys
+                .get(*label)
+                .map(|display| display == &binding.display)
+                .unwrap_or(false)
+        }) && current.registered_mode_hotkeys.len() == mode_bindings.len();
+
+        if base_unchanged && mode_unchanged {
             drop(current);
             let mut state = state.lock().map_err(|error| error.to_string())?;
             state.config = config;
@@ -297,6 +450,15 @@ pub fn register_native_shortcuts<R: Runtime>(
             }
         }
         if let Some(value) = &current.registered_abort_hotkey {
+            if let Ok(binding) = build_shortcut_binding(value, true) {
+                collect_unique_shortcuts(
+                    &mut old_shortcuts,
+                    &mut old_shortcut_ids,
+                    &binding.shortcuts,
+                );
+            }
+        }
+        for value in current.registered_mode_hotkeys.values() {
             if let Ok(binding) = build_shortcut_binding(value, true) {
                 collect_unique_shortcuts(
                     &mut old_shortcuts,
@@ -341,6 +503,32 @@ pub fn register_native_shortcuts<R: Runtime>(
         }
     }
 
+    // Register every mode hotkey. A failure here is logged but does NOT abort
+    // the whole registration — the base capture hotkeys are already live and
+    // a single mode-hotkey collision with another app should not break dictation.
+    let mut mode_hotkey_ids: std::collections::HashMap<String, Vec<u32>> =
+        std::collections::HashMap::new();
+    let mut registered_mode_hotkeys: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for (label, binding) in &mode_bindings {
+        let mut ids = Vec::new();
+        for shortcut in &binding.shortcuts {
+            match app.global_shortcut().register(*shortcut) {
+                Ok(()) => ids.push(shortcut.id()),
+                Err(error) => {
+                    super::runtime_log::record(format!(
+                        "[WordScript] Could not register mode hotkey '{}' ({}): {error}",
+                        label, binding.display
+                    ));
+                }
+            }
+        }
+        if !ids.is_empty() {
+            mode_hotkey_ids.insert((*label).to_string(), ids);
+            registered_mode_hotkeys.insert((*label).to_string(), binding.display.clone());
+        }
+    }
+
     let mut state = state.lock().map_err(|error| error.to_string())?;
     state.config = config;
     state.registered_hotkey = Some(hotkey.display);
@@ -349,6 +537,8 @@ pub fn register_native_shortcuts<R: Runtime>(
     state.hotkey_ids = hotkey.shortcuts.iter().map(Shortcut::id).collect();
     state.pause_hotkey_ids = pause_hotkey.shortcuts.iter().map(Shortcut::id).collect();
     state.abort_hotkey_ids = abort_hotkey.shortcuts.iter().map(Shortcut::id).collect();
+    state.mode_hotkey_ids = mode_hotkey_ids;
+    state.registered_mode_hotkeys = registered_mode_hotkeys;
     state.pause_active = false;
     state.abort_active = false;
     state.tap_hotkey_down = false;
@@ -375,7 +565,33 @@ pub fn handle_global_shortcut_event<R: Runtime>(
     let is_pause = state.pause_hotkey_ids.contains(&shortcut_id);
     let is_hotkey = state.hotkey_ids.contains(&shortcut_id);
 
-    if !is_abort && !is_pause && !is_hotkey {
+    // Mode hotkeys are fire-and-forget: they only act on the initial Press and
+    // ignore Release. We look up which mode-hotkey label (if any) owns this
+    // shortcut ID and map it to a TriggerEffect.
+    let mode_hotkey_label: Option<&str> = state
+        .mode_hotkey_ids
+        .iter()
+        .find(|(_, ids)| ids.contains(&shortcut_id))
+        .map(|(label, _)| label.as_str());
+
+    if !is_abort && !is_pause && !is_hotkey && mode_hotkey_label.is_none() {
+        return None;
+    }
+
+    // Mode hotkeys fire on Press only and don't participate in the
+    // capture start/stop state machine below.
+    if let Some(label) = mode_hotkey_label {
+        if event.state == ShortcutState::Pressed {
+            let effect = match label {
+                "mode_picker" => TriggerEffect::ModeSelect,
+                other => {
+                    let parsed = ProcessingMode::from_str(other);
+                    TriggerEffect::SetModeDirect(parsed)
+                }
+            };
+            drop(state);
+            return Some(effect);
+        }
         return None;
     }
 
@@ -980,5 +1196,88 @@ mod tests {
         assert!(is_modifier_only_shortcut("Ctrl+Alt+Shift"));
         assert!(!is_modifier_only_shortcut("Ctrl+F9"));
         assert!(!is_modifier_only_shortcut("Ctrl+Space"));
+    }
+
+    #[test]
+    fn mode_hotkeys_entries_skips_empty_and_preserves_order() {
+        let hotkeys = ModeHotkeys {
+            picker: "Ctrl+Alt+M".to_string(),
+            auto: "Ctrl+F6".to_string(),
+            verbatim: "Ctrl+F1".to_string(),
+            cleanup: String::new(),
+            rewrite: String::new(),
+            agent: String::new(),
+            prompt_enhance: String::new(),
+        };
+
+        let entries = hotkeys.entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0], ("mode_picker", "Ctrl+Alt+M"));
+        assert_eq!(entries[1], ("auto", "Ctrl+F6"));
+        assert_eq!(entries[2], ("verbatim", "Ctrl+F1"));
+    }
+
+    #[test]
+    fn mode_hotkeys_for_mode_returns_correct_field() {
+        let hotkeys = ModeHotkeys {
+            picker: String::new(),
+            auto: "A".to_string(),
+            verbatim: "V".to_string(),
+            cleanup: "C".to_string(),
+            rewrite: "R".to_string(),
+            agent: "G".to_string(),
+            prompt_enhance: "P".to_string(),
+        };
+
+        assert_eq!(hotkeys.for_mode(ProcessingMode::Auto), "A");
+        assert_eq!(hotkeys.for_mode(ProcessingMode::Verbatim), "V");
+        assert_eq!(hotkeys.for_mode(ProcessingMode::Cleanup), "C");
+        assert_eq!(hotkeys.for_mode(ProcessingMode::Rewrite), "R");
+        assert_eq!(hotkeys.for_mode(ProcessingMode::Agent), "G");
+        assert_eq!(hotkeys.for_mode(ProcessingMode::PromptEnhance), "P");
+    }
+
+    #[test]
+    fn mode_hotkeys_all_empty_yields_no_entries() {
+        let hotkeys = ModeHotkeys::default();
+        assert!(hotkeys.entries().is_empty());
+    }
+
+    #[test]
+    fn native_trigger_status_reports_registered_mode_hotkeys() {
+        let mut state = NativeTriggerState::default();
+        state
+            .registered_mode_hotkeys
+            .insert("mode_picker".to_string(), "Ctrl+Alt+M".to_string());
+        state
+            .registered_mode_hotkeys
+            .insert("agent".to_string(), "Ctrl+Alt+5".to_string());
+
+        let status = state.status();
+        assert_eq!(status.registered_mode_hotkeys.len(), 2);
+        assert!(status
+            .registered_mode_hotkeys
+            .iter()
+            .any(|h| h.label == "mode_picker" && h.display == "Ctrl+Alt+M"));
+        assert!(status
+            .registered_mode_hotkeys
+            .iter()
+            .any(|h| h.label == "agent" && h.display == "Ctrl+Alt+5"));
+    }
+
+    #[test]
+    fn trigger_effect_mode_variants_are_debug_reachable() {
+        // Smoke test: the new variants construct and match without panic.
+        let select = TriggerEffect::ModeSelect;
+        let direct = TriggerEffect::SetModeDirect(ProcessingMode::Agent);
+
+        match select {
+            TriggerEffect::ModeSelect => {}
+            _ => panic!("expected ModeSelect"),
+        }
+        match direct {
+            TriggerEffect::SetModeDirect(ProcessingMode::Agent) => {}
+            _ => panic!("expected SetModeDirect(Agent)"),
+        }
     }
 }

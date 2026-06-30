@@ -1,10 +1,48 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
+use tauri::{AppHandle, Emitter, Runtime};
 
 use super::config::ProcessingMode;
 
 static MODE_OVERRIDE: Mutex<Option<ProcessingMode>> = Mutex::new(None);
+
+/// Cycle order mirrors Settings → Modes and the in-overlay tap cycler
+/// (`MODE_CYCLE` in OverlayWindow.tsx / OverlayGallery.tsx):
+/// Auto → Verbatim → Cleanup → Rewrite → Agent → Prompt Enhance → Auto.
+pub const MODE_CYCLE_ORDER: [ProcessingMode; 6] = [
+    ProcessingMode::Auto,
+    ProcessingMode::Verbatim,
+    ProcessingMode::Cleanup,
+    ProcessingMode::Rewrite,
+    ProcessingMode::Agent,
+    ProcessingMode::PromptEnhance,
+];
+
+/// Returns the next mode in the cycle after `current`. Falls back to the
+/// first entry (Auto) when `current` is not found in the cycle array.
+pub fn next_mode_in_cycle(current: ProcessingMode) -> ProcessingMode {
+    let index = MODE_CYCLE_ORDER
+        .iter()
+        .position(|mode| *mode == current)
+        .unwrap_or(0);
+    let next_index = (index + 1) % MODE_CYCLE_ORDER.len();
+    MODE_CYCLE_ORDER[next_index]
+}
+
+/// Emits a `wordscript-mode-event` so every overlay / settings listener can
+/// re-fetch the effective mode after a hotkey-driven mode change. The payload
+/// matches the frontend `ProcessingModeEvent` shape.
+pub fn emit_mode_event<R: Runtime>(app: &AppHandle<R>, context: &ProcessingContext) {
+    let _ = app.emit(
+        "wordscript-mode-event",
+        serde_json::json!({
+            "mode": context.mode.as_str(),
+            "is_override": context.is_override,
+            "auto_detected": context.auto_detected,
+        }),
+    );
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessingContext {
@@ -209,6 +247,40 @@ fn is_known_processing_mode(value: &str) -> bool {
     )
 }
 
+/// Synchronous variant of `resolve_current_processing_mode` for use inside
+/// the global-shortcut handler (which must not be async). Returns the same
+/// `ProcessingContext` the async IPC command would.
+pub fn resolve_current_processing_mode_sync() -> ProcessingContext {
+    let config = super::config::AppConfig::load_from_disk();
+
+    let profile_mode = config
+        .text_profiles
+        .iter()
+        .find(|profile| profile.id == config.active_text_profile_id)
+        .map(|profile| profile.work_mode.effective_processing_mode())
+        .unwrap_or_else(|| config.processing_mode.clone());
+
+    let manual_override = current_mode_override();
+
+    resolve_processing_mode(profile_mode, manual_override)
+}
+
+/// Persists the processing mode into the active profile's work_mode, saves to
+/// disk, sets a runtime override for in-flight sessions, and emits a
+/// `wordscript-mode-event` so the overlay / settings sync immediately. Used by
+/// the global mode-select and per-mode hotkeys — persistent, identical to the
+/// overlay tap cycler so every mode-change path survives a restart.
+pub fn set_mode_override_and_emit<R: Runtime>(
+    app: &AppHandle<R>,
+    mode: ProcessingMode,
+) -> Result<ProcessingContext, String> {
+    set_active_profile_processing_mode(app.clone(), mode.as_str().to_string())?;
+
+    let context = resolve_current_processing_mode_sync();
+    emit_mode_event(app, &context);
+    Ok(context)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,5 +436,49 @@ mod tests {
             "WordScript",
         );
         assert_eq!(mode, ProcessingMode::Cleanup);
+    }
+
+    #[test]
+    fn cycle_order_matches_settings_modes_tab() {
+        assert_eq!(
+            MODE_CYCLE_ORDER,
+            [
+                ProcessingMode::Auto,
+                ProcessingMode::Verbatim,
+                ProcessingMode::Cleanup,
+                ProcessingMode::Rewrite,
+                ProcessingMode::Agent,
+                ProcessingMode::PromptEnhance,
+            ]
+        );
+    }
+
+    #[test]
+    fn next_mode_in_cycle_wraps_around() {
+        assert_eq!(
+            next_mode_in_cycle(ProcessingMode::Auto),
+            ProcessingMode::Verbatim
+        );
+        assert_eq!(
+            next_mode_in_cycle(ProcessingMode::Verbatim),
+            ProcessingMode::Cleanup
+        );
+        assert_eq!(
+            next_mode_in_cycle(ProcessingMode::Cleanup),
+            ProcessingMode::Rewrite
+        );
+        assert_eq!(
+            next_mode_in_cycle(ProcessingMode::Rewrite),
+            ProcessingMode::Agent
+        );
+        assert_eq!(
+            next_mode_in_cycle(ProcessingMode::Agent),
+            ProcessingMode::PromptEnhance
+        );
+        // Last entry wraps back to Auto.
+        assert_eq!(
+            next_mode_in_cycle(ProcessingMode::PromptEnhance),
+            ProcessingMode::Auto
+        );
     }
 }

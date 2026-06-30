@@ -118,13 +118,12 @@ describe("ModesTab", () => {
     render(<ModesTab config={createAppConfig()} onChange={onChange} />);
 
     expect(screen.getByText("Hotkeys")).toBeInTheDocument();
-    expect(screen.getByText("Mode picker")).toBeInTheDocument();
-    expect(screen.getByText("Cycle mode")).toBeInTheDocument();
+    expect(screen.getByText("Mode select")).toBeInTheDocument();
     const hotkeyRecorderLabels = screen.getAllByText(/^(Auto|Verbatim|Cleanup|Rewrite|Agent|Prompt Enhance)$/);
     expect(hotkeyRecorderLabels.length).toBeGreaterThanOrEqual(6);
   });
 
-  it("fires onChange for mode picker hotkey", () => {
+  it("fires onChange for mode select hotkey", () => {
     render(<ModesTab config={createAppConfig()} onChange={onChange} />);
 
     const recorders = screen.getAllByRole("button", { name: /click to record/i });

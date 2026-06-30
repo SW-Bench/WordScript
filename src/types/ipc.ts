@@ -206,9 +206,9 @@ export interface AppConfig {
   audio_device:            string;
   max_recording_seconds:        number;
   silence_timeout_seconds:      number;
-  result_actions_timeout_ms:    number;
-  auto_paste:                   boolean;
-  play_sounds:             boolean;
+  result_actions_timeout_s:       number;
+  mode_select_timeout_s:          number;
+  play_sounds:                    boolean;
   log_level:               string;
   temp_audio_dir:          string;
   history_limit:           number;
@@ -221,7 +221,6 @@ export interface AppConfig {
   enhance_target?:          PromptTarget;
   auto_detect_mode?:        boolean;
   mode_picker_hotkey?:      string;
-  mode_cycle_hotkey?:       string;
   mode_auto_hotkey?:        string;
   mode_verbatim_hotkey?:    string;
   mode_cleanup_hotkey?:     string;

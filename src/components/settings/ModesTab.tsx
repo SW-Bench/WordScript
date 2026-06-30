@@ -1,7 +1,7 @@
 import { memo, useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HotkeyRecorder } from "./HotkeyRecorder";
-import { FormCard, FormRow, Select, StatusBadge, Toggle } from "../shell";
+import { FormCard, FormRow, Select, StatusBadge, Stepper, Toggle } from "../shell";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { cn } from "../../lib/utils";
@@ -96,7 +96,6 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
   const selectedTarget: PromptTarget = activeWorkMode?.target ?? "general";
   const autoDetectEnabled = modes.auto_detect_mode;
   const modePickerHotkey = config.mode_picker_hotkey ?? "";
-  const cycleModeHotkey = config.mode_cycle_hotkey ?? "";
   const cleanupEnabled = modes.post_process;
 
   const [resolved, setResolved] = useState<ResolvedProcessingContext | null>(null);
@@ -157,10 +156,6 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
 
   const handleModePickerHotkey = useCallback((value: string) => {
     onChange({ mode_picker_hotkey: value });
-  }, [onChange]);
-
-  const handleCycleModeHotkey = useCallback((value: string) => {
-    onChange({ mode_cycle_hotkey: value });
   }, [onChange]);
 
   const handlePerModeHotkey = useCallback((mode: ProcessingMode, value: string) => {
@@ -344,21 +339,17 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
 
       <FormCard
         title="Hotkeys"
-        description={
-          <>
-            Global hotkeys for quick mode switching. The picker opens the overlay selector; cycle rotates recent modes; per-mode keys jump directly.{" "}
-            <span className="text-fg-muted">Trigger hotkeys (start, stop, pause, abort) live in Capture.</span>
-          </>
-        }
-      >
-        <FormRow
-          label="Mode picker"
-          control={<HotkeyRecorder value={modePickerHotkey} onChange={handleModePickerHotkey} />}
-        />
-        <FormRow
-          label="Cycle mode"
-          control={<HotkeyRecorder value={cycleModeHotkey} onChange={handleCycleModeHotkey} />}
-        />
+          description={
+            <>
+              Global hotkeys for quick mode switching. The select key opens the overlay selector (press again to cycle through modes); per-mode keys jump directly.{" "}
+              <span className="text-fg-muted">Trigger hotkeys (start, stop, pause, abort) live in Capture.</span>
+            </>
+          }
+        >
+          <FormRow
+            label="Mode select"
+            control={<HotkeyRecorder value={modePickerHotkey} onChange={handleModePickerHotkey} />}
+          />
         {(Object.keys(MODE_LABELS) as ProcessingMode[]).map((mode, index, arr) => (
           <FormRow
             key={mode}
@@ -372,6 +363,28 @@ export const ModesTab = memo(function ModesTab({ config, onChange }: Props) {
             }
           />
         ))}
+      </FormCard>
+
+      <FormCard
+        title="Mode-select overlay"
+        description="How long the mode-select overlay stays visible after the first hotkey press before auto-dismissing. Press the hotkey again to cycle through modes while it is open."
+      >
+        <FormRow
+          label="Mode-select timeout"
+          hint="How long the mode-select overlay stays visible in seconds (1–30) after the first hotkey press before auto-dismissing. Press the hotkey again to cycle through modes."
+          divider={false}
+          control={
+            <Stepper
+              value={config.mode_select_timeout_s}
+              min={1}
+              max={30}
+              step={1}
+              suffix="s"
+              onChange={(value) => onChange({ mode_select_timeout_s: value })}
+              aria-label="Mode-select timeout"
+            />
+          }
+        />
       </FormCard>
     </div>
   );

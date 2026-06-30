@@ -163,11 +163,6 @@ impl NativeInsertionConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ConfigureNativeInsertionRequest {
-    pub auto_paste: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct NativeInsertRequest {
     pub text: String,
     pub source: Option<String>,
@@ -504,19 +499,6 @@ pub fn native_insertion_status(
 ) -> Result<NativeInsertionStatus, String> {
     let mut state = state.lock().map_err(|error| error.to_string())?;
     Ok(state.status())
-}
-
-#[tauri::command]
-pub fn configure_native_insertion(
-    request: ConfigureNativeInsertionRequest,
-    state: State<'_, Mutex<NativeInsertionState>>,
-) -> Result<NativeInsertionStatus, String> {
-    let mut state = state.lock().map_err(|error| error.to_string())?;
-    Ok(state.configure(NativeInsertionConfig {
-        auto_paste: request.auto_paste,
-        paste_delay_ms: NativeInsertionConfig::default().paste_delay_ms,
-        xdotool_type_max_chars: NativeInsertionConfig::default().xdotool_type_max_chars,
-    }))
 }
 
 #[tauri::command]

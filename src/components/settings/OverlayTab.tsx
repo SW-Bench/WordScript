@@ -25,29 +25,6 @@ const OVERLAY_ANCHORS: Array<{ value: OverlayAnchor; label: string }> = [
   { value: "bottom_right", label: "Bottom right" },
 ];
 
-function formatDurationCompact(seconds: number) {
-  const normalized = Math.max(0, Math.round(seconds));
-
-  if (normalized < 60) {
-    return `${normalized}s`;
-  }
-
-  const hours = Math.floor(normalized / 3600);
-  const minutes = Math.floor((normalized % 3600) / 60);
-  const remainingSeconds = normalized % 60;
-
-  if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-
-  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
-}
-
-function clampOverlayTimeout(value: number) {
-  if (!Number.isFinite(value)) return 9000;
-  return Math.min(60000, Math.max(1000, Math.round(value)));
-}
-
 export function OverlayTab({ config, onChange }: Props) {
   const [overlayMonitors, setOverlayMonitors] = useState<OverlayMonitorOption[]>([]);
   const [overlayError, setOverlayError] = useState<string | null>(null);
@@ -82,8 +59,6 @@ export function OverlayTab({ config, onChange }: Props) {
     : config.overlay_manual_x !== 0 || config.overlay_manual_y !== 0
       ? `Current remembered position: ${config.overlay_manual_x}, ${config.overlay_manual_y}.`
       : "No remembered position yet. The first drag sets it.";
-  const resultActionsTimeoutMs = clampOverlayTimeout(config.result_actions_timeout_ms);
-
   return (
     <div className="flex flex-col gap-8">
       <FormCard
@@ -164,16 +139,16 @@ export function OverlayTab({ config, onChange }: Props) {
       >
         <FormRow
           label="Result overlay timeout"
-          hint="Shorter timeouts keep the overlay transient; longer timeouts give you time to edit before it disappears."
+          hint="How long the result overlay stays visible in seconds (1–60) before auto-dismissing. Editing the transcript pauses the timer."
           divider={false}
           control={
             <Stepper
-              value={config.result_actions_timeout_ms}
-              min={1000}
-              max={60000}
-              step={500}
-              suffix={formatDurationCompact(Math.round(resultActionsTimeoutMs / 1000))}
-              onChange={(value) => onChange({ result_actions_timeout_ms: value })}
+              value={config.result_actions_timeout_s}
+              min={1}
+              max={60}
+              step={1}
+              suffix="s"
+              onChange={(value) => onChange({ result_actions_timeout_s: value })}
               aria-label="Result overlay timeout"
             />
           }

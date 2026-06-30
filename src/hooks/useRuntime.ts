@@ -151,9 +151,6 @@ export function useRuntime() {
         activation_mode: config.activation_mode,
       },
     }).catch((error) => console.error("configure_native_trigger failed:", error));
-    invoke("configure_native_insertion", {
-      request: { auto_paste: config.auto_paste },
-    }).catch((error) => console.error("configure_native_insertion failed:", error));
     configureNativeCapture(config);
   }, [configureNativeCapture]);
 

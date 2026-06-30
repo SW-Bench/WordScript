@@ -149,9 +149,14 @@ export default function SettingsWindow() {
 
       // Check whether this patch touches native-runtime fields that need
       // immediate reconfiguration beyond just persisting the config.
-      const touchesHotkeys = "hotkey" in partial || "pause_hotkey" in partial || "abort_hotkey" in partial || "activation_mode" in partial;
+      const touchesCaptureHotkeys = "hotkey" in partial || "pause_hotkey" in partial || "abort_hotkey" in partial || "activation_mode" in partial;
+      const touchesModeHotkeys =
+        "mode_picker_hotkey" in partial ||
+        "mode_auto_hotkey" in partial || "mode_verbatim_hotkey" in partial ||
+        "mode_cleanup_hotkey" in partial || "mode_rewrite_hotkey" in partial ||
+        "mode_agent_hotkey" in partial || "mode_prompt_enhance_hotkey" in partial;
+      const touchesHotkeys = touchesCaptureHotkeys || touchesModeHotkeys;
       const touchesCapture = "audio_device" in partial || "max_recording_seconds" in partial || "silence_timeout_seconds" in partial;
-      const touchesInsertion = "auto_paste" in partial;
 
       void saveConfig(next)
         .then(async (saved) => {
@@ -175,11 +180,6 @@ export default function SettingsWindow() {
               setStatus({ msg: `✗  Hotkey registration failed: ${e}`, ok: false });
             }
           }
-          if (touchesInsertion) {
-            try {
-              await invoke("configure_native_insertion", { request: { auto_paste: saved.auto_paste } });
-            } catch { /* non-fatal */ }
-          }
           if (touchesCapture) {
             try {
               await invoke("configure_native_capture", {
@@ -192,8 +192,12 @@ export default function SettingsWindow() {
             } catch { /* non-fatal */ }
           }
         })
-        .catch((e) => {
-          setStatus({ msg: `✗  Save failed: ${e}`, ok: false });
+        .catch((e: unknown) => {
+          // Revert the form to the previous state so the invalid hotkey does
+          // not linger in the UI, then surface the collision/validation error.
+          setForm(prev);
+          const message = typeof e === "string" ? e : (e instanceof Error ? e.message : String(e));
+          setStatus({ msg: `✗  ${message}`, ok: false });
         });
 
       return next;

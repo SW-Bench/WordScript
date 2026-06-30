@@ -16,7 +16,7 @@ pub const DEFAULT_AGENT_MODEL: &str = "llama-3.3-70b-versatile";
 pub const DEFAULT_LOCAL_AGENT_MODEL: &str = "llama3.2:latest";
 pub const DEFAULT_AGENT_NAME: &str = "WordScript";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProcessingMode {
     #[default]
@@ -246,16 +246,18 @@ impl TextProfileWorkMode {
         }
     }
 
-    pub(crate) fn effective_insert_behavior(&self, fallback_auto_paste: bool) -> String {
+    pub(crate) fn effective_insert_behavior(&self) -> String {
         match self.normalized().insert_behavior.as_str() {
             "clipboard_only" => "clipboard_only".to_string(),
-            _ if fallback_auto_paste => "auto_paste".to_string(),
-            _ => "clipboard_only".to_string(),
+            "auto_paste" => "auto_paste".to_string(),
+            // Unrecognized value (corrupt config) — default to auto_paste,
+            // matching the profile default.
+            _ => "auto_paste".to_string(),
         }
     }
 
-    pub(crate) fn effective_auto_paste(&self, fallback_auto_paste: bool) -> bool {
-        self.effective_insert_behavior(fallback_auto_paste) == "auto_paste"
+    pub(crate) fn effective_auto_paste(&self) -> bool {
+        self.effective_insert_behavior() == "auto_paste"
     }
 
     pub(crate) fn effective_recovery_behavior(&self) -> String {
@@ -468,7 +470,22 @@ pub struct AppConfig {
     pub audio_device: String,
     pub max_recording_seconds: u64,
     pub silence_timeout_seconds: u64,
+    #[serde(default = "default_result_actions_timeout_s")]
+    pub result_actions_timeout_s: u64,
+    #[serde(default = "default_mode_select_timeout_s")]
+    pub mode_select_timeout_s: u64,
+    // Legacy millisecond fields. Pre-seconds configs stored these; we migrate
+    // them into the new `_s` fields in `normalize_for_runtime` and never write
+    // them again. `#[serde(default)]` = 0 so we can detect "absent in file".
+    #[serde(default, skip_serializing)]
     pub result_actions_timeout_ms: u64,
+    #[serde(default, skip_serializing)]
+    pub mode_select_timeout_ms: u64,
+    // Legacy global auto_paste. The real per-profile control is
+    // `TextProfileWorkMode.insert_behavior`. This shadow field exists only for
+    // migration (old configs that set `auto_paste: false` are migrated into
+    // `insert_behavior: "clipboard_only"` in `normalize_for_runtime`).
+    #[serde(default = "default_legacy_auto_paste", skip_serializing)]
     pub auto_paste: bool,
     pub play_sounds: bool,
     pub log_level: String,
@@ -490,8 +507,6 @@ pub struct AppConfig {
     pub profile_health_acknowledged_flags: HashMap<String, HashSet<String>>,
     #[serde(default = "default_mode_picker_hotkey")]
     pub mode_picker_hotkey: String,
-    #[serde(default = "default_mode_cycle_hotkey")]
-    pub mode_cycle_hotkey: String,
     #[serde(default = "default_mode_auto_hotkey")]
     pub mode_auto_hotkey: String,
     #[serde(default = "default_mode_verbatim_hotkey")]
@@ -557,7 +572,10 @@ impl Default for AppConfig {
             audio_device: String::new(),
             max_recording_seconds: 720,
             silence_timeout_seconds: 30,
-            result_actions_timeout_ms: 9000,
+            result_actions_timeout_s: 9,
+            mode_select_timeout_s: 6,
+            result_actions_timeout_ms: 0,
+            mode_select_timeout_ms: 0,
             auto_paste: true,
             play_sounds: true,
             log_level: "INFO".to_string(),
@@ -573,7 +591,6 @@ impl Default for AppConfig {
             auto_detect_mode: true,
             profile_health_acknowledged_flags: HashMap::new(),
             mode_picker_hotkey: default_mode_picker_hotkey(),
-            mode_cycle_hotkey: default_mode_cycle_hotkey(),
             mode_auto_hotkey: default_mode_auto_hotkey(),
             mode_verbatim_hotkey: default_mode_verbatim_hotkey(),
             mode_cleanup_hotkey: default_mode_cleanup_hotkey(),
@@ -605,7 +622,7 @@ impl AppConfig {
         TextProfileWorkMode {
             rewrite_style: work_mode
                 .effective_rewrite_style(self.filter_fillers, self.professionalize),
-            insert_behavior: work_mode.effective_insert_behavior(self.auto_paste),
+            insert_behavior: work_mode.effective_insert_behavior(),
             recovery_behavior: work_mode.effective_recovery_behavior(),
             processing_mode: work_mode.effective_processing_mode(),
             enhance_sub_mode: work_mode.enhance_sub_mode.clone(),
@@ -627,7 +644,7 @@ impl AppConfig {
 
     pub(crate) fn active_text_profile_auto_paste(&self) -> bool {
         self.active_text_profile_work_mode()
-            .effective_auto_paste(self.auto_paste)
+            .effective_auto_paste()
     }
 
     pub fn active_text_profile_label(&self) -> Option<String> {
@@ -756,6 +773,43 @@ impl AppConfig {
             &mut self.local_profile_decode_settings,
             active_local_decode,
         );
+        // Migrate legacy millisecond timeout fields into the new seconds fields.
+        // A non-zero `_ms` value from an old config means the file predated the
+        // rename; we convert it to seconds (rounded) and clear the legacy field.
+        if self.result_actions_timeout_ms > 0 && self.result_actions_timeout_s == default_result_actions_timeout_s() {
+            self.result_actions_timeout_s = (self.result_actions_timeout_ms + 500) / 1000;
+        }
+        if self.mode_select_timeout_ms > 0 && self.mode_select_timeout_s == default_mode_select_timeout_s() {
+            self.mode_select_timeout_s = (self.mode_select_timeout_ms + 500) / 1000;
+        }
+        // Clamp all timeout fields to technically realistic ranges.
+        // Max recording: 1–30 minutes (60–1800s). Groq free tier caps at
+        // ~25 MiB ≈ 13 min; dev tier at ~100 MiB ≈ 53 min. Local preview has
+        // no hard limit but RAM-bound. 30 min is the practical ceiling.
+        self.max_recording_seconds = self.max_recording_seconds.clamp(60, 1800);
+        // Silence timeout: 0 (disabled) – 60s. Longer than 60s of silence is
+        // not a recording anymore.
+        self.silence_timeout_seconds = self.silence_timeout_seconds.clamp(0, 60);
+        // Result overlay: 1–60s. Five-minute result overlays are impractical.
+        self.result_actions_timeout_s = self.result_actions_timeout_s.clamp(1, 60);
+        // Mode-select overlay: 1–30s. Two minutes is too long for a picker.
+        self.mode_select_timeout_s = self.mode_select_timeout_s.clamp(1, 30);
+        self.result_actions_timeout_ms = 0;
+        self.mode_select_timeout_ms = 0;
+        // Migrate legacy global `auto_paste: false` into per-profile
+        // `insert_behavior: "clipboard_only"`. Only affects profiles whose
+        // `insert_behavior` is not already explicitly `"clipboard_only"` (i.e.
+        // profiles still on the old default `"auto_paste"` whose user clearly
+        // wanted clipboard-only globally).
+        if !self.auto_paste {
+            for profile in &mut self.text_profiles {
+                let behavior = profile.work_mode.normalized().insert_behavior;
+                if behavior != "clipboard_only" {
+                    profile.work_mode.insert_behavior = "clipboard_only".to_string();
+                }
+            }
+        }
+        self.auto_paste = false;
         self.hotkey = normalize_shortcut_value(&self.hotkey, default_hotkey(), true);
         self.pause_hotkey =
             normalize_shortcut_value(&self.pause_hotkey, default_pause_hotkey(), true);
@@ -764,11 +818,6 @@ impl AppConfig {
         self.mode_picker_hotkey = normalize_shortcut_value(
             &self.mode_picker_hotkey,
             &default_mode_picker_hotkey(),
-            true,
-        );
-        self.mode_cycle_hotkey = normalize_shortcut_value(
-            &self.mode_cycle_hotkey,
-            &default_mode_cycle_hotkey(),
             true,
         );
         self.mode_auto_hotkey = normalize_shortcut_value(
@@ -980,8 +1029,59 @@ pub fn load_app_config() -> Result<AppConfig, String> {
     Ok(AppConfig::load_from_disk().without_secrets())
 }
 
+/// Validates that no two hotkeys (capture triggers + mode hotkeys) collide.
+/// Returns `Err` with a concrete, user-readable message naming both
+/// conflicting assignments when a collision is detected. Empty hotkey strings
+/// (disabled) are skipped.
+///
+/// Normalizes each raw value via the trigger shortcut normalizer so that
+/// `ctrl_l+alt_l+m` and `Ctrl+Alt+M` are treated as identical.
+pub fn validate_hotkey_collisions(config: &AppConfig) -> Result<(), String> {
+    // (label, raw_value) for every hotkey field. Order matters only for the
+    // error message (the first-registered label is reported as "already in use").
+    let entries: [(&str, &str); 10] = [
+        ("Capture trigger", &config.hotkey),
+        ("Pause capture", &config.pause_hotkey),
+        ("Abort capture", &config.abort_hotkey),
+        ("Mode select", &config.mode_picker_hotkey),
+        ("Mode auto", &config.mode_auto_hotkey),
+        ("Mode verbatim", &config.mode_verbatim_hotkey),
+        ("Mode cleanup", &config.mode_cleanup_hotkey),
+        ("Mode rewrite", &config.mode_rewrite_hotkey),
+        ("Mode agent", &config.mode_agent_hotkey),
+        ("Mode prompt enhance", &config.mode_prompt_enhance_hotkey),
+    ];
+
+    // Normalize each non-empty entry. A normalization failure (malformed
+    // shortcut) is surfaced as a validation error too.
+    let mut seen: Vec<(&str, String)> = Vec::new();
+    for (label, raw) in entries {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let normalized = super::trigger::normalize_shortcut(trimmed, true)
+            .map_err(|error| format!("{}: invalid shortcut '{}': {}", label, trimmed, error))?;
+
+        if let Some((existing_label, existing_display)) = seen
+            .iter()
+            .find(|(_, display)| display == &normalized)
+        {
+            return Err(format!(
+                "{} hotkey '{}' conflicts with {} (already assigned to '{}'). \
+                 Each hotkey must be unique across capture triggers and mode hotkeys.",
+                label, normalized, existing_label, existing_display
+            ));
+        }
+        seen.push((label, normalized));
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub fn save_config<R: Runtime>(app: AppHandle<R>, config: AppConfig) -> Result<AppConfig, String> {
+    validate_hotkey_collisions(&config)?;
     AppConfig::reconcile_legacy_secret_before_save()?;
     let mut sanitized = config.without_secrets();
     sanitized.normalize_for_runtime();
@@ -1088,6 +1188,18 @@ fn default_overlay_monitor() -> &'static str {
     "primary"
 }
 
+fn default_result_actions_timeout_s() -> u64 {
+    9
+}
+
+fn default_mode_select_timeout_s() -> u64 {
+    6
+}
+
+fn default_legacy_auto_paste() -> bool {
+    true
+}
+
 fn default_mode_picker_hotkey() -> String {
     if cfg!(target_os = "macos") {
         "cmd+alt_l+m".to_string()
@@ -1095,16 +1207,6 @@ fn default_mode_picker_hotkey() -> String {
         "ctrl_l+alt_l+m".to_string()
     } else {
         "ctrl_l+f11".to_string()
-    }
-}
-
-fn default_mode_cycle_hotkey() -> String {
-    if cfg!(target_os = "macos") {
-        "cmd+alt_l+shift_l+m".to_string()
-    } else if cfg!(target_os = "windows") {
-        "ctrl_l+alt_l+shift_l+m".to_string()
-    } else {
-        "ctrl_l+shift_l+f11".to_string()
     }
 }
 
@@ -2456,5 +2558,88 @@ mod tests {
         // field are loaded with the default (empty).
         let config = AppConfig::default();
         assert!(config.profile_health_acknowledged_flags.is_empty());
+    }
+
+    // --- Hotkey collision validation ---
+
+    fn collision_test_config() -> AppConfig {
+        // All distinct, non-empty hotkeys → no collisions.
+        let mut config = AppConfig::default();
+        config.hotkey = "ctrl_l+f9".to_string();
+        config.pause_hotkey = "ctrl_l+f10".to_string();
+        config.abort_hotkey = "ctrl_l+alt_l+escape".to_string();
+        config.mode_picker_hotkey = "ctrl_l+alt_l+m".to_string();
+        config.mode_auto_hotkey = "ctrl_l+f6".to_string();
+        config.mode_verbatim_hotkey = "ctrl_l+f1".to_string();
+        config.mode_cleanup_hotkey = "ctrl_l+f2".to_string();
+        config.mode_rewrite_hotkey = "ctrl_l+f3".to_string();
+        config.mode_agent_hotkey = "ctrl_l+f4".to_string();
+        config.mode_prompt_enhance_hotkey = "ctrl_l+f5".to_string();
+        config
+    }
+
+    #[test]
+    fn validate_hotkey_collisions_passes_when_all_distinct() {
+        let config = collision_test_config();
+        assert!(validate_hotkey_collisions(&config).is_ok());
+    }
+
+    #[test]
+    fn validate_hotkey_collisions_passes_when_all_empty_mode_hotkeys() {
+        let mut config = collision_test_config();
+        config.mode_picker_hotkey = String::new();
+        config.mode_auto_hotkey = String::new();
+        config.mode_verbatim_hotkey = String::new();
+        config.mode_cleanup_hotkey = String::new();
+        config.mode_rewrite_hotkey = String::new();
+        config.mode_agent_hotkey = String::new();
+        config.mode_prompt_enhance_hotkey = String::new();
+        assert!(validate_hotkey_collisions(&config).is_ok());
+    }
+
+    #[test]
+    fn validate_hotkey_collisions_detects_mode_vs_capture() {
+        let mut config = collision_test_config();
+        // Mode-select collides with the capture trigger.
+        config.mode_picker_hotkey = config.hotkey.clone();
+        let error = validate_hotkey_collisions(&config).unwrap_err();
+        assert!(
+            error.contains("Mode select"),
+            "error should name the mode-select label: {error}"
+        );
+        assert!(
+            error.contains("Capture trigger"),
+            "error should name the capture trigger label: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_hotkey_collisions_detects_mode_vs_mode() {
+        let mut config = collision_test_config();
+        // Mode-select collides with mode-agent.
+        config.mode_picker_hotkey = config.mode_agent_hotkey.clone();
+        let error = validate_hotkey_collisions(&config).unwrap_err();
+        assert!(
+            error.contains("Mode select"),
+            "error should name the mode-select label: {error}"
+        );
+        assert!(
+            error.contains("Mode agent"),
+            "error should name the mode-agent label: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_hotkey_collisions_normalizes_equivalent_forms() {
+        let mut config = collision_test_config();
+        // Raw `ctrl_l+alt_l+m` and canonical `Ctrl+Alt+M` must be treated as
+        // the same shortcut.
+        config.mode_auto_hotkey = "ctrl_l+alt_l+m".to_string();
+        config.mode_verbatim_hotkey = "Ctrl+Alt+M".to_string();
+        let error = validate_hotkey_collisions(&config).unwrap_err();
+        assert!(
+            error.contains("conflicts"),
+            "equivalent normalized forms should collide: {error}"
+        );
     }
 }
